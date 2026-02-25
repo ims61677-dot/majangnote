@@ -1,9 +1,10 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 export default function LoginPage() {
+  const supabase = createSupabaseBrowserClient()
   const router = useRouter()
   const [nm, setNm] = useState('')
   const [pin, setPin] = useState('')
@@ -21,7 +22,6 @@ export default function LoginPage() {
     if (!user) { setError('등록되지 않은 이름입니다'); setLoading(false); return }
     if (user.pin !== pin) { setError('PIN이 틀렸습니다'); setLoading(false); return }
 
-    // 로그인 성공 - 유저 저장 후 매장 선택으로 이동
     localStorage.setItem('mj_user', JSON.stringify(user))
     router.push('/select-store')
     setLoading(false)
@@ -38,7 +38,6 @@ export default function LoginPage() {
       minHeight: '100vh', background: '#F4F6F9' }}>
       <div style={{ width: '100%', maxWidth: 360, padding: '0 24px' }}>
 
-        {/* 로고 */}
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           <div style={{ width: 68, height: 68, borderRadius: 20, margin: '0 auto',
             background: 'linear-gradient(135deg,#FF6B35,#E84393)',
@@ -49,7 +48,6 @@ export default function LoginPage() {
           <div style={{ fontSize: 13, color: '#aaa', marginTop: 4 }}>매장 운영의 모든 것</div>
         </div>
 
-        {/* 카드 */}
         <div style={{ background: '#fff', borderRadius: 20, padding: 28,
           border: '1px solid #E8ECF0', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
 
