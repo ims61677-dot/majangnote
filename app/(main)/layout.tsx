@@ -30,15 +30,16 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     setStores(data || [])
   }
 
-  function switchStore(member: any) {
+function switchStore(member: any) {
     const updatedUser = { ...user, role: member.role }
     localStorage.setItem('mj_user', JSON.stringify(updatedUser))
     localStorage.setItem('mj_store', JSON.stringify(member.stores))
     setUser(updatedUser)
     setStore(member.stores)
     setShowDropdown(false)
-    router.push('/dash')
+    window.location.href = '/dash'
   }
+  const isOwner = user?.role === 'owner'
 
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh',
@@ -65,7 +66,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
 
-          {/* 드롭다운 */}
           {showDropdown && (
             <>
               <div onClick={() => setShowDropdown(false)}
@@ -100,14 +100,17 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                     </div>
                   )
                 })}
-                <div style={{ padding: '8px 14px', borderTop: '1px solid #F4F6F9' }}>
-                  <button onClick={() => { setShowDropdown(false); router.push('/select-store') }}
-                    style={{ width: '100%', padding: '8px 0', borderRadius: 8,
-                      background: 'rgba(255,107,53,0.06)', border: '1px dashed rgba(255,107,53,0.3)',
-                      color: '#FF6B35', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                    + 새 매장 추가
-                  </button>
-                </div>
+
+                {isOwner && (
+                  <div style={{ padding: '8px 14px', borderTop: '1px solid #F4F6F9' }}>
+                    <button onClick={() => { setShowDropdown(false); router.push('/select-store') }}
+                      style={{ width: '100%', padding: '8px 0', borderRadius: 8,
+                        background: 'rgba(255,107,53,0.06)', border: '1px dashed rgba(255,107,53,0.3)',
+                        color: '#FF6B35', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      + 새 매장 추가
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}
