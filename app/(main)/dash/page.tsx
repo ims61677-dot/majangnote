@@ -1,75 +1,122 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useEffect, useState, useMemo } from 'react'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
+
+const bx = {
+  background: '#ffffff',
+  borderRadius: 16,
+  border: '1px solid #E8ECF0',
+  padding: 16,
+  marginBottom: 12,
+  boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+}
+
+function fmtS(n: number) { return n >= 10000 ? (n / 10000).toFixed(0) + '만' : '' + n }
+function fmtW(n: number) { return n.toLocaleString('ko-KR') + '원' }
 
 export default function DashPage() {
+  const supabase = createSupabaseBrowserClient()
+  const now = new Date()
+  const [yr, setYr] = useState(now.getFullYear())
+  const [mo, setMo] = useState(now.getMonth() + 1)
   const [closings, setClosings] = useState<any[]>([])
-  const [store, setStore] = useState<any>(null)
-  const [month, setMonth] = useState(new Date())
+  const [channels, setChannels] = useState<any[]>([])
+  const [storeId, setStoreId] = useState('')
 
   useEffect(() => {
-    const s = localStorage.getItem('mj_store')
-    if (s) {
-      const st = JSON.parse(s)
-      setStore(st)
-      loadData(st.id, month)
+    const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
+    if (!store.id) return
+    setStoreId(store.id)
+    loadData(store.id)
+  }, [yr, mo])
+
+  async function loadData(sid: string) {
+    const from = `${yr}-${String(mo).padStart(2,'0')}-01`
+    const to = `${yr}-${String(mo).padStart(2,'0')}-${String(new Date(yr,mo,0).getDate()).padStart(2,'0')}`
+    const { data: cl } = await supabase.from('closings')
+      .select('*').eq('store_id', sid).gte('date', from).lte('date', to)
+    setClosings(cl || [])
+    const { data: ch } = await supabase.from('sales_channels')
+      .select('*').eq('store_id', sid).order('sort_order')
+    setChannels(ch || [])
+  }
+
+  const sales = useMemo(() => {
+    return closings.map(cl => {
+      const cd: Record<string,number> = cl.channel_data || {}
+      let t = 0
+      channels.forEach((ch: any) => { t += cd[ch.key] || 0 })
+      return { d: parseInt(cl.date.split('-')[2]), t }
+    }).filter(x => x.t > 0)
+  }, [closings, channels])
+
+  const stats = useMemo(() => {
+    if (!sales.length) return null
+    const tot = sales.reduce((a, x) => a + x.t, 0)
+    return {
+      tot,
+      avg: Math.round(tot / sales.length),
+      days: sales.length,
+      mx: sales.reduce((a, b) => a.t > b.t ? a : b),
     }
-  }, [])
-
-  async function loadData(storeId: string, m: Date) {
-    const yr = m.getFullYear()
-    const mo = String(m.getMonth()+1).padStart(2,'0')
-    const from = yr+'-'+mo+'-01'
-    const lastDay = new Date(yr, m.getMonth()+1, 0).getDate()
-    const to = yr+'-'+mo+'-'+String(lastDay).padStart(2,'0')
-    const { data } = await supabase.from('closings')
-      .select('*').eq('store_id', storeId)
-      .gte('date', from).lte('date', to).order('date')
-    if (data) setClosings(data)
-  }
-
-  function getDayTotal(c: any): number {
-  return Object.values(c.channel_data||{}).reduce((a: number, b) => a + Number(b), 0)
-  }
-
-  const total = closings.reduce((s, c) => s + getDayTotal(c), 0)
-  const avg = closings.length ? Math.round(total / closings.length) : 0
-  const maxDay = closings.length ? Math.max(...closings.map(c => getDayTotal(c))) : 0
-
-  function prevMonth() { const m = new Date(month); m.setMonth(m.getMonth()-1); setMonth(m); if(store) loadData(store.id, m) }
-  function nextMonth() { const m = new Date(month); m.setMonth(m.getMonth()+1); setMonth(m); if(store) loadData(store.id, m) }
+  }, [sales])
 
   return (
     <div>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
-        <button onClick={prevMonth} style={{background:'none',border:'none',color:'white',fontSize:20,cursor:'pointer'}}>‹</button>
-        <h2 style={{margin:0}}>{month.getFullYear()}년 {month.getMonth()+1}월</h2>
-        <button onClick={nextMonth} style={{background:'none',border:'none',color:'white',fontSize:20,cursor:'pointer'}}>›</button>
+      {/* 월 선택 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <button onClick={() => { if (mo===1){setYr(yr-1);setMo(12)}else setMo(mo-1) }}
+          style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', color: '#555', fontSize: 14 }}>←</button>
+        <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>{yr}년 {mo}월</span>
+        <button onClick={() => { if (mo===12){setYr(yr+1);setMo(1)}else setMo(mo+1) }}
+          style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', color: '#555', fontSize: 14 }}>→</button>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20}}>
-        {[
-          {label:'총 매출', value: total.toLocaleString()+'원'},
-          {label:'일 평균', value: avg.toLocaleString()+'원'},
-          {label:'영업일', value: closings.length+'일'},
-          {label:'최고 매출', value: maxDay.toLocaleString()+'원'},
-        ].map(item => (
-          <div key={item.label} style={{background:'rgba(255,255,255,0.05)',borderRadius:12,padding:16}}>
-            <div style={{color:'rgba(255,255,255,0.5)',fontSize:12,marginBottom:4}}>{item.label}</div>
-            <div style={{fontWeight:'bold',fontSize:16}}>{item.value}</div>
+
+      {/* 통계 카드 4개 */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+        <div style={{ ...bx, marginBottom: 0 }}>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>총 매출</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#FF6B35' }}>
+            {stats ? fmtW(stats.tot) : '0원'}
           </div>
-        ))}
+        </div>
+        <div style={{ ...bx, marginBottom: 0 }}>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>일 평균</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#1a1a2e' }}>
+            {stats ? fmtW(stats.avg) : '0원'}
+          </div>
+        </div>
+        <div style={{ ...bx, marginBottom: 0 }}>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>영업일</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#1a1a2e' }}>
+            {stats ? stats.days + '일' : '0일'}
+          </div>
+        </div>
+        <div style={{ ...bx, marginBottom: 0 }}>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>최고 매출</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#1a1a2e' }}>
+            {stats ? fmtW(stats.mx.t) : '0원'}
+          </div>
+        </div>
       </div>
-      <div style={{background:'rgba(255,255,255,0.05)',borderRadius:12,padding:16}}>
-        <h3 style={{margin:'0 0 12px'}}>마감 일지</h3>
-        {closings.length === 0 ? <p style={{color:'rgba(255,255,255,0.4)',textAlign:'center'}}>이번 달 마감 데이터가 없습니다</p> :
-          closings.map(c => (
-            <div key={c.id} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
-              <span>{c.date}</span>
-              <span style={{color:'#FF6B35',fontWeight:'bold'}}>{getDayTotal(c).toLocaleString()}원</span>
+
+      {/* 마감 일지 목록 */}
+      <div style={bx}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>마감 일지</div>
+        {sales.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '20px 0', color: '#bbb', fontSize: 13 }}>
+            이번 달 마감 데이터가 없습니다
+          </div>
+        ) : (
+          sales.sort((a,b) => b.d - a.d).map(s => (
+            <div key={s.d} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '10px 0', borderBottom: '1px solid #F4F6F9' }}>
+              <span style={{ fontSize: 13, color: '#666' }}>{mo}월 {s.d}일</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#FF6B35' }}>{fmtW(s.t)}</span>
             </div>
           ))
-        }
+        )}
       </div>
     </div>
-)
+  )
 }
