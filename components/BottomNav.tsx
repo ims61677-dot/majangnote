@@ -1,7 +1,6 @@
 'use client'
 import Link from 'next/link'
 import { useState } from 'react'
-import { usePathname } from 'next/navigation'
 
 const TABS = [
   { href: '/dash',     ic: '📊', l: '대시' },
@@ -28,23 +27,28 @@ export default function BottomNav({ current }: { current: string }) {
 
   return (
     <>
-      {/* 더보기 오버레이 */}
       {showMore && (
         <div
           onClick={() => setShowMore(false)}
           style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-            backdropFilter: 'blur(4px)', zIndex: 99,
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.3)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 99,
           }}
         />
       )}
 
-      {/* 더보기 패널 */}
       {showMore && (
         <div style={{
-          position: 'fixed', bottom: 68, left: 16, right: 16,
-          background: 'rgba(18,18,28,0.98)', border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 20, padding: 16, zIndex: 100,
+          position: 'fixed', bottom: 72, left: '50%',
+          transform: 'translateX(-50%)',
+          width: 'calc(100% - 32px)', maxWidth: 448,
+          background: '#ffffff',
+          border: '1px solid #E8ECF0',
+          borderRadius: 20,
+          padding: 16, zIndex: 100,
+          boxShadow: '0 -4px 24px rgba(0,0,0,0.12)',
           display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8,
         }}>
           {MORE_ITEMS.map(item => (
@@ -56,19 +60,15 @@ export default function BottomNav({ current }: { current: string }) {
             >
               <div style={{
                 textAlign: 'center', padding: '14px 8px', borderRadius: 14,
-                background: current.startsWith(item.href)
-                  ? 'rgba(255,107,53,0.15)'
-                  : 'rgba(255,255,255,0.03)',
-                border: current.startsWith(item.href)
-                  ? '1px solid rgba(255,107,53,0.3)'
-                  : '1px solid rgba(255,255,255,0.05)',
+                background: current.startsWith(item.href) ? '#FFF0EB' : '#F8F9FB',
+                border: `1px solid ${current.startsWith(item.href) ? '#FF6B35' : '#E8ECF0'}`,
                 cursor: 'pointer',
               }}>
                 <div style={{ fontSize: 22 }}>{item.ic}</div>
                 <div style={{
                   fontSize: 10, marginTop: 4,
                   color: current.startsWith(item.href) ? '#FF6B35' : '#888',
-                  fontWeight: current.startsWith(item.href) ? 700 : 400,
+                  fontWeight: current.startsWith(item.href) ? 700 : 500,
                 }}>
                   {item.l}
                 </div>
@@ -78,13 +78,15 @@ export default function BottomNav({ current }: { current: string }) {
         </div>
       )}
 
-      {/* 하단 탭바 */}
       <div style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0,
-        background: 'rgba(10,10,15,0.97)', backdropFilter: 'blur(20px)',
-        borderTop: '1px solid rgba(255,255,255,0.06)',
+        position: 'fixed', bottom: 0, left: '50%',
+        transform: 'translateX(-50%)',
+        width: '100%', maxWidth: 480,
+        background: '#ffffff',
+        borderTop: '1px solid #E8ECF0',
+        boxShadow: '0 -2px 12px rgba(0,0,0,0.06)',
         display: 'flex', justifyContent: 'space-around',
-        padding: '6px 0 16px', zIndex: 101,
+        padding: '8px 0 20px', zIndex: 101,
       }}>
         {TABS.map(t => {
           if (t.href === '/more') {
@@ -93,13 +95,13 @@ export default function BottomNav({ current }: { current: string }) {
               <div
                 key="/more"
                 onClick={() => setShowMore(v => !v)}
-                style={{ textAlign: 'center', padding: '4px 8px', cursor: 'pointer', minWidth: 48 }}
+                style={{ textAlign: 'center', padding: '4px 8px', cursor: 'pointer', minWidth: 52 }}
               >
                 <div style={{ fontSize: 18 }}>{t.ic}</div>
                 <div style={{
-                  fontSize: 9, marginTop: 1,
-                  color: active ? '#FF6B35' : '#444',
-                  fontWeight: active ? 700 : 400,
+                  fontSize: 10, marginTop: 2,
+                  color: active ? '#FF6B35' : '#aaa',
+                  fontWeight: active ? 700 : 500,
                 }}>{t.l}</div>
               </div>
             )
@@ -107,12 +109,12 @@ export default function BottomNav({ current }: { current: string }) {
           const active = current.startsWith(t.href)
           return (
             <Link key={t.href} href={t.href} style={{ textDecoration: 'none' }}>
-              <div style={{ textAlign: 'center', padding: '4px 8px', cursor: 'pointer', minWidth: 48 }}>
+              <div style={{ textAlign: 'center', padding: '4px 8px', cursor: 'pointer', minWidth: 52 }}>
                 <div style={{ fontSize: 18 }}>{t.ic}</div>
                 <div style={{
-                  fontSize: 9, marginTop: 1,
-                  color: active ? '#FF6B35' : '#444',
-                  fontWeight: active ? 700 : 400,
+                  fontSize: 10, marginTop: 2,
+                  color: active ? '#FF6B35' : '#aaa',
+                  fontWeight: active ? 700 : 500,
                 }}>{t.l}</div>
               </div>
             </Link>
