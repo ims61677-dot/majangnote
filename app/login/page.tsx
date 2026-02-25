@@ -16,8 +16,9 @@ export default function LoginPage() {
     if (!pin) { setError('PIN을 입력하세요'); return }
     setLoading(true); setError('')
 
-    const { data: user } = await supabase
-      .from('profiles').select('*').eq('nm', nm.trim()).single()
+    const { data: users } = await supabase
+      .from('profiles').select('*').eq('nm', nm.trim()).limit(1)
+    const user = users?.[0]
 
     if (!user) { setError('등록되지 않은 이름입니다'); setLoading(false); return }
     if (user.pin !== pin) { setError('PIN이 틀렸습니다'); setLoading(false); return }
