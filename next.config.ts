@@ -11,10 +11,3 @@ const nextConfig: NextConfig = {
   },
 };
 export default nextConfig;
-```
-
-저장 후:
-```
-git add next.config.ts
-git commit -m "add redirect to login"
-git push origin master:main
