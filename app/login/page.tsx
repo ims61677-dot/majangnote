@@ -1,58 +1,110 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
   const router = useRouter()
-  const [users, setUsers] = useState<any[]>([])
-  const [selectedId, setSelectedId] = useState('')
+  const [nm, setNm] = useState('')
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    supabase.from('profiles').select('*').order('nm').then(({ data }) => {
-      if (data) setUsers(data)
-    })
-  }, [])
-
   async function handleLogin() {
-    setLoading(true)
-    setError('')
-    const user = users.find(u => u.id === selectedId)
-    if (!user) { setError('직원을 선택하세요'); setLoading(false); return }
+    if (!nm.trim()) { setError('이름을 입력하세요'); return }
+    if (!pin) { setError('PIN을 입력하세요'); return }
+    setLoading(true); setError('')
+
+    const { data: user } = await supabase
+      .from('profiles').select('*').eq('nm', nm.trim()).single()
+
+    if (!user) { setError('등록되지 않은 이름입니다'); setLoading(false); return }
     if (user.pin !== pin) { setError('PIN이 틀렸습니다'); setLoading(false); return }
+
     const { data: member } = await supabase
-      .from('store_members')
-      .select('*, stores(*)')
-      .eq('profile_id', user.id)
-      .eq('active', true)
-      .single()
+      .from('store_members').select('*, stores(*)')
+      .eq('profile_id', user.id).eq('active', true).single()
+
     if (!member) { setError('매장 정보를 찾을 수 없습니다'); setLoading(false); return }
-    localStorage.setItem('mj_user', JSON.stringify({...user, role: member.role}))
+
+    localStorage.setItem('mj_user', JSON.stringify({ ...user, role: member.role }))
     localStorage.setItem('mj_store', JSON.stringify(member.stores))
     router.push('/dash')
     setLoading(false)
   }
 
   return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)'}}>
-      <div style={{background:'rgba(255,255,255,0.05)',borderRadius:16,padding:40,width:300,border:'1px solid rgba(255,255,255,0.1)'}}>
-        <h1 style={{textAlign:'center',marginBottom:32,fontSize:24}}>🏪 매장노트</h1>
-        <select value={selectedId} onChange={e=>setSelectedId(e.target.value)}
-          style={{width:'100%',padding:12,borderRadius:8,border:'1px solid rgba(255,255,255,0.2)',background:'rgba(255,255,255,0.05)',color:'white',marginBottom:16,fontSize:16}}>
-          <option value="">직원 선택</option>
-          {users.map(u => <option key={u.id} value={u.id}>{u.nm} ({u.role})</option>)}
-        </select>
-        <input type="password" placeholder="PIN 4자리" maxLength={4} value={pin} onChange={e=>setPin(e.target.value)}
-          onKeyDown={e=>e.key==='Enter'&&handleLogin()}
-          style={{width:'100%',padding:12,borderRadius:8,border:'1px solid rgba(255,255,255,0.2)',background:'rgba(255,255,255,0.05)',color:'white',marginBottom:16,fontSize:16,boxSizing:'border-box'}} />
-        {error && <p style={{color:'#ff6b6b',textAlign:'center',marginBottom:12}}>{error}</p>}
-        <button onClick={handleLogin} disabled={loading}
-          style={{width:'100%',padding:14,borderRadius:8,background:'#FF6B35',border:'none',color:'white',fontSize:16,cursor:'pointer',fontWeight:'bold'}}>
-          {loading ? '로그인 중...' : '로그인'}
-        </button>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+      minHeight: '100vh', background: '#F4F6F9' }}>
+      <div style={{ width: '100%', maxWidth: 360, padding: '0 24px' }}>
+
+        {/* 로고 */}
+        <div style={{ textAlign: 'center', marginBottom: 36 }}>
+          <div style={{ width: 68, height: 68, borderRadius: 20, margin: '0 auto',
+            background: 'linear-gradient(135deg,#FF6B35,#E84393)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 30, fontWeight: 800, color: '#fff',
+            boxShadow: '0 8px 24px rgba(255,107,53,0.3)' }}>M</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: '#1a1a2e', marginTop: 14 }}>매장노트</div>
+          <div style={{ fontSize: 13, color: '#aaa', marginTop: 4 }}>매장 운영의 모든 것</div>
+        </div>
+
+        {/* 카드 */}
+        <div style={{ background: '#fff', borderRadius: 20, padding: 28,
+          border: '1px solid #E8ECF0', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
+
+          {/* 이름 입력 */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>이름</div>
+            <input
+              value={nm}
+              onChange={e => { setNm(e.target.value); setError('') }}
+              placeholder="이름을 입력하세요"
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 10,
+                border: '1px solid #E0E4E8', background: '#F8F9FB',
+                color: '#1a1a2e', fontSize: 15, outline: 'none',
+                boxSizing: 'border-box' }} />
+          </div>
+
+          {/* PIN 입력 */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>PIN</div>
+            <input
+              type="password"
+              placeholder="4자리"
+              maxLength={4}
+              value={pin}
+              onChange={e => { setPin(e.target.value); setError('') }}
+              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 10,
+                border: '1px solid #E0E4E8', background: '#F8F9FB',
+                color: '#1a1a2e', fontSize: 22, outline: 'none',
+                boxSizing: 'border-box', textAlign: 'center', letterSpacing: 12 }} />
+          </div>
+
+          {/* 에러 */}
+          {error && (
+            <div style={{ background: '#FFF0F0', border: '1px solid rgba(232,67,147,0.2)',
+              borderRadius: 8, padding: '8px 12px', marginBottom: 16,
+              fontSize: 12, color: '#E84393', textAlign: 'center', fontWeight: 600 }}>
+              {error}
+            </div>
+          )}
+
+          {/* 로그인 버튼 */}
+          <button onClick={handleLogin} disabled={loading}
+            style={{ width: '100%', padding: 14, borderRadius: 12,
+              background: loading ? '#ccc' : 'linear-gradient(135deg,#FF6B35,#E84393)',
+              border: 'none', color: '#fff', fontSize: 15, fontWeight: 700,
+              cursor: loading ? 'wait' : 'pointer',
+              boxShadow: loading ? 'none' : '0 4px 14px rgba(255,107,53,0.3)' }}>
+            {loading ? '로그인 중...' : '로그인'}
+          </button>
+
+          <div style={{ fontSize: 11, color: '#bbb', textAlign: 'center', marginTop: 14 }}>
+            초기 PIN: 1234
+          </div>
+        </div>
       </div>
     </div>
   )
