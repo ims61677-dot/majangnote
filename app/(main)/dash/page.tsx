@@ -11,7 +11,6 @@ const bx = {
   boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
 }
 
-function fmtS(n: number) { return n >= 10000 ? (n / 10000).toFixed(0) + '만' : '' + n }
 function fmtW(n: number) { return n.toLocaleString('ko-KR') + '원' }
 
 export default function DashPage() {
@@ -27,8 +26,24 @@ export default function DashPage() {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
     if (!store.id) return
     setStoreId(store.id)
-    loadData(store.id)
-  }, [yr, mo])
+  }, [])
+
+  useEffect(() => {
+    if (!storeId) return
+    loadData(storeId)
+  }, [storeId, yr, mo])
+
+  // 매장 변경 감지 (포커스 돌아올 때마다 체크)
+  useEffect(() => {
+    function handleFocus() {
+      const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
+      if (store.id && store.id !== storeId) {
+        setStoreId(store.id)
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [storeId])
 
   async function loadData(sid: string) {
     const from = `${yr}-${String(mo).padStart(2,'0')}-01`
@@ -63,7 +78,6 @@ export default function DashPage() {
 
   return (
     <div>
-      {/* 월 선택 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <button onClick={() => { if (mo===1){setYr(yr-1);setMo(12)}else setMo(mo-1) }}
           style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', color: '#555', fontSize: 14 }}>←</button>
@@ -72,7 +86,6 @@ export default function DashPage() {
           style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', color: '#555', fontSize: 14 }}>→</button>
       </div>
 
-      {/* 통계 카드 4개 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
         <div style={{ ...bx, marginBottom: 0 }}>
           <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>총 매출</div>
@@ -100,7 +113,6 @@ export default function DashPage() {
         </div>
       </div>
 
-      {/* 마감 일지 목록 */}
       <div style={bx}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>마감 일지</div>
         {sales.length === 0 ? (
