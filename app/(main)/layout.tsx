@@ -30,7 +30,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
         position: 'sticky', top: 0, zIndex: 50,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* 매장명 클릭 → 매장 선택 화면 */}
+        <div
+          onClick={() => router.push('/select-store')}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
           <div style={{
             width: 32, height: 32, borderRadius: 8,
             background: 'linear-gradient(135deg,#FF6B35,#E84393)',
@@ -38,10 +41,16 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             fontSize: 14, fontWeight: 800, color: '#fff',
           }}>M</div>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', lineHeight: 1 }}>매장노트</div>
-            <div style={{ fontSize: 11, color: '#999', marginTop: 1 }}>{store?.name || ''}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', lineHeight: 1 }}>매장노트</div>
+              <span style={{ fontSize: 10, color: '#ccc' }}>⌄</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#FF6B35', marginTop: 1, fontWeight: 600 }}>
+              {store?.name || ''}
+            </div>
           </div>
         </div>
+
         <button
           onClick={() => { localStorage.clear(); router.push('/login') }}
           style={{
