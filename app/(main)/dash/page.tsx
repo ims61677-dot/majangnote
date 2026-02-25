@@ -29,7 +29,7 @@ export default function DashPage() {
   }
 
   function getDayTotal(c: any): number {
-    return Object.values(c.channel_data||{}).reduce((a: number, b: unknown) => a + Number(b), 0)
+  return Object.values(c.channel_data||{}).reduce((a: number, b) => a + Number(b), 0)
   }
 
   const total = closings.reduce((s, c) => s + getDayTotal(c), 0)
