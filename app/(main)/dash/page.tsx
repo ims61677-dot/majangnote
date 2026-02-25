@@ -28,8 +28,13 @@ export default function DashPage() {
     if (data) setClosings(data)
   }
 
-  const total = closings.reduce((s,c) => s + Object.values(c.channel_data||{}).reduce((a:any,b:any)=>a+b,0), 0)
-  const avg = closings.length ? Math.round(Number(total)/closings.length) : 0
+  function getDayTotal(c: any): number {
+    return Object.values(c.channel_data||{}).reduce((a: number, b: unknown) => a + Number(b), 0)
+  }
+
+  const total = closings.reduce((s, c) => s + getDayTotal(c), 0)
+  const avg = closings.length ? Math.round(total / closings.length) : 0
+  const maxDay = closings.length ? Math.max(...closings.map(c => getDayTotal(c))) : 0
 
   function prevMonth() { const m = new Date(month); m.setMonth(m.getMonth()-1); setMonth(m); if(store) loadData(store.id, m) }
   function nextMonth() { const m = new Date(month); m.setMonth(m.getMonth()+1); setMonth(m); if(store) loadData(store.id, m) }
@@ -43,10 +48,10 @@ export default function DashPage() {
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20}}>
         {[
-          {label:'총 매출', value: Number(total).toLocaleString()+'원'},
+          {label:'총 매출', value: total.toLocaleString()+'원'},
           {label:'일 평균', value: avg.toLocaleString()+'원'},
           {label:'영업일', value: closings.length+'일'},
-          {label:'최고 매출', value: (closings.length ? Math.max(...closings.map((c:any)=>Object.values(c.channel_data||{}).reduce((a:any,b:any)=>a+b,0))) : 0).toLocaleString()+'원'},
+          {label:'최고 매출', value: maxDay.toLocaleString()+'원'},
         ].map(item => (
           <div key={item.label} style={{background:'rgba(255,255,255,0.05)',borderRadius:12,padding:16}}>
             <div style={{color:'rgba(255,255,255,0.5)',fontSize:12,marginBottom:4}}>{item.label}</div>
@@ -57,17 +62,13 @@ export default function DashPage() {
       <div style={{background:'rgba(255,255,255,0.05)',borderRadius:12,padding:16}}>
         <h3 style={{margin:'0 0 12px'}}>마감 일지</h3>
         {closings.length === 0 ? <p style={{color:'rgba(255,255,255,0.4)',textAlign:'center'}}>이번 달 마감 데이터가 없습니다</p> :
-          closings.map(c => {
-            const dayTotal = Object.values(c.channel_data||{}).reduce((a:any,b:any)=>a+b,0)
-            return (
-              <div key={c.id} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
-                <span>{c.date}</span>
-                <span style={{color:'#FF6B35',fontWeight:'bold'}}>{Number(dayTotal).toLocaleString()}원</span>
-              </div>
-            )
-          })
+          closings.map(c => (
+            <div key={c.id} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid rgba(255,255,255,0.1)'}}>
+              <span>{c.date}</span>
+              <span style={{color:'#FF6B35',fontWeight:'bold'}}>{getDayTotal(c).toLocaleString()}원</span>
+            </div>
+          ))
         }
       </div>
     </div>
   )
-}
