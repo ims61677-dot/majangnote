@@ -6,6 +6,9 @@ const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
 const lbl = { fontSize: 11, color: '#888', marginBottom: 4, display: 'block' as const }
 
+const DEFAULT_PLATFORMS = ['카드', '현금', '계좌이체', '배달의민족', '쿠팡이츠', '요기요']
+const DEFAULT_CHECKLIST = ['가스 밸브 잠금', '냉장고 온도 확인', '시재 봉투 금고 보관', '쓰레기 분리수거', '전등 소등', '출입문 잠금']
+
 function toDateStr(d: Date) {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -16,70 +19,42 @@ function toDateStr(d: Date) {
 // ─────────────────────────────────────────────
 // 캘린더 컴포넌트
 // ─────────────────────────────────────────────
-function ClosingCalendar({
-  year, month, salesMap, selectedDate, onSelectDate, onChangeMonth
-}: {
-  year: number
-  month: number // 0-indexed
-  salesMap: Record<string, number>
-  selectedDate: string
-  onSelectDate: (d: string) => void
-  onChangeMonth: (y: number, m: number) => void
+function ClosingCalendar({ year, month, salesMap, selectedDate, onSelectDate, onChangeMonth }: {
+  year: number; month: number; salesMap: Record<string, number>
+  selectedDate: string; onSelectDate: (d: string) => void; onChangeMonth: (y: number, m: number) => void
 }) {
   const today = toDateStr(new Date())
-  const firstDay = new Date(year, month, 1).getDay() // 0=일
+  const firstDay = new Date(year, month, 1).getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const weeks: (number | null)[][] = []
   let week: (number | null)[] = Array(firstDay).fill(null)
-
   for (let d = 1; d <= daysInMonth; d++) {
     week.push(d)
     if (week.length === 7) { weeks.push(week); week = [] }
   }
-  if (week.length > 0) {
-    while (week.length < 7) week.push(null)
-    weeks.push(week)
-  }
+  if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week) }
 
   const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`
+  const totalMonthSales = Object.entries(salesMap).filter(([k]) => k.startsWith(monthStr)).reduce((s, [, v]) => s + v, 0)
 
-  function prevMonth() {
-    if (month === 0) onChangeMonth(year - 1, 11)
-    else onChangeMonth(year, month - 1)
-  }
-  function nextMonth() {
-    if (month === 11) onChangeMonth(year + 1, 0)
-    else onChangeMonth(year, month + 1)
-  }
-
-  const totalMonthSales = Object.entries(salesMap)
-    .filter(([k]) => k.startsWith(monthStr))
-    .reduce((s, [, v]) => s + v, 0)
+  function prevMonth() { month === 0 ? onChangeMonth(year - 1, 11) : onChangeMonth(year, month - 1) }
+  function nextMonth() { month === 11 ? onChangeMonth(year + 1, 0) : onChangeMonth(year, month + 1) }
 
   return (
     <div style={{ ...bx, padding: '14px 12px' }}>
-      {/* 월 네비게이션 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <button onClick={prevMonth} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer', padding: '0 6px' }}>‹</button>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>{year}년 {month + 1}월</div>
-          {totalMonthSales > 0 && (
-            <div style={{ fontSize: 11, color: '#FF6B35', fontWeight: 600, marginTop: 1 }}>
-              월 매출 {totalMonthSales.toLocaleString()}원
-            </div>
-          )}
+          {totalMonthSales > 0 && <div style={{ fontSize: 11, color: '#FF6B35', fontWeight: 600, marginTop: 1 }}>월 매출 {totalMonthSales.toLocaleString()}원</div>}
         </div>
         <button onClick={nextMonth} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer', padding: '0 6px' }}>›</button>
       </div>
-
-      {/* 요일 헤더 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', marginBottom: 4 }}>
         {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
           <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 600, color: i === 0 ? '#E84393' : i === 6 ? '#2DC6D6' : '#aaa', padding: '2px 0' }}>{d}</div>
         ))}
       </div>
-
-      {/* 날짜 그리드 */}
       {weeks.map((week, wi) => (
         <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 2 }}>
           {week.map((day, di) => {
@@ -89,42 +64,21 @@ function ClosingCalendar({
             const hasSales = sales !== undefined
             const isSelected = dateStr === selectedDate
             const isToday = dateStr === today
-            const isSunday = di === 0
-            const isSaturday = di === 6
-
             return (
-              <button
-                key={di}
-                onClick={() => onSelectDate(dateStr)}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  padding: '4px 2px', borderRadius: 8, cursor: 'pointer',
-                  border: isSelected ? '2px solid #FF6B35' : isToday ? '1px solid rgba(255,107,53,0.3)' : '1px solid transparent',
-                  background: isSelected ? 'rgba(255,107,53,0.1)' : hasSales ? 'rgba(0,184,148,0.06)' : 'transparent',
-                  minHeight: 44
-                }}
-              >
-                <span style={{
-                  fontSize: 12, fontWeight: isSelected || isToday ? 700 : 400,
-                  color: isSelected ? '#FF6B35' : isSunday ? '#E84393' : isSaturday ? '#2DC6D6' : '#1a1a2e'
-                }}>
-                  {day}
-                </span>
-                {hasSales && (
-                  <span style={{ fontSize: 8, color: '#00B894', fontWeight: 600, marginTop: 1, lineHeight: 1 }}>
-                    {sales >= 10000 ? `${Math.floor(sales / 10000)}만` : `${sales.toLocaleString()}`}
-                  </span>
-                )}
-                {hasSales && (
-                  <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#00B894', marginTop: 1 }} />
-                )}
+              <button key={di} onClick={() => onSelectDate(dateStr)} style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                padding: '4px 2px', borderRadius: 8, cursor: 'pointer', minHeight: 44,
+                border: isSelected ? '2px solid #FF6B35' : isToday ? '1px solid rgba(255,107,53,0.3)' : '1px solid transparent',
+                background: isSelected ? 'rgba(255,107,53,0.1)' : hasSales ? 'rgba(0,184,148,0.06)' : 'transparent',
+              }}>
+                <span style={{ fontSize: 12, fontWeight: isSelected || isToday ? 700 : 400, color: isSelected ? '#FF6B35' : di === 0 ? '#E84393' : di === 6 ? '#2DC6D6' : '#1a1a2e' }}>{day}</span>
+                {hasSales && <span style={{ fontSize: 8, color: '#00B894', fontWeight: 600, marginTop: 1, lineHeight: 1 }}>{sales >= 10000 ? `${Math.floor(sales / 10000)}만` : sales.toLocaleString()}</span>}
+                {hasSales && <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#00B894', marginTop: 1 }} />}
               </button>
             )
           })}
         </div>
       ))}
-
-      {/* 범례 */}
       <div style={{ display: 'flex', gap: 10, marginTop: 8, paddingTop: 8, borderTop: '1px solid #F0F0F0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#00B894', display: 'inline-block' }} />
@@ -151,14 +105,10 @@ export default function ClosingPage() {
   const [closing, setClosing] = useState<any>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [showForm, setShowForm] = useState(false)
-
-  // 캘린더 상태
   const now = new Date()
   const [calYear, setCalYear] = useState(now.getFullYear())
   const [calMonth, setCalMonth] = useState(now.getMonth())
-  // salesMap: { '2026-02-24': 총매출 }
   const [salesMap, setSalesMap] = useState<Record<string, number>>({})
-
   const closingRef = useRef<any>(null)
 
   const [openStaff, setOpenStaff] = useState('')
@@ -199,31 +149,35 @@ export default function ClosingPage() {
     if (storeId) loadClosing(storeId, selectedDate)
   }, [selectedDate, storeId])
 
-  useEffect(() => {
-    closingRef.current = closing
-  }, [closing])
+  useEffect(() => { closingRef.current = closing }, [closing])
 
+  // ✅ 각 지점 처음 접속 시 플랫폼/체크리스트 자동 생성
   async function loadBase(sid: string) {
+    // 플랫폼
     const { data: pl } = await supabase.from('closing_platforms').select('*').eq('store_id', sid).order('sort_order')
-    setPlatforms(pl || [])
+    if (!pl || pl.length === 0) {
+      const rows = DEFAULT_PLATFORMS.map((name, i) => ({ store_id: sid, name, sort_order: i + 1 }))
+      const { data: inserted } = await supabase.from('closing_platforms').insert(rows).select()
+      setPlatforms(inserted || [])
+    } else {
+      setPlatforms(pl)
+    }
+
+    // 체크리스트
     const { data: ci } = await supabase.from('closing_checklist_items').select('*').eq('store_id', sid).order('sort_order')
-    setCheckItems(ci || [])
+    if (!ci || ci.length === 0) {
+      const rows = DEFAULT_CHECKLIST.map((title, i) => ({ store_id: sid, title, sort_order: i + 1 }))
+      const { data: inserted } = await supabase.from('closing_checklist_items').insert(rows).select()
+      setCheckItems(inserted || [])
+    } else {
+      setCheckItems(ci)
+    }
   }
 
-  // 전체 매출 맵 로드 (캘린더용)
   async function loadSalesMap(sid: string) {
-    const { data: cls } = await supabase
-      .from('closings')
-      .select('id, closing_date')
-      .eq('store_id', sid)
-
+    const { data: cls } = await supabase.from('closings').select('id, closing_date').eq('store_id', sid)
     if (!cls || cls.length === 0) return
-
-    const { data: sv } = await supabase
-      .from('closing_sales')
-      .select('closing_id, amount')
-      .in('closing_id', cls.map((c: any) => c.id))
-
+    const { data: sv } = await supabase.from('closing_sales').select('closing_id, amount').in('closing_id', cls.map((c: any) => c.id))
     const map: Record<string, number> = {}
     cls.forEach((c: any) => {
       const total = sv ? sv.filter((s: any) => s.closing_id === c.id).reduce((sum: number, s: any) => sum + (s.amount || 0), 0) : 0
@@ -235,15 +189,10 @@ export default function ClosingPage() {
   async function loadClosing(sid: string, date: string) {
     const { data: cl } = await supabase.from('closings').select('*').eq('store_id', sid).eq('closing_date', date).maybeSingle()
     if (cl) {
-      setClosing(cl)
-      closingRef.current = cl
-      setOpenStaff(cl.open_staff || '')
-      setCloseStaff(cl.close_staff || '')
-      setVisitTables(cl.visit_tables || 0)
-      setCancelCount(cl.cancel_count || 0)
-      setCashAmount(cl.cash_amount || 0)
-      setNote(cl.note || '')
-      setNextMemo(cl.next_memo || '')
+      setClosing(cl); closingRef.current = cl
+      setOpenStaff(cl.open_staff || ''); setCloseStaff(cl.close_staff || '')
+      setVisitTables(cl.visit_tables || 0); setCancelCount(cl.cancel_count || 0)
+      setCashAmount(cl.cash_amount || 0); setNote(cl.note || ''); setNextMemo(cl.next_memo || '')
       const { data: sv } = await supabase.from('closing_sales').select('*').eq('closing_id', cl.id)
       const sm: Record<string, number> = {}
       if (sv) sv.forEach((s: any) => { sm[s.platform] = s.amount })
@@ -256,20 +205,17 @@ export default function ClosingPage() {
       setMemoReads(mr || [])
       setShowForm(true)
     } else {
-      setClosing(null)
-      closingRef.current = null
-      setOpenStaff(''); setCloseStaff(''); setVisitTables(0); setCancelCount(0); setCashAmount(0)
-      setNote(''); setNextMemo(''); setSales({}); setChecks({}); setMemoReads([])
+      setClosing(null); closingRef.current = null
+      setOpenStaff(''); setCloseStaff(''); setVisitTables(0); setCancelCount(0)
+      setCashAmount(0); setNote(''); setNextMemo(''); setSales({}); setChecks({}); setMemoReads([])
       setShowForm(false)
     }
   }
 
   function handleSelectDate(d: string) {
     setSelectedDate(d)
-    // 날짜 선택하면 해당 월로 캘린더 이동
     const [y, m] = d.split('-').map(Number)
-    setCalYear(y)
-    setCalMonth(m - 1)
+    setCalYear(y); setCalMonth(m - 1)
   }
 
   async function saveClosing() {
@@ -282,7 +228,6 @@ export default function ClosingPage() {
     try {
       const current = closingRef.current
       let closingId: string
-
       if (current?.id) {
         closingId = current.id
         await supabase.from('closings').update({
@@ -300,18 +245,11 @@ export default function ClosingPage() {
         }).select().single()
         if (error) throw error
         closingId = data.id
-        setClosing(data)
-        closingRef.current = data
+        setClosing(data); closingRef.current = data
       }
-
       await supabase.from('closing_sales').delete().eq('closing_id', closingId)
-      const rows = platforms.map(p => ({
-        closing_id: closingId, platform: p.name,
-        amount: sales[p.name] || 0, sort_order: p.sort_order
-      }))
+      const rows = platforms.map(p => ({ closing_id: closingId, platform: p.name, amount: sales[p.name] || 0, sort_order: p.sort_order }))
       if (rows.length > 0) await supabase.from('closing_sales').insert(rows)
-
-      // 캘린더 salesMap 업데이트
       const newTotal = platforms.reduce((s, p) => s + (sales[p.name] || 0), 0)
       setSalesMap(prev => ({ ...prev, [selectedDate]: newTotal }))
       setShowForm(true)
@@ -334,8 +272,7 @@ export default function ClosingPage() {
       created_by: userName
     }).select().single()
     if (error) throw error
-    setClosing(data)
-    closingRef.current = data
+    setClosing(data); closingRef.current = data
     return data.id
   }
 
@@ -365,8 +302,7 @@ export default function ClosingPage() {
     if (!newPlatformName.trim()) return
     const maxOrder = platforms.reduce((max, p) => Math.max(max, p.sort_order || 0), 0)
     const { data } = await supabase.from('closing_platforms').insert({ store_id: storeId, name: newPlatformName.trim(), sort_order: maxOrder + 1 }).select().single()
-    setPlatforms(p => [...p, data])
-    setNewPlatformName('')
+    setPlatforms(p => [...p, data]); setNewPlatformName('')
   }
 
   async function deletePlatform(id: string) {
@@ -379,8 +315,7 @@ export default function ClosingPage() {
     if (!newCheckItem.trim()) return
     const maxOrder = checkItems.reduce((max, c) => Math.max(max, c.sort_order || 0), 0)
     const { data } = await supabase.from('closing_checklist_items').insert({ store_id: storeId, title: newCheckItem.trim(), sort_order: maxOrder + 1 }).select().single()
-    setCheckItems(p => [...p, data])
-    setNewCheckItem('')
+    setCheckItems(p => [...p, data]); setNewCheckItem('')
   }
 
   async function deleteCheckItem(id: string) {
@@ -405,11 +340,7 @@ export default function ClosingPage() {
             {memoReads.length > 0 && (
               <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 10, background: 'rgba(0,184,148,0.06)', border: '1px solid rgba(0,184,148,0.2)' }}>
                 <div style={{ fontSize: 10, color: '#00B894', fontWeight: 700, marginBottom: 4 }}>✓ 읽은 사람</div>
-                {memoReads.map(r => (
-                  <div key={r.id} style={{ fontSize: 11, color: '#666' }}>
-                    {r.read_by} · {new Date(r.read_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                  </div>
-                ))}
+                {memoReads.map(r => <div key={r.id} style={{ fontSize: 11, color: '#666' }}>{r.read_by} · {new Date(r.read_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>)}
               </div>
             )}
             <button onClick={() => { readMemo(); setShowMemoPanel(false) }}
@@ -476,29 +407,20 @@ export default function ClosingPage() {
       </div>
 
       {/* 캘린더 */}
-      <ClosingCalendar
-        year={calYear}
-        month={calMonth}
-        salesMap={salesMap}
-        selectedDate={selectedDate}
-        onSelectDate={handleSelectDate}
-        onChangeMonth={(y, m) => { setCalYear(y); setCalMonth(m) }}
-      />
+      <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} selectedDate={selectedDate}
+        onSelectDate={handleSelectDate} onChangeMonth={(y, m) => { setCalYear(y); setCalMonth(m) }} />
 
-      {/* 선택된 날짜 표시 + 작성/열기 버튼 */}
+      {/* 선택 날짜 바 */}
       <div style={{ ...bx, padding: '12px 16px', background: isSaved ? 'rgba(0,184,148,0.04)' : '#fff', border: isSaved ? '1px solid rgba(0,184,148,0.3)' : '1px solid #E8ECF0' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>
-              {selectedDate.replace(/-/g, '.')}
-            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>{selectedDate.replace(/-/g, '.')}</div>
             {isSaved
               ? <div style={{ fontSize: 11, color: '#00B894', marginTop: 2 }}>✓ 저장됨 · 총 매출 {totalSales.toLocaleString()}원</div>
               : <div style={{ fontSize: 11, color: '#bbb', marginTop: 2 }}>미작성</div>
             }
           </div>
-          <button
-            onClick={() => setShowForm(p => !p)}
+          <button onClick={() => setShowForm(p => !p)}
             style={{ padding: '7px 14px', borderRadius: 9, background: isSaved ? 'rgba(0,184,148,0.1)' : 'rgba(255,107,53,0.1)', border: isSaved ? '1px solid rgba(0,184,148,0.3)' : '1px solid rgba(255,107,53,0.3)', color: isSaved ? '#00B894' : '#FF6B35', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
             {showForm ? '▲ 접기' : isSaved ? '📂 열기' : '✏️ 작성'}
           </button>
@@ -508,7 +430,6 @@ export default function ClosingPage() {
       {/* 마감일지 폼 */}
       {showForm && (
         <>
-          {/* 저장된 일지인데 권한 없을 때 안내 */}
           {isSaved && !isManager && (
             <div style={{ background: 'rgba(253,196,0,0.1)', border: '1px solid rgba(253,196,0,0.4)', borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#B8860B' }}>
               🔒 저장된 마감일지는 매니저/대표만 수정 가능합니다. 체크리스트는 누구나 가능해요.
@@ -521,15 +442,11 @@ export default function ClosingPage() {
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <span style={lbl}>오픈 담당자</span>
-                <input value={openStaff} onChange={e => setOpenStaff(e.target.value)} placeholder="이름"
-                  disabled={isSaved && !isManager}
-                  style={{ ...inp, background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
+                <input value={openStaff} onChange={e => setOpenStaff(e.target.value)} placeholder="이름" disabled={isSaved && !isManager} style={{ ...inp, background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
               </div>
               <div style={{ flex: 1 }}>
                 <span style={lbl}>마감 담당자</span>
-                <input value={closeStaff} onChange={e => setCloseStaff(e.target.value)} placeholder="이름"
-                  disabled={isSaved && !isManager}
-                  style={{ ...inp, background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
+                <input value={closeStaff} onChange={e => setCloseStaff(e.target.value)} placeholder="이름" disabled={isSaved && !isManager} style={{ ...inp, background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
               </div>
             </div>
           </div>
@@ -539,18 +456,14 @@ export default function ClosingPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>💰 매출</span>
               {isManager && (
-                <button onClick={() => setShowPlatformMgr(true)}
-                  style={{ fontSize: 10, color: '#2DC6D6', background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
-                  플랫폼 관리
-                </button>
+                <button onClick={() => setShowPlatformMgr(true)} style={{ fontSize: 10, color: '#2DC6D6', background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>플랫폼 관리</button>
               )}
             </div>
             {platforms.map(p => (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
                 <span style={{ fontSize: 12, color: '#555', width: 90, flexShrink: 0 }}>{p.name}</span>
                 <input type="number" value={sales[p.name] || ''} onChange={e => setSales(prev => ({ ...prev, [p.name]: Number(e.target.value) }))}
-                  placeholder="0" disabled={isSaved && !isManager}
-                  style={{ ...inp, textAlign: 'right', background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
+                  placeholder="0" disabled={isSaved && !isManager} style={{ ...inp, textAlign: 'right', background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
                 <span style={{ fontSize: 11, color: '#aaa', flexShrink: 0 }}>원</span>
               </div>
             ))}
@@ -566,15 +479,11 @@ export default function ClosingPage() {
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <span style={lbl}>방문 테이블 수</span>
-                <input type="number" value={visitTables || ''} onChange={e => setVisitTables(Number(e.target.value))}
-                  placeholder="0" disabled={isSaved && !isManager}
-                  style={{ ...inp, textAlign: 'center', background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
+                <input type="number" value={visitTables || ''} onChange={e => setVisitTables(Number(e.target.value))} placeholder="0" disabled={isSaved && !isManager} style={{ ...inp, textAlign: 'center', background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
               </div>
               <div style={{ flex: 1 }}>
                 <span style={lbl}>취소/환불 건수</span>
-                <input type="number" value={cancelCount || ''} onChange={e => setCancelCount(Number(e.target.value))}
-                  placeholder="0" disabled={isSaved && !isManager}
-                  style={{ ...inp, textAlign: 'center', background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
+                <input type="number" value={cancelCount || ''} onChange={e => setCancelCount(Number(e.target.value))} placeholder="0" disabled={isSaved && !isManager} style={{ ...inp, textAlign: 'center', background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
               </div>
             </div>
           </div>
@@ -582,13 +491,11 @@ export default function ClosingPage() {
           {/* 시재 */}
           <div style={bx}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>💵 시재</div>
-            <input type="number" value={cashAmount || ''} onChange={e => setCashAmount(Number(e.target.value))}
-              placeholder="마감 시재 금액 입력" disabled={isSaved && !isManager}
-              style={{ ...inp, textAlign: 'right', background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
+            <input type="number" value={cashAmount || ''} onChange={e => setCashAmount(Number(e.target.value))} placeholder="마감 시재 금액 입력" disabled={isSaved && !isManager} style={{ ...inp, textAlign: 'right', background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
             {cashAmount > 0 && <div style={{ fontSize: 11, color: '#888', marginTop: 4, textAlign: 'right' }}>{cashAmount.toLocaleString()}원</div>}
           </div>
 
-          {/* 마감 체크리스트 - 누구나 가능 */}
+          {/* 체크리스트 */}
           <div style={bx}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -598,15 +505,10 @@ export default function ClosingPage() {
                 </span>
               </div>
               {isManager && (
-                <button onClick={() => setShowCheckMgr(true)}
-                  style={{ fontSize: 10, color: '#2DC6D6', background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
-                  항목 관리
-                </button>
+                <button onClick={() => setShowCheckMgr(true)} style={{ fontSize: 10, color: '#2DC6D6', background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>항목 관리</button>
               )}
             </div>
-            {checkItems.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 20, color: '#bbb', fontSize: 12 }}>체크리스트 항목이 없습니다</div>
-            )}
+            {checkItems.length === 0 && <div style={{ textAlign: 'center', padding: 20, color: '#bbb', fontSize: 12 }}>체크리스트 항목이 없습니다</div>}
             {checkItems.map(item => {
               const ck = checks[item.id]
               return (
@@ -616,11 +518,7 @@ export default function ClosingPage() {
                     <span style={{ fontSize: 17, color: ck ? '#00B894' : '#ddd', lineHeight: 1 }}>{ck ? '✓' : '○'}</span>
                     <span style={{ fontSize: 13, color: ck ? '#00B894' : '#444', textDecoration: ck ? 'line-through' : 'none' }}>{item.title}</span>
                   </div>
-                  {ck && (
-                    <span style={{ fontSize: 10, color: '#00B894', flexShrink: 0 }}>
-                      {ck.checked_by} · {new Date(ck.checked_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                    </span>
-                  )}
+                  {ck && <span style={{ fontSize: 10, color: '#00B894', flexShrink: 0 }}>{ck.checked_by} · {new Date(ck.checked_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>}
                 </button>
               )
             })}
@@ -629,28 +527,20 @@ export default function ClosingPage() {
           {/* 클레임/특이사항 */}
           <div style={bx}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>📝 클레임/특이사항</div>
-            <textarea value={note} onChange={e => setNote(e.target.value)}
-              placeholder={isSaved && !isManager ? '' : '오늘 발생한 클레임이나 특이사항을 기록하세요'}
-              disabled={isSaved && !isManager}
+            <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={isSaved && !isManager ? '' : '오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={isSaved && !isManager}
               style={{ ...inp, minHeight: 80, resize: 'none' as const, lineHeight: 1.6, background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
           </div>
 
-          {/* 다음 담당자 전달사항 */}
+          {/* 전달사항 */}
           <div style={{ ...bx, border: nextMemo ? '1px solid rgba(255,107,53,0.35)' : '1px solid #E8ECF0' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>📢 다음 담당자 전달사항</div>
             <div style={{ fontSize: 10, color: '#aaa', marginBottom: 8 }}>다음 오픈 담당자가 앱 접속 시 알림으로 표시됩니다</div>
-            <textarea value={nextMemo} onChange={e => setNextMemo(e.target.value)}
-              placeholder={isSaved && !isManager ? '' : '다음 담당자에게 전달할 내용을 적어주세요'}
-              disabled={isSaved && !isManager}
+            <textarea value={nextMemo} onChange={e => setNextMemo(e.target.value)} placeholder={isSaved && !isManager ? '' : '다음 담당자에게 전달할 내용을 적어주세요'} disabled={isSaved && !isManager}
               style={{ ...inp, minHeight: 80, resize: 'none' as const, lineHeight: 1.6, background: isSaved && !isManager ? '#F4F6F9' : '#F8F9FB' }} />
             {memoReads.length > 0 && (
               <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(0,184,148,0.06)', border: '1px solid rgba(0,184,148,0.2)' }}>
                 <div style={{ fontSize: 10, color: '#00B894', fontWeight: 700, marginBottom: 4 }}>✓ 읽음 확인</div>
-                {memoReads.map(r => (
-                  <div key={r.id} style={{ fontSize: 11, color: '#555' }}>
-                    {r.read_by} · {new Date(r.read_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                  </div>
-                ))}
+                {memoReads.map(r => <div key={r.id} style={{ fontSize: 11, color: '#555' }}>{r.read_by} · {new Date(r.read_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>)}
               </div>
             )}
           </div>
