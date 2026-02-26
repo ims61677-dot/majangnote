@@ -11,9 +11,76 @@ function getStatus(tot: number, minQty: number, warnQty: number) {
   return 'ok'
 }
 
-// ─────────────────────────────────────────────
-// PlaceManager 모달
-// ─────────────────────────────────────────────
+// ─── 장소 그룹 섹션 (훅을 map 밖으로 분리) ───
+function PlaceGroupSection({ grp, gPlaces, editingId, editName, editGroup, setEditName, setEditGroup, setEditingId, handleUpdate, handleDelete, handleDrop, PRESET_GROUPS }: {
+  grp: string; gPlaces: any[]
+  editingId: string | null; editName: string; editGroup: string
+  setEditName: (v: string) => void; setEditGroup: (v: string) => void; setEditingId: (v: string | null) => void
+  handleUpdate: (id: string) => void; handleDelete: (id: string, name: string) => void
+  handleDrop: (places: any[]) => void; PRESET_GROUPS: string[]
+}) {
+  const [localPlaces, setLocalPlaces] = useState<any[]>(gPlaces)
+  const dragItem = useRef<number | null>(null)
+  const dragOver = useRef<number | null>(null)
+
+  useEffect(() => { setLocalPlaces(gPlaces) }, [JSON.stringify(gPlaces)])
+
+  function onDragStart(e: React.DragEvent, idx: number) {
+    dragItem.current = idx
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  function onDragEnter(idx: number) { dragOver.current = idx }
+  function onDragEnd() {
+    if (dragItem.current === null || dragOver.current === null) return
+    const newList = [...localPlaces]
+    const dragged = newList.splice(dragItem.current, 1)[0]
+    newList.splice(dragOver.current, 0, dragged)
+    dragItem.current = null; dragOver.current = null
+    setLocalPlaces(newList)
+    handleDrop(newList)
+  }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', marginBottom: 6, paddingLeft: 2 }}>{grp}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {localPlaces.map((place: any, idx: number) => (
+          editingId === place.id ? (
+            <div key={place.id} style={{ background: 'rgba(255,107,53,0.06)', borderRadius: 12, padding: 10, border: '1px solid rgba(255,107,53,0.2)' }}>
+              <select value={editGroup} onChange={e => setEditGroup(e.target.value)} style={{ ...inp, marginBottom: 6, appearance: 'auto' as any }}>
+                {PRESET_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <input value={editName} onChange={e => setEditName(e.target.value)} style={{ ...inp, marginBottom: 8 }} />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => handleUpdate(place.id)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
+                <button onClick={() => setEditingId(null)} style={{ padding: '8px 14px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer', fontSize: 12 }}>취소</button>
+              </div>
+            </div>
+          ) : (
+            <div key={place.id}
+              draggable
+              onDragStart={e => onDragStart(e, idx)}
+              onDragEnter={() => onDragEnter(idx)}
+              onDragEnd={onDragEnd}
+              onDragOver={e => e.preventDefault()}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8F9FB', borderRadius: 10, padding: '8px 12px', cursor: 'grab', userSelect: 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14, color: '#ccc' }}>☰</span>
+                <span style={{ fontSize: 13, color: '#1a1a2e' }}>{place.name}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => { setEditingId(place.id); setEditName(place.name); setEditGroup(place.group_name) }} style={{ background: 'none', border: 'none', fontSize: 11, color: '#aaa', cursor: 'pointer' }}>수정</button>
+                <button onClick={() => handleDelete(place.id, place.name)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#E84393', cursor: 'pointer' }}>삭제</button>
+              </div>
+            </div>
+          )
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── PlaceManager ───
 function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose: () => void; onSaved: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [places, setPlaces] = useState<any[]>([])
@@ -24,13 +91,12 @@ function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose:
   const [newGroup, setNewGroup] = useState('홀')
   const [customGroup, setCustomGroup] = useState('')
   const [isAdding, setIsAdding] = useState(false)
-
   const PRESET_GROUPS = ['홀', '주방', '창고']
 
   useEffect(() => { loadPlaces() }, [])
 
   async function loadPlaces() {
-    const { data } = await supabase.from('inventory_places').select('*').eq('store_id', storeId).order('group_name').order('sort_order')
+    const { data } = await supabase.from('inventory_places').select('*').eq('store_id', storeId).order('sort_order').order('group_name')
     setPlaces(data || [])
   }
 
@@ -57,12 +123,17 @@ function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose:
     loadPlaces(); onSaved()
   }
 
-  const grouped = places.reduce((acc, p) => {
+  async function handleDrop(groupPlaces: any[]) {
+    await Promise.all(groupPlaces.map((p, i) => supabase.from('inventory_places').update({ sort_order: i + 1 }).eq('id', p.id)))
+    loadPlaces(); onSaved()
+  }
+
+  const grouped = places.reduce((acc: Record<string, any[]>, p) => {
     const k = p.group_name || '기타'
     if (!acc[k]) acc[k] = []
     acc[k].push(p)
     return acc
-  }, {} as Record<string, any[]>)
+  }, {})
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
@@ -71,49 +142,34 @@ function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose:
           <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>📍 장소 관리</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
         </div>
+        <div style={{ fontSize: 11, color: '#aaa', marginBottom: 12, paddingLeft: 2 }}>☰ 드래그로 순서를 변경할 수 있어요</div>
 
         {Object.entries(grouped).map(([grp, gPlaces]) => (
-          <div key={grp} style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', marginBottom: 6, paddingLeft: 2 }}>{grp}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {(gPlaces as any[]).map((place: any) => (
-                editingId === place.id ? (
-                  <div key={place.id} style={{ background: 'rgba(255,107,53,0.06)', borderRadius: 12, padding: 10, border: '1px solid rgba(255,107,53,0.2)' }}>
-                    <select value={editGroup} onChange={e => setEditGroup(e.target.value)} style={{ ...inp, marginBottom: 6, appearance: 'auto' as any }}>
-                      {PRESET_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
-                    </select>
-                    <input value={editName} onChange={e => setEditName(e.target.value)} style={{ ...inp, marginBottom: 8 }} />
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => handleUpdate(place.id)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
-                      <button onClick={() => setEditingId(null)} style={{ padding: '8px 14px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer', fontSize: 12 }}>취소</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div key={place.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8F9FB', borderRadius: 10, padding: '8px 12px' }}>
-                    <span style={{ fontSize: 13, color: '#1a1a2e' }}>{place.name}</span>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => { setEditingId(place.id); setEditName(place.name); setEditGroup(place.group_name) }} style={{ background: 'none', border: 'none', fontSize: 11, color: '#aaa', cursor: 'pointer' }}>수정</button>
-                      <button onClick={() => handleDelete(place.id, place.name)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#E84393', cursor: 'pointer' }}>삭제</button>
-                    </div>
-                  </div>
-                )
-              ))}
-            </div>
-          </div>
+          <PlaceGroupSection
+            key={grp}
+            grp={grp}
+            gPlaces={gPlaces}
+            editingId={editingId}
+            editName={editName}
+            editGroup={editGroup}
+            setEditName={setEditName}
+            setEditGroup={setEditGroup}
+            setEditingId={setEditingId}
+            handleUpdate={handleUpdate}
+            handleDelete={handleDelete}
+            handleDrop={handleDrop}
+            PRESET_GROUPS={PRESET_GROUPS}
+          />
         ))}
 
         {isAdding ? (
           <div style={{ border: '2px dashed rgba(255,107,53,0.3)', borderRadius: 14, padding: 14, marginTop: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#FF6B35', marginBottom: 10 }}>새 장소 추가</div>
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>카테고리</div>
             <select value={newGroup} onChange={e => setNewGroup(e.target.value)} style={{ ...inp, appearance: 'auto' as any, marginBottom: 8 }}>
               {PRESET_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
               <option value="__custom__">직접입력</option>
             </select>
-            {newGroup === '__custom__' && (
-              <input value={customGroup} onChange={e => setCustomGroup(e.target.value)} placeholder="카테고리명 입력" style={{ ...inp, marginBottom: 8 }} />
-            )}
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>장소명</div>
+            {newGroup === '__custom__' && <input value={customGroup} onChange={e => setCustomGroup(e.target.value)} placeholder="카테고리명 입력" style={{ ...inp, marginBottom: 8 }} />}
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="예: 주방 냉동고" style={{ ...inp, marginBottom: 10 }} />
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={handleAdd} style={{ flex: 1, padding: '9px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>추가</button>
@@ -130,9 +186,7 @@ function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose:
   )
 }
 
-// ─────────────────────────────────────────────
-// 전역 검색 결과 패널
-// ─────────────────────────────────────────────
+// ─── 전역 검색 패널 ───
 function GlobalSearchPanel({ query, items, places, stock, onClose }: {
   query: string; items: any[]; places: any[]; stock: Record<string, any>; onClose: () => void
 }) {
@@ -144,8 +198,7 @@ function GlobalSearchPanel({ query, items, places, stock, onClose }: {
     if (!query.trim()) return []
     return items.filter(item => item.name.includes(query.trim())).map(item => {
       const locs = places.filter(pl => hasStockFn(item.id, pl.name)).map(pl => ({ name: pl.name, group: pl.group_name, qty: getQty(item.id, pl.name) }))
-      const tot = totalQtyFn(item.id)
-      return { ...item, total: tot, locations: locs }
+      return { ...item, total: totalQtyFn(item.id), locations: locs }
     })
   }, [query, items, places, stock])
 
@@ -160,43 +213,69 @@ function GlobalSearchPanel({ query, items, places, stock, onClose }: {
         </div>
         {results.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 32, color: '#bbb', fontSize: 13 }}>검색 결과가 없습니다</div>
-        ) : (
-          results.map(item => {
-            const s = getStatus(item.total, item.min_qty, item.warn_qty ?? 3)
-            const color = s === 'low' ? '#E84393' : s === 'warn' ? '#B8860B' : '#1a1a2e'
-            return (
-              <div key={item.id} style={{ ...bx, border: s === 'low' ? '1px solid rgba(232,67,147,0.35)' : s === 'warn' ? '1px solid rgba(253,196,0,0.5)' : '1px solid #E8ECF0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {s === 'low' && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>🔴 부족</span>}
-                    {s === 'warn' && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(253,196,0,0.15)', color: '#B8860B', fontWeight: 700 }}>🟡 주의</span>}
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
-                  </div>
-                  <span style={{ fontSize: 16, fontWeight: 800, color }}>{item.total}{item.unit}</span>
+        ) : results.map(item => {
+          const s = getStatus(item.total, item.min_qty, item.warn_qty ?? 3)
+          const color = s === 'low' ? '#E84393' : s === 'warn' ? '#B8860B' : '#1a1a2e'
+          return (
+            <div key={item.id} style={{ ...bx, border: s === 'low' ? '1px solid rgba(232,67,147,0.35)' : s === 'warn' ? '1px solid rgba(253,196,0,0.5)' : '1px solid #E8ECF0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {s === 'low' && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>🔴 부족</span>}
+                  {s === 'warn' && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(253,196,0,0.15)', color: '#B8860B', fontWeight: 700 }}>🟡 주의</span>}
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
                 </div>
-                {item.locations.length > 0 ? (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {item.locations.map((loc: any) => (
-                      <span key={loc.name} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#F4F6F9', color: '#666', border: '1px solid #E8ECF0' }}>
-                        {loc.group && `${loc.group} › `}{loc.name.replace(loc.group + ' ', '')} <strong>{loc.qty}{item.unit}</strong>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 11, color: '#E84393' }}>재고 없음 (배치된 장소 없음)</div>
-                )}
+                <span style={{ fontSize: 16, fontWeight: 800, color }}>{item.total}{item.unit}</span>
               </div>
-            )
-          })
-        )}
+              {item.locations.length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {item.locations.map((loc: any) => (
+                    <span key={loc.name} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#F4F6F9', color: '#666', border: '1px solid #E8ECF0' }}>
+                      {loc.group && `${loc.group} › `}{loc.name} <strong>{loc.qty}{item.unit}</strong>
+                    </span>
+                  ))}
+                </div>
+              ) : <div style={{ fontSize: 11, color: '#E84393' }}>재고 없음</div>}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
 
-// ─────────────────────────────────────────────
-// 메인 페이지
-// ─────────────────────────────────────────────
+// ─── 변경이력 ───
+function LogTab({ storeId, items }: { storeId: string; items: any[] }) {
+  const supabase = createSupabaseBrowserClient()
+  const [logs, setLogs] = useState<any[]>([])
+  useEffect(() => {
+    if (!items.length) return
+    supabase.from('inventory_logs').select('*, inventory_items(name,unit)').in('item_id', items.map(x => x.id))
+      .order('created_at', { ascending: false }).limit(50).then(({ data }) => setLogs(data || []))
+  }, [items])
+  return (
+    <div>
+      {logs.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 12 }}>변경 이력이 없습니다</div>}
+      {logs.map(log => (
+        <div key={log.id} style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8ECF0', padding: '10px 14px', marginBottom: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{log.inventory_items?.name}</span>
+            <span style={{ fontSize: 10, color: '#999' }}>{log.place}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 11, color: '#666' }}>
+              {log.before_qty} → <span style={{ color: log.after_qty > log.before_qty ? '#00B894' : '#E84393', fontWeight: 700 }}>{log.after_qty}</span> {log.inventory_items?.unit}
+            </span>
+            <span style={{ fontSize: 10, color: '#bbb' }}>{log.changed_by} · {new Date(log.created_at).toLocaleDateString('ko')}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════
+// 메인
+// ═══════════════════════════════════════
 export default function InventoryPage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
@@ -220,10 +299,10 @@ export default function InventoryPage() {
   const [warnQty, setWarnQty] = useState(3)
   const [alertOpen, setAlertOpen] = useState(false)
   const [showPlaceMgr, setShowPlaceMgr] = useState(false)
-
-  // ✅ 핵심: 초기 로드 완료 여부 ref (group/subTab 자동설정 중복 방지)
+  const [itemOrders, setItemOrders] = useState<Record<string, Record<string, number>>>({})
+  const dragItem = useRef<string | null>(null)
+  const dragOver = useRef<string | null>(null)
   const initializedRef = useRef(false)
-
   const groups = useMemo(() => [...new Set(places.map(p => p.group_name).filter(Boolean))], [places])
 
   useEffect(() => {
@@ -236,60 +315,80 @@ export default function InventoryPage() {
     loadAll(store.id)
   }, [])
 
-  // group 탭 클릭 시 subTab 변경 (초기 로드 이후에만)
   useEffect(() => {
     if (!initializedRef.current) return
     if (!group || places.length === 0) return
     const subs = places.filter(p => p.group_name === group)
     setSubTab(subs[0]?.name || '')
-    setShowAll(false)
-    setSearchQ('')
+    setShowAll(false); setSearchQ('')
   }, [group])
 
   async function loadAll(sid: string) {
-    const { data: pl } = await supabase
-      .from('inventory_places')
-      .select('*')
-      .eq('store_id', sid)
-      .order('group_name')
-      .order('sort_order')
-
+    const { data: pl } = await supabase.from('inventory_places').select('*').eq('store_id', sid).order('sort_order').order('group_name')
     const placeList = pl || []
     setPlaces(placeList)
 
-    // ✅ group/subTab을 loadAll 안에서 직접 초기화 (useEffect 타이밍 문제 방지)
     if (!initializedRef.current && placeList.length > 0) {
       const firstGroup = placeList[0].group_name || ''
       const firstSub = placeList.find(p => p.group_name === firstGroup)?.name || ''
-      setGroup(firstGroup)
-      setSubTab(firstSub)
+      setGroup(firstGroup); setSubTab(firstSub)
       initializedRef.current = true
     }
 
-    const { data: it } = await supabase
-      .from('inventory_items')
-      .select('*')
-      .eq('store_id', sid)
-      .order('name')
-
+    const { data: it } = await supabase.from('inventory_items').select('*').eq('store_id', sid).order('name')
     const itemList = it || []
     setItems(itemList)
 
     if (itemList.length > 0) {
-      const { data: st } = await supabase
-        .from('inventory_stock')
-        .select('*')
-        .in('item_id', itemList.map((x: any) => x.id))
+      const { data: st } = await supabase.from('inventory_stock').select('*').in('item_id', itemList.map((x: any) => x.id))
       const map: Record<string, any> = {}
       if (st) st.forEach((s: any) => { map[s.item_id + '-' + s.place] = s })
       setStock(map)
     }
+
+    const { data: orders } = await supabase.from('inventory_place_item_order').select('*').eq('store_id', sid)
+    const om: Record<string, Record<string, number>> = {}
+    if (orders) orders.forEach((o: any) => {
+      if (!om[o.place_name]) om[o.place_name] = {}
+      om[o.place_name][o.item_id as string] = o.sort_order
+    })
+    setItemOrders(om)
   }
 
   const getQty = useCallback((itemId: string, place: string) => stock[itemId + '-' + place]?.quantity ?? -1, [stock])
   const placeNames = useMemo(() => places.map(p => p.name), [places])
   const totalQty = useCallback((itemId: string) => placeNames.reduce((s, pl) => { const q = getQty(itemId, pl); return s + (q >= 0 ? q : 0) }, 0), [placeNames, getQty])
   const hasStock = useCallback((itemId: string, place: string) => (itemId + '-' + place) in stock, [stock])
+
+  function sortItemsByPlace(itemList: any[], placeName: string) {
+    const orders = itemOrders[placeName] || {}
+    return [...itemList].sort((a, b) => (orders[a.id as string] ?? 9999) - (orders[b.id as string] ?? 9999))
+  }
+
+  function onItemDragStart(e: React.DragEvent, itemId: string) {
+    dragItem.current = itemId
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  function onItemDragEnter(itemId: string) { dragOver.current = itemId }
+
+  async function onItemDragEnd(currentItems: any[], placeName: string) {
+    if (!dragItem.current || !dragOver.current || dragItem.current === dragOver.current) return
+    const fromIdx = currentItems.findIndex(i => i.id === dragItem.current)
+    const toIdx = currentItems.findIndex(i => i.id === dragOver.current)
+    const newList = [...currentItems]
+    const dragged = newList.splice(fromIdx, 1)[0]
+    newList.splice(toIdx, 0, dragged)
+    dragItem.current = null; dragOver.current = null
+
+    const newOrders: Record<string, Record<string, number>> = { ...itemOrders, [placeName]: {} }
+    newList.forEach((item, i) => { newOrders[placeName][item.id as string] = i + 1 })
+    setItemOrders(newOrders)
+
+    await supabase.from('inventory_place_item_order').upsert(
+      newList.map((item, i) => ({ store_id: storeId, place_name: placeName, item_id: item.id, sort_order: i + 1 })),
+      { onConflict: 'store_id,place_name,item_id' }
+    )
+  }
 
   async function updateQty(itemId: string, place: string, newVal: number) {
     const old = getQty(itemId, place)
@@ -336,19 +435,15 @@ export default function InventoryPage() {
 
   const lowItems = useMemo(() => items.filter(item => { const tot = totalQty(item.id); return tot >= 0 && tot <= item.min_qty }), [items, totalQty])
   const warnItems = useMemo(() => items.filter(item => { const tot = totalQty(item.id); const wq = item.warn_qty ?? 3; return tot > item.min_qty && tot <= wq }), [items, totalQty])
-
   const subPlaces = places.filter(p => p.group_name === group)
   const filteredBySearch = useCallback((list: any[]) => searchQ.trim() ? list.filter(item => item.name.includes(searchQ.trim())) : list, [searchQ])
-
-  const sortByStatus = useCallback((list: any[]) => {
-    return [...list].sort((a, b) => {
-      const order = { low: 0, warn: 1, ok: 2 }
-      return order[getStatus(totalQty(a.id), a.min_qty, a.warn_qty ?? 3)] - order[getStatus(totalQty(b.id), b.min_qty, b.warn_qty ?? 3)]
-    })
-  }, [totalQty])
+  const sortByStatus = useCallback((list: any[]) => [...list].sort((a, b) => {
+    const order: Record<string, number> = { low: 0, warn: 1, ok: 2 }
+    return order[getStatus(totalQty(a.id), a.min_qty, a.warn_qty ?? 3)] - order[getStatus(totalQty(b.id), b.min_qty, b.warn_qty ?? 3)]
+  }), [totalQty])
 
   const allGroupItems = sortByStatus(filteredBySearch(items.filter(item => places.filter(p => p.group_name === group).some(pl => hasStock(item.id, pl.name)))))
-  const currentItems = sortByStatus(filteredBySearch(items.filter(item => hasStock(item.id, subTab))))
+  const currentItems = sortItemsByPlace(filteredBySearch(items.filter(item => hasStock(item.id, subTab))), subTab)
 
   const statusBadge = (tot: number, minQ: number, warnQ: number) => {
     const s = getStatus(tot, minQ, warnQ)
@@ -379,17 +474,14 @@ export default function InventoryPage() {
   return (
     <div>
       {showPlaceMgr && (
-        <PlaceManager
-          storeId={storeId}
-          onClose={() => setShowPlaceMgr(false)}
-          onSaved={() => { initializedRef.current = false; loadAll(storeId) }}
-        />
+        <PlaceManager storeId={storeId} onClose={() => setShowPlaceMgr(false)}
+          onSaved={() => { initializedRef.current = false; loadAll(storeId) }} />
       )}
-
       {showSearchPanel && (
         <GlobalSearchPanel query={searchQ} items={items} places={places} stock={stock} onClose={() => setShowSearchPanel(false)} />
       )}
 
+      {/* 품목 수정 모달 */}
       {editItem && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
@@ -402,7 +494,7 @@ export default function InventoryPage() {
             </select>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 11, color: '#E84393', marginBottom: 4 }}>🔴 최소수량 (부족 기준)</div>
+                <div style={{ fontSize: 11, color: '#E84393', marginBottom: 4 }}>🔴 최소수량</div>
                 <input type="number" value={editItem.min_qty} onChange={e => setEditItem({ ...editItem, min_qty: Math.max(0, Number(e.target.value)) })} style={inp} />
               </div>
               <div style={{ flex: 1 }}>
@@ -456,13 +548,11 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* 재고부족/주의 알림 (접기/펼치기) */}
+      {/* 재고 알림 */}
       {(lowItems.length > 0 || warnItems.length > 0) && (
         <div style={{ borderRadius: 12, marginBottom: 12, overflow: 'hidden', border: '1px solid rgba(232,67,147,0.25)' }}>
-          <button
-            onClick={() => setAlertOpen(p => !p)}
-            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#FFF0F5', border: 'none', cursor: 'pointer' }}
-          >
+          <button onClick={() => setAlertOpen(p => !p)}
+            style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#FFF0F5', border: 'none', cursor: 'pointer' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#E84393' }}>🔴 재고 부족 {lowItems.length}건</span>
               {warnItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: '#B8860B' }}>⚠️ 주의 {warnItems.length}건</span>}
@@ -473,21 +563,13 @@ export default function InventoryPage() {
             <div style={{ maxHeight: 220, overflowY: 'auto' }}>
               {lowItems.length > 0 && (
                 <div style={{ background: '#FFF0F5', padding: '4px 14px 10px' }}>
-                  {lowItems.map(item => (
-                    <div key={item.id} style={{ fontSize: 11, color: '#E84393', padding: '2px 0' }}>
-                      {item.name} ({totalQty(item.id)}{item.unit} / 최소 {item.min_qty}{item.unit})
-                    </div>
-                  ))}
+                  {lowItems.map(item => <div key={item.id} style={{ fontSize: 11, color: '#E84393', padding: '2px 0' }}>{item.name} ({totalQty(item.id)}{item.unit} / 최소 {item.min_qty}{item.unit})</div>)}
                 </div>
               )}
               {warnItems.length > 0 && (
                 <div style={{ background: '#FFFBEA', padding: '10px 14px', borderTop: '1px solid rgba(253,196,0,0.3)' }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#B8860B', marginBottom: 4 }}>🟡 주의 {warnItems.length}건</div>
-                  {warnItems.map(item => (
-                    <div key={item.id} style={{ fontSize: 11, color: '#B8860B', padding: '2px 0' }}>
-                      {item.name} ({totalQty(item.id)}{item.unit} / 주의 {item.warn_qty ?? 3}{item.unit})
-                    </div>
-                  ))}
+                  {warnItems.map(item => <div key={item.id} style={{ fontSize: 11, color: '#B8860B', padding: '2px 0' }}>{item.name} ({totalQty(item.id)}{item.unit} / 주의 {item.warn_qty ?? 3}{item.unit})</div>)}
                 </div>
               )}
             </div>
@@ -495,7 +577,7 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* 1단계 그룹 탭 (DB 기반 동적) */}
+      {/* 그룹 탭 */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
         {groups.map(g => (
           <button key={g} onClick={() => setGroup(g)}
@@ -505,40 +587,35 @@ export default function InventoryPage() {
         ))}
       </div>
 
-      {/* 전체 보기 토글 */}
+      {/* 전체 보기 */}
       <button onClick={() => { setShowAll(p => !p); setSearchQ('') }}
         style={{ width: '100%', padding: '6px 0', borderRadius: 8, border: showAll ? '1px solid rgba(108,92,231,0.4)' : '1px solid #E8ECF0', background: showAll ? 'rgba(108,92,231,0.08)' : '#F4F6F9', color: showAll ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: showAll ? 700 : 400, cursor: 'pointer', marginBottom: 10 }}>
         {showAll ? '▲ 전체 목록 닫기' : '▼ 전체 목록 보기 (합산 · 품목수정 · 장소배치)'}
       </button>
 
-      {/* 검색창 */}
+      {/* 검색 */}
       <div style={{ position: 'relative', marginBottom: 12 }}>
         <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#bbb' }}>🔍</span>
-        <input
-          value={searchQ}
-          onChange={e => { setSearchQ(e.target.value); if (e.target.value.trim()) setShowSearchPanel(true) }}
+        <input value={searchQ} onChange={e => { setSearchQ(e.target.value); if (e.target.value.trim()) setShowSearchPanel(true) }}
           onFocus={() => { if (searchQ.trim()) setShowSearchPanel(true) }}
           placeholder="품목 검색... (전체 위치 표시)"
-          style={{ ...inp, paddingLeft: 30, paddingRight: searchQ ? 30 : 10 }}
-        />
-        {searchQ && (
-          <button onClick={() => { setSearchQ(''); setShowSearchPanel(false) }} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>
-        )}
+          style={{ ...inp, paddingLeft: 30, paddingRight: searchQ ? 30 : 10 }} />
+        {searchQ && <button onClick={() => { setSearchQ(''); setShowSearchPanel(false) }} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>}
       </div>
 
-      {/* 2단계 서브 탭 */}
+      {/* 서브 탭 */}
       {!showAll && (
         <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
           {subPlaces.map(pl => (
             <button key={pl.name} onClick={() => setSubTab(pl.name)}
               style={{ padding: '5px 10px', borderRadius: 8, border: subTab === pl.name ? '1px solid rgba(255,107,53,0.4)' : '1px solid #E8ECF0', background: subTab === pl.name ? 'rgba(255,107,53,0.1)' : '#F4F6F9', color: subTab === pl.name ? '#FF6B35' : '#888', fontSize: 11, fontWeight: subTab === pl.name ? 700 : 400, cursor: 'pointer' }}>
-              {pl.name.replace(group + ' ', '').replace(group, '')}
+              {pl.name.replace(group + ' ', '').replace(group, '') || pl.name}
             </button>
           ))}
         </div>
       )}
 
-      {/* 전체 탭 내용 */}
+      {/* 전체 목록 */}
       {showAll && allGroupItems.map(item => {
         const tot = totalQty(item.id)
         const wq = item.warn_qty ?? 3
@@ -555,17 +632,12 @@ export default function InventoryPage() {
                 <div style={{ fontSize: 9, color: '#bbb' }}>최소{item.min_qty} / 주의{wq}{item.unit}</div>
               </div>
             </div>
-            <div style={{ fontSize: 10, color: '#999', marginBottom: 8 }}>
-              {assignedPlaces.map(pl => `${pl} ${getQty(item.id, pl)}`).join(' · ')} {item.unit}
-            </div>
+            <div style={{ fontSize: 10, color: '#999', marginBottom: 8 }}>{assignedPlaces.map(pl => `${pl} ${getQty(item.id, pl)}`).join(' · ')} {item.unit}</div>
             {isEdit && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <button onClick={() => setEditItem({ ...item, warn_qty: item.warn_qty ?? 3 })}
-                  style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>수정</button>
-                <button onClick={() => setShowMoveItem(showMoveItem === item.id ? null : item.id)}
-                  style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.2)', color: '#2DC6D6', fontSize: 10, cursor: 'pointer' }}>장소배치</button>
-                <button onClick={() => deleteItem(item.id, item.name)}
-                  style={{ padding: '3px 8px', borderRadius: 6, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#bbb', fontSize: 10, cursor: 'pointer' }}>삭제</button>
+                <button onClick={() => setEditItem({ ...item, warn_qty: item.warn_qty ?? 3 })} style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>수정</button>
+                <button onClick={() => setShowMoveItem(showMoveItem === item.id ? null : item.id)} style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.2)', color: '#2DC6D6', fontSize: 10, cursor: 'pointer' }}>장소배치</button>
+                <button onClick={() => deleteItem(item.id, item.name)} style={{ padding: '3px 8px', borderRadius: 6, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#bbb', fontSize: 10, cursor: 'pointer' }}>삭제</button>
               </div>
             )}
             {showMoveItem === item.id && (
@@ -588,23 +660,33 @@ export default function InventoryPage() {
         )
       })}
 
-      {/* 장소별 품목 목록 */}
+      {/* 장소별 품목 */}
       {!showAll && (
         <>
+          {isEdit && currentItems.length > 1 && (
+            <div style={{ fontSize: 10, color: '#aaa', textAlign: 'center', marginBottom: 8 }}>☰ 드래그로 품목 순서를 변경할 수 있어요</div>
+          )}
           {currentItems.length === 0 ? (
             <div style={{ ...bx, textAlign: 'center', padding: 32 }}>
               <div style={{ fontSize: 24, marginBottom: 8 }}>📦</div>
               <div style={{ fontSize: 13, color: '#bbb' }}>이 장소에 배치된 품목이 없습니다</div>
             </div>
-          ) : (
-            currentItems.map(item => {
-              const q = getQty(item.id, subTab)
-              const tot = totalQty(item.id)
-              const wq = item.warn_qty ?? 3
-              const logEntry = stock[item.id + '-' + subTab]
-              return (
-                <div key={item.id} style={{ ...bx, border: borderColor(tot, item.min_qty, wq) }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          ) : currentItems.map(item => {
+            const q = getQty(item.id, subTab)
+            const tot = totalQty(item.id)
+            const wq = item.warn_qty ?? 3
+            const logEntry = stock[item.id + '-' + subTab]
+            return (
+              <div key={item.id}
+                draggable={isEdit}
+                onDragStart={e => isEdit && onItemDragStart(e, item.id)}
+                onDragEnter={() => isEdit && onItemDragEnter(item.id)}
+                onDragEnd={() => isEdit && onItemDragEnd(currentItems, subTab)}
+                onDragOver={e => e.preventDefault()}
+                style={{ ...bx, border: borderColor(tot, item.min_qty, wq), cursor: isEdit ? 'grab' : 'default' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {isEdit && <span style={{ fontSize: 14, color: '#ddd', flexShrink: 0 }}>☰</span>}
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
@@ -612,60 +694,28 @@ export default function InventoryPage() {
                       </div>
                       <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>전체 {tot}{item.unit}</div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <button onClick={() => updateQty(item.id, subTab, q - 1)}
-                        style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                      <div style={{ minWidth: 36, textAlign: 'center' }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: tot <= item.min_qty ? '#E84393' : tot <= wq ? '#B8860B' : '#1a1a2e' }}>{q < 0 ? 0 : q}</div>
-                        <div style={{ fontSize: 9, color: '#bbb' }}>{item.unit}</div>
-                      </div>
-                      <button onClick={() => updateQty(item.id, subTab, q + 1)}
-                        style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
-                    </div>
                   </div>
-                  {logEntry?.updated_by && (
-                    <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
-                      ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button onClick={() => updateQty(item.id, subTab, q - 1)}
+                      style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                    <div style={{ minWidth: 36, textAlign: 'center' }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: tot <= item.min_qty ? '#E84393' : tot <= wq ? '#B8860B' : '#1a1a2e' }}>{q < 0 ? 0 : q}</div>
+                      <div style={{ fontSize: 9, color: '#bbb' }}>{item.unit}</div>
                     </div>
-                  )}
+                    <button onClick={() => updateQty(item.id, subTab, q + 1)}
+                      style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                  </div>
                 </div>
-              )
-            })
-          )}
+                {logEntry?.updated_by && (
+                  <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
+                    ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </>
       )}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
-// 변경이력 탭
-// ─────────────────────────────────────────────
-function LogTab({ storeId, items }: { storeId: string; items: any[] }) {
-  const supabase = createSupabaseBrowserClient()
-  const [logs, setLogs] = useState<any[]>([])
-  useEffect(() => {
-    if (!items.length) return
-    supabase.from('inventory_logs').select('*, inventory_items(name,unit)').in('item_id', items.map(x => x.id))
-      .order('created_at', { ascending: false }).limit(50).then(({ data }) => setLogs(data || []))
-  }, [items])
-  return (
-    <div>
-      {logs.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 12 }}>변경 이력이 없습니다</div>}
-      {logs.map(log => (
-        <div key={log.id} style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8ECF0', padding: '10px 14px', marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{log.inventory_items?.name}</span>
-            <span style={{ fontSize: 10, color: '#999' }}>{log.place}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 11, color: '#666' }}>
-              {log.before_qty} → <span style={{ color: log.after_qty > log.before_qty ? '#00B894' : '#E84393', fontWeight: 700 }}>{log.after_qty}</span> {log.inventory_items?.unit}
-            </span>
-            <span style={{ fontSize: 10, color: '#bbb' }}>{log.changed_by} · {new Date(log.created_at).toLocaleDateString('ko')}</span>
-          </div>
-        </div>
-      ))}
     </div>
   )
 }
