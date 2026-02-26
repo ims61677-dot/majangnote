@@ -1,241 +1,413 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
-const bx = {
-  background: '#ffffff', borderRadius: 16,
-  border: '1px solid #E8ECF0', padding: 16, marginBottom: 12,
-  boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
-}
-const inp = {
-  width: '100%', padding: '8px 10px', borderRadius: 8,
-  background: '#F8F9FB', border: '1px solid #E0E4E8',
-  color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const
+const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
+const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
+
+function toDateStr(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
+// ─── 캘린더 ───
+function NoticeCalendar({ year, month, noticeDates, selectedDate, onSelectDate, onChangeMonth }: {
+  year: number; month: number; noticeDates: Set<string>
+  selectedDate: string; onSelectDate: (d: string) => void; onChangeMonth: (y: number, m: number) => void
+}) {
+  const today = toDateStr(new Date())
+  const firstDay = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const weeks: (number | null)[][] = []
+  let week: (number | null)[] = Array(firstDay).fill(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    week.push(d)
+    if (week.length === 7) { weeks.push(week); week = [] }
+  }
+  if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week) }
+  const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
+
+  return (
+    <div style={{ ...bx, padding: '14px 12px' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+        <button onClick={() => month===0 ? onChangeMonth(year-1,11) : onChangeMonth(year,month-1)} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer', padding:'0 6px' }}>‹</button>
+        <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{year}년 {month+1}월</div>
+        <button onClick={() => month===11 ? onChangeMonth(year+1,0) : onChangeMonth(year,month+1)} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer', padding:'0 6px' }}>›</button>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', marginBottom:4 }}>
+        {['일','월','화','수','목','금','토'].map((d,i) => (
+          <div key={d} style={{ textAlign:'center', fontSize:10, fontWeight:600, color: i===0?'#E84393':i===6?'#2DC6D6':'#aaa', padding:'2px 0' }}>{d}</div>
+        ))}
+      </div>
+      {weeks.map((week, wi) => (
+        <div key={wi} style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2, marginBottom:2 }}>
+          {week.map((day, di) => {
+            if (!day) return <div key={di} />
+            const dateStr = `${monthStr}-${String(day).padStart(2,'0')}`
+            const hasNotice = noticeDates.has(dateStr)
+            const isSelected = dateStr === selectedDate
+            const isToday = dateStr === today
+            return (
+              <button key={di} onClick={() => onSelectDate(dateStr)} style={{
+                display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+                padding:'4px 2px', borderRadius:8, cursor:'pointer', minHeight:40,
+                border: isSelected?'2px solid #6C5CE7':isToday?'1px solid rgba(108,92,231,0.3)':'1px solid transparent',
+                background: isSelected?'rgba(108,92,231,0.1)':hasNotice?'rgba(108,92,231,0.05)':'transparent',
+              }}>
+                <span style={{ fontSize:12, fontWeight: isSelected||isToday?700:400, color: isSelected?'#6C5CE7':di===0?'#E84393':di===6?'#2DC6D6':'#1a1a2e' }}>{day}</span>
+                {hasNotice && <span style={{ width:4, height:4, borderRadius:'50%', background:'#6C5CE7', marginTop:2 }} />}
+              </button>
+            )
+          })}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── 메인 ───
 export default function NoticePage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
-  const [user, setUser] = useState<any>(null)
-  const [notices, setNotices] = useState<any[]>([])
-  const [checks, setChecks] = useState<any[]>([])
-  const [tab, setTab] = useState<'notice' | 'check'>('notice')
-  const [showForm, setShowForm] = useState(false)
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-  const [pinned, setPinned] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [showCheckForm, setShowCheckForm] = useState(false)
-  const [newTask, setNewTask] = useState('')
+  const [userName, setUserName] = useState('')
+  const [userRole, setUserRole] = useState('')
+  const today = toDateStr(new Date())
+  const [selectedDate, setSelectedDate] = useState(today)
+  const nowD = new Date()
+  const [calYear, setCalYear] = useState(nowD.getFullYear())
+  const [calMonth, setCalMonth] = useState(nowD.getMonth())
 
-  const today = new Date().toISOString().split('T')[0]
-  const isManager = user?.role === 'owner' || user?.role === 'manager'
+  // 공지 목록
+  const [notices, setNotices] = useState<any[]>([])
+  const [noticeDates, setNoticeDates] = useState<Set<string>>(new Set())
+  const [todoChecks, setTodoChecks] = useState<Record<string, any[]>>({})
+
+  // 선택된 날짜의 공지들
+  const [selectedNotices, setSelectedNotices] = useState<any[]>([])
+
+  // 공지 작성 폼
+  const [showForm, setShowForm] = useState(false)
+  const [formTitle, setFormTitle] = useState('')
+  const [formContent, setFormContent] = useState('')
+  const [formTodos, setFormTodos] = useState<string[]>([''])
+  const [editingNotice, setEditingNotice] = useState<any>(null)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const isManager = userRole === 'owner' || userRole === 'manager'
+  const isOwner = userRole === 'owner'
 
   useEffect(() => {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
-    const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
+    const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
     if (!store.id) return
-    setStoreId(store.id); setUser(u)
-    loadNotices(store.id); loadChecks(store.id)
+    setStoreId(store.id)
+    setUserName(user.nm || '')
+    setUserRole(user.role || '')
+    loadNotices(store.id)
   }, [])
 
+  useEffect(() => {
+    if (storeId) loadSelectedNotices(storeId, selectedDate)
+  }, [selectedDate, storeId])
+
   async function loadNotices(sid: string) {
-    const { data } = await supabase.from('notices').select('*').eq('store_id', sid)
-      .order('pinned', { ascending: false }).order('created_at', { ascending: false })
+    const { data } = await supabase
+      .from('notices')
+      .select('id, notice_date, title, is_from_closing')
+      .eq('store_id', sid)
+      .order('notice_date', { ascending: false })
+    const dates = new Set((data || []).map((n: any) => n.notice_date as string))
+    setNoticeDates(dates)
     setNotices(data || [])
   }
 
-  async function loadChecks(sid: string) {
-    const { data } = await supabase.from('checklist_items').select('*').eq('store_id', sid).eq('date', today).order('created_at')
-    setChecks(data || [])
+  async function loadSelectedNotices(sid: string, date: string) {
+    const { data } = await supabase
+      .from('notices')
+      .select('*, notice_todos(*)')
+      .eq('store_id', sid)
+      .eq('notice_date', date)
+      .order('created_at')
+    setSelectedNotices(data || [])
+
+    // 체크 로드
+    const allTodoIds = (data || []).flatMap((n: any) => (n.notice_todos || []).map((t: any) => t.id))
+    if (allTodoIds.length > 0) {
+      const { data: chks } = await supabase
+        .from('notice_todo_checks')
+        .select('*')
+        .in('todo_id', allTodoIds)
+      const tm: Record<string, any[]> = {}
+      if (chks) chks.forEach((c: any) => { if (!tm[c.todo_id]) tm[c.todo_id] = []; tm[c.todo_id].push(c) })
+      setTodoChecks(tm)
+    } else { setTodoChecks({}) }
+
+    // 전날 마감 전달사항 자동 연동 확인
+    if (sid) checkAndImportClosingTodos(sid, date)
   }
 
+  // 전날 마감 전달사항을 공지로 자동 가져오기
+  async function checkAndImportClosingTodos(sid: string, date: string) {
+    const prevDate = new Date(date)
+    prevDate.setDate(prevDate.getDate() - 1)
+    const prevDateStr = toDateStr(prevDate)
+
+    // 이미 연동된 공지 있는지 확인
+    const { data: existing } = await supabase
+      .from('notices')
+      .select('id')
+      .eq('store_id', sid)
+      .eq('notice_date', date)
+      .eq('is_from_closing', true)
+      .maybeSingle()
+    if (existing) return // 이미 있으면 skip
+
+    // 전날 마감 전달사항 확인
+    const { data: closing } = await supabase
+      .from('closings')
+      .select('id')
+      .eq('store_id', sid)
+      .eq('closing_date', prevDateStr)
+      .maybeSingle()
+    if (!closing) return
+
+    const { data: todos } = await supabase
+      .from('closing_next_todos')
+      .select('*')
+      .eq('closing_id', closing.id)
+    if (!todos || todos.length === 0) return
+
+    // 공지 자동 생성
+    const { data: newNotice } = await supabase
+      .from('notices')
+      .insert({
+        store_id: sid,
+        title: `📢 ${prevDateStr.replace(/-/g,'.')} 마감 전달사항`,
+        content: '',
+        notice_date: date,
+        created_by: 'system',
+        closing_id: closing.id,
+        is_from_closing: true
+      })
+      .select()
+      .single()
+
+    if (newNotice) {
+      const todoRows = todos.map((t: any) => ({
+        notice_id: newNotice.id,
+        content: t.content,
+        created_by: t.created_by
+      }))
+      await supabase.from('notice_todos').insert(todoRows)
+      loadSelectedNotices(sid, date)
+      loadNotices(sid)
+    }
+  }
+
+  function handleSelectDate(d: string) {
+    setSelectedDate(d)
+    const [y, m] = d.split('-').map(Number)
+    setCalYear(y); setCalMonth(m - 1)
+    setShowForm(false)
+  }
+
+  // 체크 토글
+  // 권한: 대표 = 모든 날짜 체크 가능, 나머지 = 당일만
+  function canCheck(noticeDate: string) {
+    if (isOwner) return true
+    return noticeDate === today
+  }
+
+  async function toggleTodoCheck(todoId: string, noticeDate: string) {
+    if (!canCheck(noticeDate)) {
+      alert('당일 공지만 체크할 수 있습니다. (대표는 모든 날짜 가능)')
+      return
+    }
+    const myCheck = (todoChecks[todoId] || []).find((c: any) => c.checked_by === userName)
+    if (myCheck) {
+      await supabase.from('notice_todo_checks').delete().eq('id', myCheck.id)
+      setTodoChecks(p => ({ ...p, [todoId]: (p[todoId]||[]).filter((c: any) => c.id !== myCheck.id) }))
+    } else {
+      const { data } = await supabase.from('notice_todo_checks').insert({
+        todo_id: todoId, checked_by: userName, checked_at: new Date().toISOString()
+      }).select().single()
+      setTodoChecks(p => ({ ...p, [todoId]: [...(p[todoId]||[]), data] }))
+    }
+  }
+
+  // 공지 저장
   async function saveNotice() {
-    if (!title.trim() || !storeId) return
-    setSaving(true)
-    const { data } = await supabase.from('notices').insert({
-      store_id: storeId, title: title.trim(), body: body.trim(), pinned, author_nm: user?.nm || ''
-    }).select().single()
-    if (data) setNotices(p => [data, ...p].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)))
-    setTitle(''); setBody(''); setPinned(false); setShowForm(false); setSaving(false)
+    if (!formTitle.trim()) { alert('제목을 입력해주세요'); return }
+    if (!isManager) { alert('매니저/대표만 공지를 작성할 수 있습니다.'); return }
+    setIsSaving(true)
+    try {
+      let noticeId: string
+      if (editingNotice) {
+        await supabase.from('notices').update({ title: formTitle, content: formContent }).eq('id', editingNotice.id)
+        noticeId = editingNotice.id
+        await supabase.from('notice_todos').delete().eq('notice_id', noticeId)
+      } else {
+        const { data, error } = await supabase.from('notices').insert({
+          store_id: storeId, title: formTitle, content: formContent,
+          notice_date: selectedDate, created_by: userName, is_from_closing: false
+        }).select().single()
+        if (error) throw error
+        noticeId = data.id
+      }
+      const validTodos = formTodos.filter(t => t.trim())
+      if (validTodos.length > 0) {
+        await supabase.from('notice_todos').insert(validTodos.map(content => ({ notice_id: noticeId, content, created_by: userName })))
+      }
+      setShowForm(false); setFormTitle(''); setFormContent(''); setFormTodos(['']); setEditingNotice(null)
+      loadSelectedNotices(storeId, selectedDate)
+      loadNotices(storeId)
+    } catch (e: any) {
+      alert('저장 실패: ' + e?.message)
+    } finally { setIsSaving(false) }
   }
 
   async function deleteNotice(id: string) {
+    if (!isManager) { alert('매니저/대표만 삭제할 수 있습니다.'); return }
     if (!confirm('공지를 삭제할까요?')) return
     await supabase.from('notices').delete().eq('id', id)
-    setNotices(p => p.filter(n => n.id !== id))
+    loadSelectedNotices(storeId, selectedDate)
+    loadNotices(storeId)
   }
 
-  async function toggleCheck(id: string, done: boolean) {
-    const now = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-    await supabase.from('checklist_items').update({
-      done: !done, done_by: !done ? user?.nm : null, done_at: !done ? now : null
-    }).eq('id', id)
-    setChecks(p => p.map(c => c.id === id ? { ...c, done: !done, done_by: !done ? user?.nm : null, done_at: !done ? now : null } : c))
+  function startEdit(notice: any) {
+    if (!isManager) return
+    setEditingNotice(notice)
+    setFormTitle(notice.title)
+    setFormContent(notice.content || '')
+    setFormTodos(notice.notice_todos?.map((t: any) => t.content) || [''])
+    setShowForm(true)
   }
-
-  async function addCheck() {
-    if (!newTask.trim() || !storeId) return
-    const { data } = await supabase.from('checklist_items').insert({
-      store_id: storeId, date: today, task: newTask.trim()
-    }).select().single()
-    if (data) setChecks(p => [...p, data])
-    setNewTask(''); setShowCheckForm(false)
-  }
-
-  async function deleteCheck(id: string) {
-    await supabase.from('checklist_items').delete().eq('id', id)
-    setChecks(p => p.filter(c => c.id !== id))
-  }
-
-  const doneCount = checks.filter(c => c.done).length
 
   return (
     <div>
-      {/* 탭 */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {(['notice', 'check'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
-              fontWeight: 700, fontSize: 13,
-              background: tab === t ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#F4F6F9',
-              color: tab === t ? '#fff' : '#999' }}>
-            {t === 'notice' ? `📢 공지사항 (${notices.length})` : `✅ 체크리스트 (${doneCount}/${checks.length})`}
+      {/* 헤더 */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+        <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>📢 공지</span>
+        {isManager && (
+          <button onClick={() => { setShowForm(p => !p); setEditingNotice(null); setFormTitle(''); setFormContent(''); setFormTodos(['']) }}
+            style={{ padding:'6px 14px', borderRadius:9, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+            {showForm ? '✕ 취소' : '+ 공지 작성'}
           </button>
-        ))}
+        )}
       </div>
 
-      {tab === 'notice' && (
-        <div>
-          {isManager && (
-            <button onClick={() => setShowForm(p => !p)}
-              style={{ width: '100%', padding: '10px 0', borderRadius: 10, marginBottom: 12,
-                background: showForm ? '#F4F6F9' : 'rgba(255,107,53,0.08)',
-                border: '1px solid rgba(255,107,53,0.3)',
-                color: '#FF6B35', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              {showForm ? '✕ 취소' : '+ 공지 작성'}
-            </button>
-          )}
-          {showForm && (
-            <div style={{ ...bx, border: '1px solid rgba(255,107,53,0.3)', marginBottom: 16 }}>
-              <input value={title} onChange={e => setTitle(e.target.value)}
-                placeholder="제목" style={{ ...inp, marginBottom: 8 }} />
-              <textarea value={body} onChange={e => setBody(e.target.value)}
-                placeholder="내용 (선택)" rows={3} style={{ ...inp, resize: 'vertical', marginBottom: 8 }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <input type="checkbox" id="pin" checked={pinned} onChange={e => setPinned(e.target.checked)} />
-                <label htmlFor="pin" style={{ fontSize: 12, color: '#888', cursor: 'pointer' }}>📌 상단 고정</label>
-              </div>
-              <button onClick={saveNotice} disabled={saving}
-                style={{ padding: '8px 20px', borderRadius: 8,
-                  background: saving ? '#ccc' : 'linear-gradient(135deg,#FF6B35,#E84393)',
-                  border: 'none', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
-                {saving ? '저장 중...' : '등록'}
-              </button>
-            </div>
-          )}
-          {notices.length === 0 ? (
-            <div style={{ ...bx, textAlign: 'center', padding: 32 }}>
-              <div style={{ fontSize: 24, marginBottom: 8 }}>📢</div>
-              <div style={{ fontSize: 13, color: '#bbb' }}>등록된 공지사항이 없습니다</div>
-            </div>
-          ) : notices.map(n => (
-            <div key={n.id} style={{ ...bx, border: n.pinned ? '1px solid rgba(255,107,53,0.3)' : '1px solid #E8ECF0',
-              background: n.pinned ? '#FFF8F5' : '#fff' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    {n.pinned && <span style={{ fontSize: 10, color: '#FF6B35', fontWeight: 700 }}>📌 고정</span>}
-                    <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>{n.title}</span>
-                  </div>
-                  {n.body && <div style={{ fontSize: 12, color: '#666', marginBottom: 6, lineHeight: 1.6 }}>{n.body}</div>}
-                  <div style={{ fontSize: 10, color: '#bbb' }}>
-                    {n.author_nm} · {new Date(n.created_at).toLocaleDateString('ko-KR')}
-                  </div>
-                </div>
-                {isManager && (
-                  <button onClick={() => deleteNotice(n.id)}
-                    style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: 14, padding: '0 4px' }}>✕</button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === 'check' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: 13, color: '#999' }}>
-              {new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })} 체크리스트
-            </span>
-            {isManager && (
-              <button onClick={() => setShowCheckForm(p => !p)}
-                style={{ padding: '6px 12px', borderRadius: 8,
-                  background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)',
-                  color: '#2DC6D6', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                + 항목 추가
-              </button>
-            )}
+      {/* 공지 작성 폼 */}
+      {showForm && isManager && (
+        <div style={{ ...bx, border:'1px solid rgba(108,92,231,0.3)', background:'rgba(108,92,231,0.02)' }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'#6C5CE7', marginBottom:12 }}>
+            {editingNotice ? '✏️ 공지 수정' : `✏️ ${selectedDate.replace(/-/g,'.')} 공지 작성`}
           </div>
+          <input value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="공지 제목" style={{ ...inp, marginBottom:8 }} />
+          <textarea value={formContent} onChange={e => setFormContent(e.target.value)} placeholder="공지 내용 (선택사항)" rows={3}
+            style={{ ...inp, resize:'none' as const, lineHeight:1.6, marginBottom:10 }} />
 
-          {showCheckForm && (
-            <div style={{ ...bx, display: 'flex', gap: 8, marginBottom: 12 }}>
-              <input value={newTask} onChange={e => setNewTask(e.target.value)}
-                placeholder="할 일 입력" style={{ ...inp, flex: 1 }}
-                onKeyDown={e => e.key === 'Enter' && addCheck()} />
-              <button onClick={addCheck}
-                style={{ padding: '8px 16px', borderRadius: 8, background: '#2DC6D6',
-                  border: 'none', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>추가</button>
-            </div>
-          )}
-
-          {checks.length > 0 && (
-            <div style={{ ...bx, padding: 14, marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 8 }}>
-                <span style={{ color: '#999' }}>진행률</span>
-                <span style={{ color: '#00B894', fontWeight: 700 }}>{doneCount}/{checks.length}</span>
-              </div>
-              <div style={{ background: '#F4F6F9', borderRadius: 6, height: 8, overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: 6,
-                  width: `${checks.length ? (doneCount / checks.length) * 100 : 0}%`,
-                  background: 'linear-gradient(90deg,#00B894,#2DC6D6)', transition: 'width 0.3s' }} />
-              </div>
-            </div>
-          )}
-
-          {checks.length === 0 ? (
-            <div style={{ ...bx, textAlign: 'center', padding: 32 }}>
-              <div style={{ fontSize: 24, marginBottom: 8 }}>✅</div>
-              <div style={{ fontSize: 13, color: '#bbb' }}>오늘의 체크리스트가 없습니다</div>
-            </div>
-          ) : checks.map(c => (
-            <div key={c.id} style={{ ...bx, display: 'flex', alignItems: 'center', gap: 12,
-              opacity: c.done ? 0.6 : 1, transition: 'opacity 0.2s' }}>
-              <button onClick={() => toggleCheck(c.id, c.done)}
-                style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, cursor: 'pointer',
-                  background: c.done ? '#00B894' : '#F4F6F9',
-                  border: c.done ? 'none' : '1px solid #E0E4E8',
-                  color: '#fff', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {c.done ? '✓' : ''}
-              </button>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 500,
-                  textDecoration: c.done ? 'line-through' : 'none',
-                  color: c.done ? '#bbb' : '#1a1a2e' }}>
-                  {c.task}
-                </div>
-                {c.done && c.done_by && (
-                  <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>{c.done_by} · {c.done_at}</div>
-                )}
-              </div>
-              {isManager && (
-                <button onClick={() => deleteCheck(c.id)}
-                  style={{ background: 'none', border: 'none', color: '#ddd', cursor: 'pointer', fontSize: 14 }}>✕</button>
+          <div style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginBottom:6 }}>✅ 할일 체크리스트</div>
+          {formTodos.map((todo, i) => (
+            <div key={i} style={{ display:'flex', gap:6, marginBottom:6 }}>
+              <input value={todo} onChange={e => {
+                const next = [...formTodos]; next[i] = e.target.value; setFormTodos(next)
+              }} placeholder={`할일 ${i+1}`} style={{ ...inp, flex:1 }} />
+              {formTodos.length > 1 && (
+                <button onClick={() => setFormTodos(formTodos.filter((_,j) => j !== i))}
+                  style={{ padding:'8px 10px', borderRadius:8, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#bbb', cursor:'pointer', fontSize:13 }}>✕</button>
               )}
             </div>
           ))}
+          <button onClick={() => setFormTodos([...formTodos, ''])}
+            style={{ width:'100%', padding:'7px 0', borderRadius:8, border:'1px dashed #E8ECF0', background:'transparent', color:'#bbb', fontSize:12, cursor:'pointer', marginBottom:12 }}>
+            + 할일 추가
+          </button>
+
+          <button onClick={saveNotice} disabled={isSaving}
+            style={{ width:'100%', padding:'12px 0', borderRadius:12, background: isSaving?'#ddd':'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:14, fontWeight:700, cursor: isSaving?'not-allowed':'pointer' }}>
+            {isSaving ? '저장 중...' : editingNotice ? '수정 저장' : '공지 등록'}
+          </button>
         </div>
+      )}
+
+      {/* 캘린더 */}
+      <NoticeCalendar year={calYear} month={calMonth} noticeDates={noticeDates} selectedDate={selectedDate}
+        onSelectDate={handleSelectDate} onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }} />
+
+      {/* 선택 날짜 */}
+      <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:10, paddingLeft:4 }}>
+        {selectedDate.replace(/-/g,'.')} 공지
+        {selectedDate === today && <span style={{ fontSize:10, color:'#FF6B35', background:'rgba(255,107,53,0.1)', padding:'1px 7px', borderRadius:6, marginLeft:6 }}>오늘</span>}
+      </div>
+
+      {selectedNotices.length === 0 ? (
+        <div style={{ ...bx, textAlign:'center', padding:28, color:'#bbb' }}>
+          <div style={{ fontSize:20, marginBottom:8 }}>📭</div>
+          <div style={{ fontSize:13 }}>이 날짜에 공지가 없습니다</div>
+          {isManager && <div style={{ fontSize:11, marginTop:6, color:'#aaa' }}>상단 "+ 공지 작성" 버튼으로 추가하세요</div>}
+        </div>
+      ) : (
+        selectedNotices.map(notice => (
+          <div key={notice.id} style={{ ...bx, border: notice.is_from_closing ? '1px solid rgba(255,107,53,0.3)' : '1px solid #E8ECF0', background: notice.is_from_closing ? 'rgba(255,107,53,0.02)' : '#fff' }}>
+            {/* 공지 헤더 */}
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: notice.content ? 8 : 0 }}>
+              <div>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
+                  {notice.is_from_closing && <span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(255,107,53,0.12)', color:'#FF6B35', fontWeight:700 }}>마감연동</span>}
+                  <span style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>{notice.title}</span>
+                </div>
+                <span style={{ fontSize:10, color:'#bbb' }}>{notice.created_by} · {new Date(notice.created_at).toLocaleTimeString('ko',{hour:'2-digit',minute:'2-digit',hour12:false})}</span>
+              </div>
+              {isManager && !notice.is_from_closing && (
+                <div style={{ display:'flex', gap:6 }}>
+                  <button onClick={() => startEdit(notice)} style={{ fontSize:11, color:'#aaa', background:'none', border:'none', cursor:'pointer' }}>수정</button>
+                  <button onClick={() => deleteNotice(notice.id)} style={{ fontSize:11, color:'#E84393', background:'none', border:'none', cursor:'pointer' }}>삭제</button>
+                </div>
+              )}
+            </div>
+
+            {notice.content && (
+              <div style={{ fontSize:13, color:'#444', lineHeight:1.7, background:'#F8F9FB', borderRadius:10, padding:'10px 12px', marginBottom:10 }}>
+                {notice.content}
+              </div>
+            )}
+
+            {/* 할일 체크리스트 */}
+            {notice.notice_todos && notice.notice_todos.length > 0 && (
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginBottom:6 }}>✅ 할일 체크리스트</div>
+                {notice.notice_todos.map((todo: any) => {
+                  const chks = todoChecks[todo.id] || []
+                  const myChecked = chks.find((c: any) => c.checked_by === userName)
+                  const canChk = canCheck(notice.notice_date)
+                  return (
+                    <div key={todo.id} style={{ borderRadius:10, border: myChecked?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0', background: myChecked?'rgba(0,184,148,0.04)':'#F8F9FB', marginBottom:6, overflow:'hidden' }}>
+                      <button onClick={() => toggleTodoCheck(todo.id, notice.notice_date)}
+                        style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'none', border:'none', cursor: canChk?'pointer':'not-allowed', textAlign:'left' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                          <span style={{ fontSize:17, color: myChecked?'#00B894':'#ddd', lineHeight:1, flexShrink:0 }}>{myChecked?'✓':'○'}</span>
+                          <span style={{ fontSize:13, color: myChecked?'#00B894':canChk?'#444':'#bbb', textDecoration: myChecked?'line-through':'none' }}>{todo.content}</span>
+                        </div>
+                        {!canChk && <span style={{ fontSize:9, color:'#bbb', flexShrink:0 }}>당일만</span>}
+                      </button>
+                      {chks.length > 0 && (
+                        <div style={{ padding:'6px 14px 10px', borderTop:'1px solid rgba(0,184,148,0.1)', background:'rgba(0,184,148,0.02)' }}>
+                          <div style={{ fontSize:9, color:'#00B894', fontWeight:700, marginBottom:3 }}>✓ 확인한 사람</div>
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                            {chks.map((c: any) => (
+                              <span key={c.id} style={{ fontSize:10, color:'#00B894', background:'rgba(0,184,148,0.1)', padding:'1px 7px', borderRadius:10 }}>
+                                {c.checked_by} · {new Date(c.checked_at).toLocaleTimeString('ko',{hour:'2-digit',minute:'2-digit',hour12:false})}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        ))
       )}
     </div>
   )
