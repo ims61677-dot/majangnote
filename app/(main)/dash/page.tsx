@@ -14,6 +14,12 @@ const bx = {
 
 function fmtW(n: number) { return n.toLocaleString('ko-KR') + '원' }
 
+function getStatus(tot: number, minQty: number, warnQty: number) {
+  if (tot <= minQty) return 'low'
+  if (tot <= warnQty) return 'warn'
+  return 'ok'
+}
+
 export default function DashPage() {
   const supabase = createSupabaseBrowserClient()
   const router = useRouter()
@@ -22,12 +28,10 @@ export default function DashPage() {
   const [mo, setMo] = useState(now.getMonth() + 1)
   const [storeId, setStoreId] = useState('')
 
-  // 마감일지 매출
-  const [closings, setClosings] = useState<any[]>([])       // closings rows
-  const [salesRows, setSalesRows] = useState<any[]>([])     // closing_sales rows
-
-  // 재고
-  const [inventory, setInventory] = useState<any[]>([])
+  const [closings, setClosings] = useState<any[]>([])
+  const [salesRows, setSalesRows] = useState<any[]>([])
+  const [items, setItems] = useState<any[]>([])
+  const [stock, setStock] = useState<any[]>([])
 
   useEffect(() => {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
@@ -53,8 +57,6 @@ export default function DashPage() {
   async function loadSales(sid: string) {
     const from = `${yr}-${String(mo).padStart(2, '0')}-01`
     const to = `${yr}-${String(mo).padStart(2, '0')}-${String(new Date(yr, mo, 0).getDate()).padStart(2, '0')}`
-
-    // ✅ closing_date 컬럼으로 올바르게 조회
     const { data: cls } = await supabase
       .from('closings')
       .select('id, closing_date')
@@ -62,33 +64,35 @@ export default function DashPage() {
       .gte('closing_date', from)
       .lte('closing_date', to)
     setClosings(cls || [])
-
     if (!cls || cls.length === 0) { setSalesRows([]); return }
-
-    // ✅ closing_sales 테이블에서 매출 조회
     const { data: sv } = await supabase
       .from('closing_sales')
-      .select('closing_id, platform, amount')
+      .select('closing_id, amount')
       .in('closing_id', cls.map((c: any) => c.id))
     setSalesRows(sv || [])
   }
 
   async function loadInventory(sid: string) {
-    const { data } = await supabase
+    const { data: it } = await supabase
       .from('inventory_items')
-      .select('*')
+      .select('id, name, unit, min_qty, warn_qty')
       .eq('store_id', sid)
-    setInventory(data || [])
+    setItems(it || [])
+    if (!it || it.length === 0) return
+    const { data: st } = await supabase
+      .from('inventory_stock')
+      .select('item_id, quantity')
+      .in('item_id', it.map((x: any) => x.id))
+    setStock(st || [])
   }
 
-  // 날짜별 매출 합산
   const dailySales = useMemo(() => {
     return closings.map(cl => {
       const total = salesRows
         .filter(s => s.closing_id === cl.id)
         .reduce((sum, s) => sum + (s.amount || 0), 0)
       const day = parseInt(cl.closing_date.split('-')[2])
-      return { d: day, t: total, date: cl.closing_date }
+      return { d: day, t: total }
     }).filter(x => x.t > 0)
   }, [closings, salesRows])
 
@@ -103,21 +107,22 @@ export default function DashPage() {
     }
   }, [dailySales])
 
-  // 재고 부족/주의 필터
-  const alertItems = useMemo(() => {
-    return inventory.filter(item => {
-      if (item.status === 'low' || item.status === 'out') return true
-      // status 없으면 수량으로 판단
-      if (item.quantity !== null && item.quantity !== undefined) {
-        if (item.quantity === 0) return true
-        if (item.min_quantity && item.quantity <= item.min_quantity) return true
-      }
-      return false
-    })
-  }, [inventory])
+  // 품목별 총 재고
+  const totalQtyMap = useMemo(() => {
+    const map: Record<string, number> = {}
+    stock.forEach(s => { map[s.item_id] = (map[s.item_id] || 0) + (s.quantity || 0) })
+    return map
+  }, [stock])
 
-  const dangerItems = alertItems.filter(i => i.quantity === 0 || i.status === 'out')
-  const warnItems = alertItems.filter(i => i.quantity !== 0 && i.status !== 'out')
+  const lowItems = useMemo(() =>
+    items.filter(item => getStatus(totalQtyMap[item.id] ?? 0, item.min_qty ?? 1, item.warn_qty ?? 3) === 'low'),
+    [items, totalQtyMap])
+
+  const warnItems = useMemo(() =>
+    items.filter(item => getStatus(totalQtyMap[item.id] ?? 0, item.min_qty ?? 1, item.warn_qty ?? 3) === 'warn'),
+    [items, totalQtyMap])
+
+  const hasAlert = lowItems.length > 0 || warnItems.length > 0
 
   return (
     <div>
@@ -130,57 +135,49 @@ export default function DashPage() {
           style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', color: '#555', fontSize: 14 }}>→</button>
       </div>
 
-      {/* 재고 알림 - 부족/주의 있을 때만 표시 */}
-      {alertItems.length > 0 && (
+      {/* 재고 알림 - 있을 때만 표시, 누르면 재고탭 이동 */}
+      {hasAlert && (
         <div
           onClick={() => router.push('/inventory')}
           style={{
             ...bx,
             cursor: 'pointer',
-            border: dangerItems.length > 0 ? '1px solid rgba(232,67,147,0.4)' : '1px solid rgba(253,196,0,0.4)',
-            background: dangerItems.length > 0 ? 'rgba(232,67,147,0.04)' : 'rgba(253,196,0,0.04)',
+            border: lowItems.length > 0 ? '1px solid rgba(232,67,147,0.4)' : '1px solid rgba(253,196,0,0.4)',
+            background: lowItems.length > 0 ? 'rgba(232,67,147,0.04)' : 'rgba(253,196,0,0.04)',
           }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 14 }}>{dangerItems.length > 0 ? '🚨' : '⚠️'}</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: dangerItems.length > 0 ? '#E84393' : '#B8860B' }}>
-                재고 {dangerItems.length > 0 ? '부족' : '주의'} 알림
+              <span style={{ fontSize: 14 }}>{lowItems.length > 0 ? '🚨' : '⚠️'}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: lowItems.length > 0 ? '#E84393' : '#B8860B' }}>
+                재고 알림
+                {lowItems.length > 0 && <span style={{ fontSize: 11, background: 'rgba(232,67,147,0.12)', padding: '1px 6px', borderRadius: 4, marginLeft: 6 }}>부족 {lowItems.length}건</span>}
+                {warnItems.length > 0 && <span style={{ fontSize: 11, background: 'rgba(253,196,0,0.15)', padding: '1px 6px', borderRadius: 4, marginLeft: 4, color: '#B8860B' }}>주의 {warnItems.length}건</span>}
               </span>
             </div>
-            <span style={{ fontSize: 11, color: '#aaa' }}>재고 탭으로 →</span>
+            <span style={{ fontSize: 11, color: '#aaa' }}>재고 탭 →</span>
           </div>
 
-          {/* 부족 (수량 0) */}
-          {dangerItems.length > 0 && (
-            <div style={{ marginBottom: warnItems.length > 0 ? 8 : 0 }}>
-              {dangerItems.slice(0, 3).map(item => (
-                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderRadius: 8, background: 'rgba(232,67,147,0.08)', marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: '#1a1a2e' }}>{item.name}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#E84393', background: 'rgba(232,67,147,0.12)', padding: '2px 8px', borderRadius: 6 }}>재고 없음</span>
-                </div>
-              ))}
-              {dangerItems.length > 3 && (
-                <div style={{ fontSize: 11, color: '#E84393', textAlign: 'center', marginTop: 2 }}>외 {dangerItems.length - 3}개 더</div>
-              )}
+          {/* 부족 목록 */}
+          {lowItems.slice(0, 4).map(item => (
+            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 10px', borderRadius: 8, background: 'rgba(232,67,147,0.08)', marginBottom: 4 }}>
+              <span style={{ fontSize: 12, color: '#1a1a2e' }}>{item.name}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#E84393' }}>
+                {totalQtyMap[item.id] ?? 0}{item.unit} / 최소 {item.min_qty}{item.unit}
+              </span>
             </div>
-          )}
+          ))}
+          {lowItems.length > 4 && <div style={{ fontSize: 11, color: '#E84393', textAlign: 'center', marginBottom: 4 }}>외 {lowItems.length - 4}건 더</div>}
 
-          {/* 주의 (최소수량 이하) */}
-          {warnItems.length > 0 && (
-            <div>
-              {warnItems.slice(0, 3).map(item => (
-                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderRadius: 8, background: 'rgba(253,196,0,0.08)', marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: '#1a1a2e' }}>{item.name}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#B8860B', background: 'rgba(253,196,0,0.15)', padding: '2px 8px', borderRadius: 6 }}>
-                    {item.quantity !== undefined ? `${item.quantity}${item.unit || ''}` : '주의'}
-                  </span>
-                </div>
-              ))}
-              {warnItems.length > 3 && (
-                <div style={{ fontSize: 11, color: '#B8860B', textAlign: 'center', marginTop: 2 }}>외 {warnItems.length - 3}개 더</div>
-              )}
+          {/* 주의 목록 */}
+          {warnItems.slice(0, 3).map(item => (
+            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 10px', borderRadius: 8, background: 'rgba(253,196,0,0.08)', marginBottom: 4 }}>
+              <span style={{ fontSize: 12, color: '#1a1a2e' }}>{item.name}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#B8860B' }}>
+                {totalQtyMap[item.id] ?? 0}{item.unit} / 주의 {item.warn_qty ?? 3}{item.unit}
+              </span>
             </div>
-          )}
+          ))}
+          {warnItems.length > 3 && <div style={{ fontSize: 11, color: '#B8860B', textAlign: 'center' }}>외 {warnItems.length - 3}건 더</div>}
         </div>
       )}
 
