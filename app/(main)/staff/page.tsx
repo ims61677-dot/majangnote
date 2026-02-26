@@ -36,16 +36,32 @@ export default function StaffPage() {
     setMembers(data || [])
   }
 
-  async function addStaff() {
+ async function addStaff() {
     if (!nm.trim() || !storeId) return
     setSaving(true)
-    // 프로필 생성
-    const { data: profile } = await supabase.from('profiles')
-      .insert({ nm: nm.trim(), role, phone: phone.trim(), pin: '1234' })
-      .select().single()
+
+    // 기존 프로필 검색
+    const { data: existing } = await supabase.from('profiles')
+      .select('*').eq('nm', nm.trim()).limit(1)
+
+    let profile = existing?.[0]
+
+    if (!profile) {
+      // 없으면 새로 생성
+      const { data: newProfile } = await supabase.from('profiles')
+        .insert({ nm: nm.trim(), role, phone: phone.trim(), pin: '1234' })
+        .select().single()
+      profile = newProfile
+    }
+
     if (profile) {
-      // 매장 연결
-      await supabase.from('store_members').insert({ store_id: storeId, profile_id: profile.id, role, active: true })
+      // 이미 이 매장에 등록됐는지 확인
+      const { data: already } = await supabase.from('store_members')
+        .select('*').eq('store_id', storeId).eq('profile_id', profile.id).limit(1)
+
+      if (!already?.length) {
+        await supabase.from('store_members').insert({ store_id: storeId, profile_id: profile.id, role, active: true })
+      }
       await loadMembers(storeId)
     }
     setNm(''); setRole('staff'); setPhone(''); setShowForm(false); setSaving(false)
