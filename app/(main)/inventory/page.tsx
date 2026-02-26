@@ -1,10 +1,9 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
-const btnSm = { background: '#F4F6F9', border: '1px solid #E8ECF0', borderRadius: 8, padding: '4px 12px', color: '#555', cursor: 'pointer', fontSize: 13 }
 
 export default function InventoryPage() {
   const supabase = createSupabaseBrowserClient()
@@ -14,24 +13,31 @@ export default function InventoryPage() {
   const [items, setItems] = useState<any[]>([])
   const [places, setPlaces] = useState<string[]>([])
   const [stock, setStock] = useState<Record<string, any>>({})
-  const [tab, setTab] = useState<'dash'|'log'>('dash')
+  const [invTab, setInvTab] = useState<string>('dash')
   const [showAdd, setShowAdd] = useState(false)
-  const [nm, setNm] = useState(''); const [unit, setUnit] = useState('ea'); const [minQty, setMinQty] = useState(2)
+  const [showAddPlace, setShowAddPlace] = useState(false)
+  const [newPlaceNm, setNewPlaceNm] = useState('')
+  const [nm, setNm] = useState('')
+  const [unit, setUnit] = useState('ea')
+  const [minQty, setMinQty] = useState(2)
+  const [showMoveItem, setShowMoveItem] = useState<string | null>(null)
+  const [showLog, setShowLog] = useState(false)
 
   useEffect(() => {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
     const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
     if (!store.id) return
-    setStoreId(store.id); setUserName(user.nm)
+    setStoreId(store.id)
+    setUserName(user.nm)
     setIsEdit(user.role === 'owner' || user.role === 'manager')
     loadAll(store.id)
   }, [])
 
   async function loadAll(sid: string) {
     const { data: pl } = await supabase.from('inventory_places').select('name').eq('store_id', sid).order('sort_order')
-    const plNames = pl && pl.length > 0 ? pl.map((p: any) => p.name) : ['홀','창고','주방','배달용품']
+    const plNames = pl && pl.length > 0 ? pl.map((p: any) => p.name) : ['홀', '창고', '주방', '배달용품']
     if (!pl || pl.length === 0) {
-      await supabase.from('inventory_places').insert(plNames.map((n,i) => ({ store_id: sid, name: n, sort_order: i })))
+      await supabase.from('inventory_places').insert(plNames.map((n, i) => ({ store_id: sid, name: n, sort_order: i })))
     }
     setPlaces(plNames)
     const { data: it } = await supabase.from('inventory_items').select('*').eq('store_id', sid)
@@ -46,13 +52,15 @@ export default function InventoryPage() {
 
   const getQty = useCallback((itemId: string, place: string) => stock[itemId + '-' + place]?.quantity ?? -1, [stock])
   const totalQty = useCallback((itemId: string) => places.reduce((s, pl) => { const q = getQty(itemId, pl); return s + (q >= 0 ? q : 0) }, 0), [places, getQty])
+  const hasStock = useCallback((itemId: string, place: string) => (itemId + '-' + place) in stock, [stock])
 
   async function updateQty(itemId: string, place: string, newVal: number) {
     const old = getQty(itemId, place)
-    setStock(p => ({ ...p, [itemId + '-' + place]: { ...(p[itemId+'-'+place]||{}), item_id: itemId, place, quantity: Math.max(0, newVal), updated_by: userName, updated_at: new Date().toISOString() }}))
-    await supabase.from('inventory_stock').upsert({ item_id: itemId, place, quantity: Math.max(0, newVal), updated_by: userName, updated_at: new Date().toISOString() }, { onConflict: 'item_id,place' })
-    if (old >= 0 && old !== newVal) {
-      await supabase.from('inventory_logs').insert({ item_id: itemId, place, before_qty: old, after_qty: Math.max(0, newVal), changed_by: userName })
+    const val = Math.max(0, newVal)
+    setStock(p => ({ ...p, [itemId + '-' + place]: { ...(p[itemId + '-' + place] || {}), item_id: itemId, place, quantity: val, updated_by: userName, updated_at: new Date().toISOString() } }))
+    await supabase.from('inventory_stock').upsert({ item_id: itemId, place, quantity: val, updated_by: userName, updated_at: new Date().toISOString() }, { onConflict: 'item_id,place' })
+    if (old >= 0 && old !== val) {
+      await supabase.from('inventory_logs').insert({ item_id: itemId, place, before_qty: old, after_qty: val, changed_by: userName })
     }
   }
 
@@ -63,85 +71,235 @@ export default function InventoryPage() {
     setNm(''); setUnit('ea'); setMinQty(2); setShowAdd(false)
   }
 
-  const lowItems = items.filter(item => { const tot = totalQty(item.id); return tot >= 0 && tot <= item.min_qty })
+  async function deleteItem(itemId: string, itemName: string) {
+    if (!confirm(itemName + ' 삭제할까요?')) return
+    await supabase.from('inventory_items').delete().eq('id', itemId)
+    await supabase.from('inventory_stock').delete().eq('item_id', itemId)
+    setItems(p => p.filter(x => x.id !== itemId))
+    setStock(p => {
+      const n = { ...p }
+      places.forEach(pl => delete n[itemId + '-' + pl])
+      return n
+    })
+  }
+
+  async function updateMinQty(itemId: string, val: number) {
+    await supabase.from('inventory_items').update({ min_qty: val }).eq('id', itemId)
+    setItems(p => p.map(x => x.id === itemId ? { ...x, min_qty: val } : x))
+  }
+
+  async function addPlace() {
+    if (!newPlaceNm.trim() || places.includes(newPlaceNm.trim())) return
+    const name = newPlaceNm.trim()
+    await supabase.from('inventory_places').insert({ store_id: storeId, name, sort_order: places.length })
+    setPlaces(p => [...p, name])
+    setInvTab(name)
+    setNewPlaceNm('')
+    setShowAddPlace(false)
+  }
+
+  async function addToPlace(itemId: string, place: string) {
+    if (hasStock(itemId, place)) return
+    setStock(p => ({ ...p, [itemId + '-' + place]: { item_id: itemId, place, quantity: 0 } }))
+    await supabase.from('inventory_stock').upsert({ item_id: itemId, place, quantity: 0 }, { onConflict: 'item_id,place' })
+  }
+
+  async function removeFromPlace(itemId: string, place: string) {
+    setStock(p => { const n = { ...p }; delete n[itemId + '-' + place]; return n })
+    await supabase.from('inventory_stock').delete().eq('item_id', itemId).eq('place', place)
+  }
+
+  const lowItems = useMemo(() => items.filter(item => { const tot = totalQty(item.id); return tot >= 0 && tot <= item.min_qty }), [items, totalQty])
 
   return (
     <div>
+      {/* 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>📦 재고관리</span>
-        {isEdit && (
-          <button onClick={() => setShowAdd(p => !p)}
-            style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35', fontSize: 11, cursor: 'pointer' }}>
-            + 품목추가
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => setShowLog(p => !p)}
+            style={{ padding: '6px 12px', borderRadius: 8, background: showLog ? 'rgba(108,92,231,0.1)' : '#F4F6F9', border: `1px solid ${showLog ? 'rgba(108,92,231,0.3)' : '#E8ECF0'}`, color: showLog ? '#6C5CE7' : '#888', fontSize: 11, cursor: 'pointer' }}>
+            변경이력
           </button>
-        )}
-      </div>
-
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        {[{id:'dash',l:'현황'},{id:'log',l:'변경이력'}].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id as any)}
-            style={{ padding: '7px 16px', borderRadius: 8, fontSize: 12, cursor: 'pointer',
-              background: tab === t.id ? 'rgba(255,107,53,0.1)' : '#F4F6F9',
-              border: `1px solid ${tab===t.id ? 'rgba(255,107,53,0.3)' : '#E8ECF0'}`,
-              color: tab === t.id ? '#FF6B35' : '#888', fontWeight: tab === t.id ? 700 : 400 }}>
-            {t.l}
-          </button>
-        ))}
-      </div>
-
-      {showAdd && (
-        <div style={{ ...bx, border: '1px solid rgba(255,107,53,0.3)' }}>
-          <input value={nm} onChange={e => setNm(e.target.value)} placeholder="품목명" style={{ ...inp, marginBottom: 8 }} />
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="단위 (ea/box/kg)" style={inp} />
-            <input type="number" value={minQty} onChange={e => setMinQty(Number(e.target.value))} placeholder="최소" style={{ ...inp, width: 80 }} />
-          </div>
-          <button onClick={addItem} style={{ padding: '8px 20px', borderRadius: 8, background: '#FF6B35', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>추가</button>
+          {isEdit && (
+            <button onClick={() => setShowAdd(p => !p)}
+              style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35', fontSize: 11, cursor: 'pointer' }}>
+              + 품목추가
+            </button>
+          )}
         </div>
-      )}
+      </div>
 
-      {lowItems.length > 0 && (
-        <div style={{ background: '#FFF0F5', border: '1px solid rgba(232,67,147,0.3)', borderRadius: 12, padding: '10px 14px', marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#E84393', marginBottom: 6 }}>⚠️ 재고 부족</div>
-          {lowItems.map(item => (
-            <div key={item.id} style={{ fontSize: 11, color: '#E84393', padding: '2px 0' }}>
-              {item.name} ({totalQty(item.id)}{item.unit} / 최소 {item.min_qty}{item.unit})
-            </div>
+      {/* 변경이력 탭 */}
+      {showLog && <LogTab storeId={storeId} items={items} />}
+
+      {!showLog && <>
+        {/* 탭 버튼 */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+          <button onClick={() => { setInvTab('dash'); setShowMoveItem(null) }}
+            style={{ padding: '6px 12px', borderRadius: 8, border: invTab === 'dash' ? '1px solid rgba(255,107,53,0.4)' : '1px solid #E8ECF0', background: invTab === 'dash' ? 'rgba(255,107,53,0.1)' : '#F4F6F9', color: invTab === 'dash' ? '#FF6B35' : '#888', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+            📊 전체
+          </button>
+          {places.map(pl => (
+            <button key={pl} onClick={() => { setInvTab(pl); setShowMoveItem(null) }}
+              style={{ padding: '6px 12px', borderRadius: 8, border: invTab === pl ? '1px solid rgba(255,107,53,0.4)' : '1px solid #E8ECF0', background: invTab === pl ? 'rgba(255,107,53,0.1)' : '#F4F6F9', color: invTab === pl ? '#FF6B35' : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+              {pl}
+            </button>
           ))}
+          {isEdit && (
+            <button onClick={() => setShowAddPlace(true)}
+              style={{ padding: '6px 10px', borderRadius: 8, border: '1px dashed #E0E4E8', background: 'none', color: '#bbb', fontSize: 11, cursor: 'pointer' }}>+</button>
+          )}
         </div>
-      )}
 
-      {tab === 'dash' && items.map(item => (
-        <div key={item.id} style={bx}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
-              <span style={{ fontSize: 10, color: '#999', marginLeft: 6 }}>{item.unit}</span>
+        {/* 장소 추가 폼 */}
+        {showAddPlace && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            <input value={newPlaceNm} onChange={e => setNewPlaceNm(e.target.value)} placeholder="장소명 (예: 냉장고)" style={{ ...inp, flex: 1 }} />
+            <button onClick={addPlace} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35', cursor: 'pointer', fontSize: 11 }}>확인</button>
+            <button onClick={() => { setShowAddPlace(false); setNewPlaceNm('') }} style={{ padding: '8px 10px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer', fontSize: 11 }}>취소</button>
+          </div>
+        )}
+
+        {/* 품목 추가 폼 */}
+        {showAdd && (
+          <div style={{ ...bx, border: '1px solid rgba(255,107,53,0.3)', marginBottom: 12 }}>
+            <input value={nm} onChange={e => setNm(e.target.value)} placeholder="품목명" style={{ ...inp, marginBottom: 8 }} />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' }}>
+                <option value="ea">ea</option>
+                <option value="box">box</option>
+                <option value="kg">kg</option>
+                <option value="L">L</option>
+                <option value="병">병</option>
+              </select>
+              <input type="number" value={minQty} onChange={e => setMinQty(Number(e.target.value))} placeholder="최소수량" style={{ ...inp, width: 80 }} />
             </div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: totalQty(item.id) <= item.min_qty ? '#E84393' : '#00B894' }}>
-              총 {totalQty(item.id)}{item.unit}{totalQty(item.id) <= item.min_qty && ' ⚠️'}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={addItem} style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>등록</button>
+              <button onClick={() => setShowAdd(false)} style={{ padding: '8px 16px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
             </div>
           </div>
-          {places.map(pl => {
-            const q = getQty(item.id, pl)
-            if (q < 0) return null
-            const logEntry = stock[item.id + '-' + pl]
-            return (
-              <div key={pl} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #F4F6F9' }}>
-                <span style={{ width: 60, fontSize: 11, color: '#888' }}>{pl}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {isEdit && <button onClick={() => updateQty(item.id, pl, q - 1)} style={{ ...btnSm, padding: '2px 10px', fontSize: 14 }}>−</button>}
-                  <span style={{ width: 32, textAlign: 'center', fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{q}</span>
-                  {isEdit && <button onClick={() => updateQty(item.id, pl, q + 1)} style={{ ...btnSm, padding: '2px 10px', fontSize: 14 }}>+</button>}
-                </div>
-                {logEntry?.updated_by && <span style={{ fontSize: 9, color: '#bbb' }}>{logEntry.updated_by}</span>}
-              </div>
-            )
-          })}
-        </div>
-      ))}
+        )}
 
-      {tab === 'log' && <LogTab storeId={storeId} items={items} />}
+        {/* 부족 알림 */}
+        {lowItems.length > 0 && (
+          <div style={{ background: '#FFF0F5', border: '1px solid rgba(232,67,147,0.3)', borderRadius: 12, padding: '10px 14px', marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#E84393', marginBottom: 4 }}>⚠️ 재고 부족 {lowItems.length}건</div>
+            {lowItems.map(item => (
+              <div key={item.id} style={{ fontSize: 11, color: '#E84393', padding: '2px 0' }}>
+                {item.name} ({totalQty(item.id)}{item.unit} / 최소 {item.min_qty}{item.unit})
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 전체 탭 */}
+        {invTab === 'dash' && items.map(item => {
+          const tot = totalQty(item.id)
+          const lo = tot >= 0 && tot <= item.min_qty
+          const assignedPlaces = places.filter(pl => hasStock(item.id, pl))
+          return (
+            <div key={item.id} style={{ ...bx, border: lo ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                  {lo && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>부족</span>}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: lo ? '#E84393' : '#1a1a2e' }}>{tot}</div>
+                  <div style={{ fontSize: 9, color: '#bbb' }}>최소 {item.min_qty}{item.unit}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 10, color: '#999', marginBottom: isEdit ? 8 : 0 }}>
+                {assignedPlaces.map(pl => `${pl} ${getQty(item.id, pl)}`).join(' · ')} {item.unit}
+              </div>
+              {isEdit && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+                    <span style={{ fontSize: 9, color: '#bbb', whiteSpace: 'nowrap' }}>최소</span>
+                    <input type="number" value={item.min_qty}
+                      onChange={e => updateMinQty(item.id, Math.max(0, Number(e.target.value)))}
+                      style={{ ...inp, width: 50, padding: '4px 6px', fontSize: 11, textAlign: 'center' }} />
+                  </div>
+                  <button onClick={() => setShowMoveItem(showMoveItem === item.id ? null : item.id)}
+                    style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.2)', color: '#2DC6D6', fontSize: 10, cursor: 'pointer' }}>
+                    장소배치
+                  </button>
+                  <button onClick={() => deleteItem(item.id, item.name)}
+                    style={{ padding: '4px 8px', borderRadius: 6, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#bbb', fontSize: 10, cursor: 'pointer' }}>
+                    삭제
+                  </button>
+                </div>
+              )}
+              {showMoveItem === item.id && (
+                <div style={{ marginTop: 8, padding: 8, borderRadius: 8, background: 'rgba(45,198,214,0.05)', border: '1px solid rgba(45,198,214,0.15)' }}>
+                  <div style={{ fontSize: 10, color: '#2DC6D6', marginBottom: 6 }}>장소 배치 (탭하여 추가/제거)</div>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {places.map(pl => {
+                      const has = hasStock(item.id, pl)
+                      return (
+                        <button key={pl} onClick={() => has ? removeFromPlace(item.id, pl) : addToPlace(item.id, pl)}
+                          style={{ padding: '4px 10px', borderRadius: 6, background: has ? 'rgba(255,107,53,0.1)' : '#F4F6F9', border: has ? '1px solid rgba(255,107,53,0.3)' : '1px solid #E8ECF0', color: has ? '#FF6B35' : '#888', fontSize: 10, cursor: 'pointer' }}>
+                          {has ? '✓ ' : ''}{pl}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {/* 장소별 탭 */}
+        {invTab !== 'dash' && (
+          <div>
+            {!isEdit && <div style={{ fontSize: 11, color: '#bbb', marginBottom: 8 }}>수량 변경 가능 (조회 및 수정)</div>}
+            {items.filter(item => hasStock(item.id, invTab)).map(item => {
+              const q = getQty(item.id, invTab)
+              const tot = totalQty(item.id)
+              const lo = tot >= 0 && tot <= item.min_qty
+              const logEntry = stock[item.id + '-' + invTab]
+              return (
+                <div key={item.id} style={{ ...bx, border: lo ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                        {lo && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>부족</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>전체 {tot}{item.unit}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button onClick={() => updateQty(item.id, invTab, q - 1)}
+                        style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                      <div style={{ minWidth: 36, textAlign: 'center' }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>{q}</div>
+                        <div style={{ fontSize: 9, color: '#bbb' }}>{item.unit}</div>
+                      </div>
+                      <button onClick={() => updateQty(item.id, invTab, q + 1)}
+                        style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                    </div>
+                  </div>
+                  {logEntry?.updated_by && (
+                    <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
+                      ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {items.filter(item => hasStock(item.id, invTab)).length === 0 && (
+              <div style={{ ...bx, textAlign: 'center', padding: 32 }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>📦</div>
+                <div style={{ fontSize: 13, color: '#bbb' }}>이 장소에 배치된 품목이 없습니다</div>
+                <div style={{ fontSize: 11, color: '#ddd', marginTop: 4 }}>전체 탭에서 품목을 배치하세요</div>
+              </div>
+            )}
+          </div>
+        )}
+      </>}
     </div>
   )
 }
