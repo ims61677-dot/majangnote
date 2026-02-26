@@ -21,6 +21,7 @@ export default function InventoryPage() {
   const [stock, setStock] = useState<Record<string, any>>({})
   const [group, setGroup] = useState<string>('홀')
   const [subTab, setSubTab] = useState<string>('')
+  const [showAll, setShowAll] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [showLog, setShowLog] = useState(false)
   const [showMoveItem, setShowMoveItem] = useState<string | null>(null)
@@ -38,10 +39,10 @@ export default function InventoryPage() {
     loadAll(store.id)
   }, [])
 
-  // 그룹 변경시 첫 서브탭으로
   useEffect(() => {
     const subs = GROUPS[group] || []
     setSubTab(subs[0] || '')
+    setShowAll(false)
   }, [group])
 
   async function loadAll(sid: string) {
@@ -105,6 +106,7 @@ export default function InventoryPage() {
   const lowItems = useMemo(() => items.filter(item => { const tot = totalQty(item.id); return tot >= 0 && tot <= item.min_qty }), [items, totalQty])
   const subPlaces = GROUPS[group] || []
   const currentItems = items.filter(item => hasStock(item.id, subTab))
+  const allGroupItems = items.filter(item => (GROUPS[group] || []).some(pl => hasStock(item.id, pl)))
 
   if (showLog) return (
     <div>
@@ -175,86 +177,151 @@ export default function InventoryPage() {
         ))}
       </div>
 
-      {/* 2단계 서브 탭 */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
-        {subPlaces.map(pl => (
-          <button key={pl} onClick={() => setSubTab(pl)}
-            style={{ padding: '5px 10px', borderRadius: 8, border: subTab === pl ? '1px solid rgba(255,107,53,0.4)' : '1px solid #E8ECF0', background: subTab === pl ? 'rgba(255,107,53,0.1)' : '#F4F6F9', color: subTab === pl ? '#FF6B35' : '#888', fontSize: 11, fontWeight: subTab === pl ? 700 : 400, cursor: 'pointer' }}>
-            {pl.replace(group + ' ', '').replace(group, '')}
-          </button>
-        ))}
-      </div>
+      {/* 전체 보기 토글 */}
+      <button onClick={() => setShowAll(p => !p)}
+        style={{ width: '100%', padding: '6px 0', borderRadius: 8, border: showAll ? '1px solid rgba(108,92,231,0.4)' : '1px solid #E8ECF0', background: showAll ? 'rgba(108,92,231,0.08)' : '#F4F6F9', color: showAll ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: showAll ? 700 : 400, cursor: 'pointer', marginBottom: 10 }}>
+        {showAll ? '▲ 전체 목록 닫기' : '▼ 전체 목록 보기 (합산 · 장소배치)'}
+      </button>
 
-      {/* 품목 목록 */}
-      {currentItems.length === 0 ? (
-        <div style={{ ...bx, textAlign: 'center', padding: 32 }}>
-          <div style={{ fontSize: 24, marginBottom: 8 }}>📦</div>
-          <div style={{ fontSize: 13, color: '#bbb' }}>이 장소에 배치된 품목이 없습니다</div>
+      {/* 2단계 서브 탭 (전체 모드 아닐 때만) */}
+      {!showAll && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+          {subPlaces.map(pl => (
+            <button key={pl} onClick={() => setSubTab(pl)}
+              style={{ padding: '5px 10px', borderRadius: 8, border: subTab === pl ? '1px solid rgba(255,107,53,0.4)' : '1px solid #E8ECF0', background: subTab === pl ? 'rgba(255,107,53,0.1)' : '#F4F6F9', color: subTab === pl ? '#FF6B35' : '#888', fontSize: 11, fontWeight: subTab === pl ? 700 : 400, cursor: 'pointer' }}>
+              {pl.replace(group + ' ', '').replace(group, '')}
+            </button>
+          ))}
         </div>
-      ) : (
-        currentItems.map(item => {
-          const q = getQty(item.id, subTab)
-          const tot = totalQty(item.id)
-          const lo = tot >= 0 && tot <= item.min_qty
-          const logEntry = stock[item.id + '-' + subTab]
-          return (
-            <div key={item.id} style={{ ...bx, border: lo ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
-                    {lo && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>부족</span>}
-                  </div>
-                  <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>전체 {tot}{item.unit}</div>
+      )}
+
+      {/* 전체 탭 내용 */}
+      {showAll && allGroupItems.map(item => {
+        const tot = totalQty(item.id)
+        const lo = tot >= 0 && tot <= item.min_qty
+        const assignedPlaces = places.filter(pl => hasStock(item.id, pl))
+        return (
+          <div key={item.id} style={{ ...bx, border: lo ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                {lo && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>부족</span>}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: lo ? '#E84393' : '#1a1a2e' }}>{tot}</div>
+                <div style={{ fontSize: 9, color: '#bbb' }}>최소 {item.min_qty}{item.unit}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: '#999', marginBottom: isEdit ? 8 : 0 }}>
+              {assignedPlaces.map(pl => `${pl} ${getQty(item.id, pl)}`).join(' · ')} {item.unit}
+            </div>
+            {isEdit && (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+                  <span style={{ fontSize: 9, color: '#bbb' }}>최소</span>
+                  <input type="number" value={item.min_qty} onChange={e => updateMinQty(item.id, Math.max(0, Number(e.target.value)))}
+                    style={{ ...inp, width: 50, padding: '3px 6px', fontSize: 11, textAlign: 'center' }} />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button onClick={() => updateQty(item.id, subTab, q - 1)}
-                    style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                  <div style={{ minWidth: 36, textAlign: 'center' }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>{q < 0 ? 0 : q}</div>
-                    <div style={{ fontSize: 9, color: '#bbb' }}>{item.unit}</div>
-                  </div>
-                  <button onClick={() => updateQty(item.id, subTab, q + 1)}
-                    style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                <button onClick={() => setShowMoveItem(showMoveItem === item.id ? null : item.id)}
+                  style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.2)', color: '#2DC6D6', fontSize: 10, cursor: 'pointer' }}>장소배치</button>
+                <button onClick={() => deleteItem(item.id, item.name)}
+                  style={{ padding: '3px 8px', borderRadius: 6, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#bbb', fontSize: 10, cursor: 'pointer' }}>삭제</button>
+              </div>
+            )}
+            {showMoveItem === item.id && (
+              <div style={{ marginTop: 8, padding: 8, borderRadius: 8, background: 'rgba(45,198,214,0.05)', border: '1px solid rgba(45,198,214,0.15)' }}>
+                <div style={{ fontSize: 10, color: '#2DC6D6', marginBottom: 6 }}>장소 배치</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {places.map(pl => {
+                    const has = hasStock(item.id, pl)
+                    return (
+                      <button key={pl} onClick={() => has ? removeFromPlace(item.id, pl) : addToPlace(item.id, pl)}
+                        style={{ padding: '3px 8px', borderRadius: 6, background: has ? 'rgba(255,107,53,0.1)' : '#F4F6F9', border: has ? '1px solid rgba(255,107,53,0.3)' : '1px solid #E8ECF0', color: has ? '#FF6B35' : '#888', fontSize: 10, cursor: 'pointer' }}>
+                        {has ? '✓ ' : ''}{pl}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
-              {logEntry?.updated_by && (
-                <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
-                  ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                </div>
-              )}
-              {isEdit && (
-                <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-                    <span style={{ fontSize: 9, color: '#bbb' }}>최소</span>
-                    <input type="number" value={item.min_qty} onChange={e => updateMinQty(item.id, Math.max(0, Number(e.target.value)))}
-                      style={{ ...inp, width: 50, padding: '3px 6px', fontSize: 11, textAlign: 'center' }} />
-                  </div>
-                  <button onClick={() => setShowMoveItem(showMoveItem === item.id ? null : item.id)}
-                    style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.2)', color: '#2DC6D6', fontSize: 10, cursor: 'pointer' }}>장소배치</button>
-                  <button onClick={() => deleteItem(item.id, item.name)}
-                    style={{ padding: '3px 8px', borderRadius: 6, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#bbb', fontSize: 10, cursor: 'pointer' }}>삭제</button>
-                </div>
-              )}
-              {showMoveItem === item.id && (
-                <div style={{ marginTop: 8, padding: 8, borderRadius: 8, background: 'rgba(45,198,214,0.05)', border: '1px solid rgba(45,198,214,0.15)' }}>
-                  <div style={{ fontSize: 10, color: '#2DC6D6', marginBottom: 6 }}>장소 배치</div>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {places.map(pl => {
-                      const has = hasStock(item.id, pl)
-                      return (
-                        <button key={pl} onClick={() => has ? removeFromPlace(item.id, pl) : addToPlace(item.id, pl)}
-                          style={{ padding: '3px 8px', borderRadius: 6, background: has ? 'rgba(255,107,53,0.1)' : '#F4F6F9', border: has ? '1px solid rgba(255,107,53,0.3)' : '1px solid #E8ECF0', color: has ? '#FF6B35' : '#888', fontSize: 10, cursor: 'pointer' }}>
-                          {has ? '✓ ' : ''}{pl}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
+            )}
+          </div>
+        )
+      })}
+
+      {/* 장소별 품목 목록 */}
+      {!showAll && (
+        <>
+          {currentItems.length === 0 ? (
+            <div style={{ ...bx, textAlign: 'center', padding: 32 }}>
+              <div style={{ fontSize: 24, marginBottom: 8 }}>📦</div>
+              <div style={{ fontSize: 13, color: '#bbb' }}>이 장소에 배치된 품목이 없습니다</div>
             </div>
-          )
-        })
+          ) : (
+            currentItems.map(item => {
+              const q = getQty(item.id, subTab)
+              const tot = totalQty(item.id)
+              const lo = tot >= 0 && tot <= item.min_qty
+              const logEntry = stock[item.id + '-' + subTab]
+              return (
+                <div key={item.id} style={{ ...bx, border: lo ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                        {lo && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>부족</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>전체 {tot}{item.unit}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button onClick={() => updateQty(item.id, subTab, q - 1)}
+                        style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                      <div style={{ minWidth: 36, textAlign: 'center' }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>{q < 0 ? 0 : q}</div>
+                        <div style={{ fontSize: 9, color: '#bbb' }}>{item.unit}</div>
+                      </div>
+                      <button onClick={() => updateQty(item.id, subTab, q + 1)}
+                        style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                    </div>
+                  </div>
+                  {logEntry?.updated_by && (
+                    <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
+                      ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                    </div>
+                  )}
+                  {isEdit && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+                        <span style={{ fontSize: 9, color: '#bbb' }}>최소</span>
+                        <input type="number" value={item.min_qty} onChange={e => updateMinQty(item.id, Math.max(0, Number(e.target.value)))}
+                          style={{ ...inp, width: 50, padding: '3px 6px', fontSize: 11, textAlign: 'center' }} />
+                      </div>
+                      <button onClick={() => setShowMoveItem(showMoveItem === item.id ? null : item.id)}
+                        style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.2)', color: '#2DC6D6', fontSize: 10, cursor: 'pointer' }}>장소배치</button>
+                      <button onClick={() => deleteItem(item.id, item.name)}
+                        style={{ padding: '3px 8px', borderRadius: 6, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#bbb', fontSize: 10, cursor: 'pointer' }}>삭제</button>
+                    </div>
+                  )}
+                  {showMoveItem === item.id && (
+                    <div style={{ marginTop: 8, padding: 8, borderRadius: 8, background: 'rgba(45,198,214,0.05)', border: '1px solid rgba(45,198,214,0.15)' }}>
+                      <div style={{ fontSize: 10, color: '#2DC6D6', marginBottom: 6 }}>장소 배치</div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {places.map(pl => {
+                          const has = hasStock(item.id, pl)
+                          return (
+                            <button key={pl} onClick={() => has ? removeFromPlace(item.id, pl) : addToPlace(item.id, pl)}
+                              style={{ padding: '3px 8px', borderRadius: 6, background: has ? 'rgba(255,107,53,0.1)' : '#F4F6F9', border: has ? '1px solid rgba(255,107,53,0.3)' : '1px solid #E8ECF0', color: has ? '#FF6B35' : '#888', fontSize: 10, cursor: 'pointer' }}>
+                              {has ? '✓ ' : ''}{pl}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </>
       )}
     </div>
   )
