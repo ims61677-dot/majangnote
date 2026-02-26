@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
@@ -72,9 +72,9 @@ function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose:
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
         </div>
 
-        {Object.entries(grouped).map(([group, gPlaces]) => (
-          <div key={group} style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', marginBottom: 6, paddingLeft: 2 }}>{group}</div>
+        {Object.entries(grouped).map(([grp, gPlaces]) => (
+          <div key={grp} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', marginBottom: 6, paddingLeft: 2 }}>{grp}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {(gPlaces as any[]).map((place: any) => (
                 editingId === place.id ? (
@@ -137,14 +137,14 @@ function GlobalSearchPanel({ query, items, places, stock, onClose }: {
   query: string; items: any[]; places: any[]; stock: Record<string, any>; onClose: () => void
 }) {
   const getQty = (itemId: string, placeName: string) => stock[itemId + '-' + placeName]?.quantity ?? -1
-  const hasStock = (itemId: string, placeName: string) => (itemId + '-' + placeName) in stock
-  const totalQty = (itemId: string) => places.reduce((s, pl) => { const q = getQty(itemId, pl.name); return s + (q >= 0 ? q : 0) }, 0)
+  const hasStockFn = (itemId: string, placeName: string) => (itemId + '-' + placeName) in stock
+  const totalQtyFn = (itemId: string) => places.reduce((s, pl) => { const q = getQty(itemId, pl.name); return s + (q >= 0 ? q : 0) }, 0)
 
   const results = useMemo(() => {
     if (!query.trim()) return []
     return items.filter(item => item.name.includes(query.trim())).map(item => {
-      const locs = places.filter(pl => hasStock(item.id, pl.name)).map(pl => ({ name: pl.name, group: pl.group_name, qty: getQty(item.id, pl.name) }))
-      const tot = totalQty(item.id)
+      const locs = places.filter(pl => hasStockFn(item.id, pl.name)).map(pl => ({ name: pl.name, group: pl.group_name, qty: getQty(item.id, pl.name) }))
+      const tot = totalQtyFn(item.id)
       return { ...item, total: tot, locations: locs }
     })
   }, [query, items, places, stock])
@@ -203,7 +203,7 @@ export default function InventoryPage() {
   const [userName, setUserName] = useState('')
   const [isEdit, setIsEdit] = useState(false)
   const [items, setItems] = useState<any[]>([])
-  const [places, setPlaces] = useState<any[]>([])  // { id, name, group_name, sort_order }
+  const [places, setPlaces] = useState<any[]>([])
   const [stock, setStock] = useState<Record<string, any>>({})
   const [group, setGroup] = useState<string>('')
   const [subTab, setSubTab] = useState<string>('')
@@ -218,10 +218,12 @@ export default function InventoryPage() {
   const [unit, setUnit] = useState('ea')
   const [minQty, setMinQty] = useState(1)
   const [warnQty, setWarnQty] = useState(3)
-  const [alertOpen, setAlertOpen] = useState(false)  // 재고부족 접기
+  const [alertOpen, setAlertOpen] = useState(false)
   const [showPlaceMgr, setShowPlaceMgr] = useState(false)
 
-  // group_name 목록 (DB 기반 동적)
+  // ✅ 핵심: 초기 로드 완료 여부 ref (group/subTab 자동설정 중복 방지)
+  const initializedRef = useRef(false)
+
   const groups = useMemo(() => [...new Set(places.map(p => p.group_name).filter(Boolean))], [places])
 
   useEffect(() => {
@@ -234,13 +236,10 @@ export default function InventoryPage() {
     loadAll(store.id)
   }, [])
 
+  // group 탭 클릭 시 subTab 변경 (초기 로드 이후에만)
   useEffect(() => {
-    if (groups.length > 0 && !group) {
-      setGroup(groups[0])
-    }
-  }, [groups])
-
-  useEffect(() => {
+    if (!initializedRef.current) return
+    if (!group || places.length === 0) return
     const subs = places.filter(p => p.group_name === group)
     setSubTab(subs[0]?.name || '')
     setShowAll(false)
@@ -248,20 +247,39 @@ export default function InventoryPage() {
   }, [group])
 
   async function loadAll(sid: string) {
-    const { data: pl } = await supabase.from('inventory_places').select('*').eq('store_id', sid).order('group_name').order('sort_order')
+    const { data: pl } = await supabase
+      .from('inventory_places')
+      .select('*')
+      .eq('store_id', sid)
+      .order('group_name')
+      .order('sort_order')
+
     const placeList = pl || []
     setPlaces(placeList)
 
-    if (placeList.length > 0 && !group) {
-      const firstGroup = placeList[0]?.group_name || ''
+    // ✅ group/subTab을 loadAll 안에서 직접 초기화 (useEffect 타이밍 문제 방지)
+    if (!initializedRef.current && placeList.length > 0) {
+      const firstGroup = placeList[0].group_name || ''
+      const firstSub = placeList.find(p => p.group_name === firstGroup)?.name || ''
       setGroup(firstGroup)
-      setSubTab(placeList.find(p => p.group_name === firstGroup)?.name || '')
+      setSubTab(firstSub)
+      initializedRef.current = true
     }
 
-    const { data: it } = await supabase.from('inventory_items').select('*').eq('store_id', sid)
-    setItems(it || [])
-    if (it && it.length > 0) {
-      const { data: st } = await supabase.from('inventory_stock').select('*').in('item_id', it.map((x: any) => x.id))
+    const { data: it } = await supabase
+      .from('inventory_items')
+      .select('*')
+      .eq('store_id', sid)
+      .order('name')
+
+    const itemList = it || []
+    setItems(itemList)
+
+    if (itemList.length > 0) {
+      const { data: st } = await supabase
+        .from('inventory_stock')
+        .select('*')
+        .in('item_id', itemList.map((x: any) => x.id))
       const map: Record<string, any> = {}
       if (st) st.forEach((s: any) => { map[s.item_id + '-' + s.place] = s })
       setStock(map)
@@ -316,13 +334,8 @@ export default function InventoryPage() {
     await supabase.from('inventory_stock').delete().eq('item_id', itemId).eq('place', place)
   }
 
-  const lowItems = useMemo(() => items.filter(item => {
-    const tot = totalQty(item.id); return tot >= 0 && tot <= item.min_qty
-  }), [items, totalQty])
-
-  const warnItems = useMemo(() => items.filter(item => {
-    const tot = totalQty(item.id); const wq = item.warn_qty ?? 3; return tot > item.min_qty && tot <= wq
-  }), [items, totalQty])
+  const lowItems = useMemo(() => items.filter(item => { const tot = totalQty(item.id); return tot >= 0 && tot <= item.min_qty }), [items, totalQty])
+  const warnItems = useMemo(() => items.filter(item => { const tot = totalQty(item.id); const wq = item.warn_qty ?? 3; return tot > item.min_qty && tot <= wq }), [items, totalQty])
 
   const subPlaces = places.filter(p => p.group_name === group)
   const filteredBySearch = useCallback((list: any[]) => searchQ.trim() ? list.filter(item => item.name.includes(searchQ.trim())) : list, [searchQ])
@@ -337,15 +350,15 @@ export default function InventoryPage() {
   const allGroupItems = sortByStatus(filteredBySearch(items.filter(item => places.filter(p => p.group_name === group).some(pl => hasStock(item.id, pl.name)))))
   const currentItems = sortByStatus(filteredBySearch(items.filter(item => hasStock(item.id, subTab))))
 
-  const statusBadge = (tot: number, minQty: number, warnQty: number) => {
-    const s = getStatus(tot, minQty, warnQty)
+  const statusBadge = (tot: number, minQ: number, warnQ: number) => {
+    const s = getStatus(tot, minQ, warnQ)
     if (s === 'low') return <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>🔴 부족</span>
     if (s === 'warn') return <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(253,196,0,0.15)', color: '#B8860B', fontWeight: 700 }}>🟡 주의</span>
     return null
   }
 
-  const borderColor = (tot: number, minQty: number, warnQty: number) => {
-    const s = getStatus(tot, minQty, warnQty)
+  const borderColor = (tot: number, minQ: number, warnQ: number) => {
+    const s = getStatus(tot, minQ, warnQ)
     if (s === 'low') return '1px solid rgba(232,67,147,0.35)'
     if (s === 'warn') return '1px solid rgba(253,196,0,0.5)'
     return '1px solid #E8ECF0'
@@ -365,27 +378,18 @@ export default function InventoryPage() {
 
   return (
     <div>
-      {/* 장소관리 모달 */}
       {showPlaceMgr && (
         <PlaceManager
           storeId={storeId}
           onClose={() => setShowPlaceMgr(false)}
-          onSaved={() => loadAll(storeId)}
+          onSaved={() => { initializedRef.current = false; loadAll(storeId) }}
         />
       )}
 
-      {/* 전역 검색 패널 */}
       {showSearchPanel && (
-        <GlobalSearchPanel
-          query={searchQ}
-          items={items}
-          places={places}
-          stock={stock}
-          onClose={() => setShowSearchPanel(false)}
-        />
+        <GlobalSearchPanel query={searchQ} items={items} places={places} stock={stock} onClose={() => setShowSearchPanel(false)} />
       )}
 
-      {/* 품목 수정 모달 */}
       {editItem && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
@@ -432,11 +436,9 @@ export default function InventoryPage() {
       {showAdd && (
         <div style={{ ...bx, border: '1px solid rgba(255,107,53,0.3)', marginBottom: 12 }}>
           <input value={nm} onChange={e => setNm(e.target.value)} placeholder="품목명" style={{ ...inp, marginBottom: 8 }} />
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
-              <option value="ea">ea</option><option value="box">box</option><option value="kg">kg</option><option value="L">L</option><option value="병">병</option>
-            </select>
-          </div>
+          <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any, marginBottom: 8 }}>
+            <option value="ea">ea</option><option value="box">box</option><option value="kg">kg</option><option value="L">L</option><option value="병">병</option>
+          </select>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 10, color: '#E84393', marginBottom: 3 }}>🔴 최소수량</div>
@@ -454,24 +456,19 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* ✅ 재고부족/주의 알림 (접기/펼치기) */}
+      {/* 재고부족/주의 알림 (접기/펼치기) */}
       {(lowItems.length > 0 || warnItems.length > 0) && (
         <div style={{ borderRadius: 12, marginBottom: 12, overflow: 'hidden', border: '1px solid rgba(232,67,147,0.25)' }}>
-          {/* 헤더 - 항상 표시 */}
           <button
             onClick={() => setAlertOpen(p => !p)}
             style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#FFF0F5', border: 'none', cursor: 'pointer' }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#E84393' }}>🔴 재고 부족 {lowItems.length}건</span>
-              {warnItems.length > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#B8860B' }}>⚠️ 주의 {warnItems.length}건</span>
-              )}
+              {warnItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: '#B8860B' }}>⚠️ 주의 {warnItems.length}건</span>}
             </div>
             <span style={{ fontSize: 11, color: '#aaa' }}>{alertOpen ? '▲ 접기' : '▼ 펼치기'}</span>
           </button>
-
-          {/* 펼쳐질 목록 */}
           {alertOpen && (
             <div style={{ maxHeight: 220, overflowY: 'auto' }}>
               {lowItems.length > 0 && (
@@ -514,7 +511,7 @@ export default function InventoryPage() {
         {showAll ? '▲ 전체 목록 닫기' : '▼ 전체 목록 보기 (합산 · 품목수정 · 장소배치)'}
       </button>
 
-      {/* ✅ 검색창 - 전체 위치 포함 검색 */}
+      {/* 검색창 */}
       <div style={{ position: 'relative', marginBottom: 12 }}>
         <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#bbb' }}>🔍</span>
         <input
@@ -594,7 +591,7 @@ export default function InventoryPage() {
       {/* 장소별 품목 목록 */}
       {!showAll && (
         <>
-          {currentItems.length === 0 && !searchQ ? (
+          {currentItems.length === 0 ? (
             <div style={{ ...bx, textAlign: 'center', padding: 32 }}>
               <div style={{ fontSize: 24, marginBottom: 8 }}>📦</div>
               <div style={{ fontSize: 13, color: '#bbb' }}>이 장소에 배치된 품목이 없습니다</div>
