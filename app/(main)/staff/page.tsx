@@ -40,9 +40,9 @@ export default function StaffPage() {
     if (!nm.trim() || !storeId) return
     setSaving(true)
 
-    // 기존 프로필 검색
+// 이름 + 전화번호로 기존 프로필 검색
     const { data: existing } = await supabase.from('profiles')
-      .select('*').eq('nm', nm.trim()).limit(1)
+      .select('*').eq('nm', nm.trim()).eq('phone', phone.trim()).limit(1)
 
     let profile = existing?.[0]
 
@@ -53,7 +53,6 @@ export default function StaffPage() {
         .select().single()
       profile = newProfile
     }
-
     if (profile) {
       // 이미 이 매장에 등록됐는지 확인
       const { data: already } = await supabase.from('store_members')
