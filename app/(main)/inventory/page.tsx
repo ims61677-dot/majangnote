@@ -25,6 +25,8 @@ export default function InventoryPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [showLog, setShowLog] = useState(false)
   const [showMoveItem, setShowMoveItem] = useState<string | null>(null)
+  const [editItem, setEditItem] = useState<any | null>(null)
+  const [searchQ, setSearchQ] = useState('')
   const [nm, setNm] = useState('')
   const [unit, setUnit] = useState('ea')
   const [minQty, setMinQty] = useState(2)
@@ -43,6 +45,7 @@ export default function InventoryPage() {
     const subs = GROUPS[group] || []
     setSubTab(subs[0] || '')
     setShowAll(false)
+    setSearchQ('')
   }, [group])
 
   async function loadAll(sid: string) {
@@ -92,6 +95,13 @@ export default function InventoryPage() {
     setItems(p => p.map(x => x.id === itemId ? { ...x, min_qty: val } : x))
   }
 
+  async function saveEditItem() {
+    if (!editItem) return
+    await supabase.from('inventory_items').update({ name: editItem.name, unit: editItem.unit, min_qty: editItem.min_qty }).eq('id', editItem.id)
+    setItems(p => p.map(x => x.id === editItem.id ? { ...x, ...editItem } : x))
+    setEditItem(null)
+  }
+
   async function addToPlace(itemId: string, place: string) {
     if (hasStock(itemId, place)) return
     setStock(p => ({ ...p, [itemId + '-' + place]: { item_id: itemId, place, quantity: 0 } }))
@@ -105,8 +115,9 @@ export default function InventoryPage() {
 
   const lowItems = useMemo(() => items.filter(item => { const tot = totalQty(item.id); return tot >= 0 && tot <= item.min_qty }), [items, totalQty])
   const subPlaces = GROUPS[group] || []
-  const currentItems = items.filter(item => hasStock(item.id, subTab))
-  const allGroupItems = items.filter(item => (GROUPS[group] || []).some(pl => hasStock(item.id, pl)))
+  const filteredBySearch = useCallback((list: any[]) => searchQ.trim() ? list.filter(item => item.name.includes(searchQ.trim())) : list, [searchQ])
+  const allGroupItems = filteredBySearch(items.filter(item => (GROUPS[group] || []).some(pl => hasStock(item.id, pl))))
+  const currentItems = filteredBySearch(items.filter(item => hasStock(item.id, subTab)))
 
   if (showLog) return (
     <div>
@@ -120,19 +131,34 @@ export default function InventoryPage() {
 
   return (
     <div>
+      {/* 품목 수정 모달 */}
+      {editItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 14 }}>품목 수정</div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>품목명</div>
+            <input value={editItem.name} onChange={e => setEditItem({ ...editItem, name: e.target.value })} style={{ ...inp, marginBottom: 10 }} />
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
+            <select value={editItem.unit} onChange={e => setEditItem({ ...editItem, unit: e.target.value })} style={{ ...inp, appearance: 'auto', marginBottom: 10 }}>
+              <option value="ea">ea</option><option value="box">box</option><option value="kg">kg</option><option value="L">L</option><option value="병">병</option>
+            </select>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>최소수량 (재고부족 기준)</div>
+            <input type="number" value={editItem.min_qty} onChange={e => setEditItem({ ...editItem, min_qty: Math.max(0, Number(e.target.value)) })} style={{ ...inp, marginBottom: 14 }} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={saveEditItem} style={{ flex: 1, padding: '10px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>저장</button>
+              <button onClick={() => setEditItem(null)} style={{ padding: '10px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>📦 재고관리</span>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => setShowLog(true)}
-            style={{ padding: '6px 12px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>
-            변경이력
-          </button>
+          <button onClick={() => setShowLog(true)} style={{ padding: '6px 12px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>변경이력</button>
           {isEdit && (
-            <button onClick={() => setShowAdd(p => !p)}
-              style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35', fontSize: 11, cursor: 'pointer' }}>
-              + 품목추가
-            </button>
+            <button onClick={() => setShowAdd(p => !p)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35', fontSize: 11, cursor: 'pointer' }}>+ 품목추가</button>
           )}
         </div>
       </div>
@@ -178,12 +204,22 @@ export default function InventoryPage() {
       </div>
 
       {/* 전체 보기 토글 */}
-      <button onClick={() => setShowAll(p => !p)}
+      <button onClick={() => { setShowAll(p => !p); setSearchQ('') }}
         style={{ width: '100%', padding: '6px 0', borderRadius: 8, border: showAll ? '1px solid rgba(108,92,231,0.4)' : '1px solid #E8ECF0', background: showAll ? 'rgba(108,92,231,0.08)' : '#F4F6F9', color: showAll ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: showAll ? 700 : 400, cursor: 'pointer', marginBottom: 10 }}>
-        {showAll ? '▲ 전체 목록 닫기' : '▼ 전체 목록 보기 (합산 · 장소배치)'}
+        {showAll ? '▲ 전체 목록 닫기' : '▼ 전체 목록 보기 (합산 · 품목수정 · 장소배치)'}
       </button>
 
-      {/* 2단계 서브 탭 (전체 모드 아닐 때만) */}
+      {/* 검색창 */}
+      <div style={{ position: 'relative', marginBottom: 12 }}>
+        <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#bbb' }}>🔍</span>
+        <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="품목 검색..."
+          style={{ ...inp, paddingLeft: 30 }} />
+        {searchQ && (
+          <button onClick={() => setSearchQ('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>
+        )}
+      </div>
+
+      {/* 2단계 서브 탭 */}
       {!showAll && (
         <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
           {subPlaces.map(pl => (
@@ -192,6 +228,14 @@ export default function InventoryPage() {
               {pl.replace(group + ' ', '').replace(group, '')}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* 검색 결과 없음 */}
+      {searchQ && allGroupItems.length === 0 && currentItems.length === 0 && (
+        <div style={{ ...bx, textAlign: 'center', padding: 24 }}>
+          <div style={{ fontSize: 20, marginBottom: 6 }}>🔍</div>
+          <div style={{ fontSize: 13, color: '#bbb' }}>"{searchQ}" 검색 결과가 없습니다</div>
         </div>
       )}
 
@@ -212,16 +256,18 @@ export default function InventoryPage() {
                 <div style={{ fontSize: 9, color: '#bbb' }}>최소 {item.min_qty}{item.unit}</div>
               </div>
             </div>
-            <div style={{ fontSize: 10, color: '#999', marginBottom: isEdit ? 8 : 0 }}>
+            <div style={{ fontSize: 10, color: '#999', marginBottom: 8 }}>
               {assignedPlaces.map(pl => `${pl} ${getQty(item.id, pl)}`).join(' · ')} {item.unit}
             </div>
             {isEdit && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-                  <span style={{ fontSize: 9, color: '#bbb' }}>최소</span>
+                  <span style={{ fontSize: 9, color: '#bbb', whiteSpace: 'nowrap' }}>최소</span>
                   <input type="number" value={item.min_qty} onChange={e => updateMinQty(item.id, Math.max(0, Number(e.target.value)))}
                     style={{ ...inp, width: 50, padding: '3px 6px', fontSize: 11, textAlign: 'center' }} />
                 </div>
+                <button onClick={() => setEditItem({ ...item })}
+                  style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>수정</button>
                 <button onClick={() => setShowMoveItem(showMoveItem === item.id ? null : item.id)}
                   style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.2)', color: '#2DC6D6', fontSize: 10, cursor: 'pointer' }}>장소배치</button>
                 <button onClick={() => deleteItem(item.id, item.name)}
@@ -251,7 +297,7 @@ export default function InventoryPage() {
       {/* 장소별 품목 목록 */}
       {!showAll && (
         <>
-          {currentItems.length === 0 ? (
+          {currentItems.length === 0 && !searchQ ? (
             <div style={{ ...bx, textAlign: 'center', padding: 32 }}>
               <div style={{ fontSize: 24, marginBottom: 8 }}>📦</div>
               <div style={{ fontSize: 13, color: '#bbb' }}>이 장소에 배치된 품목이 없습니다</div>
@@ -286,35 +332,6 @@ export default function InventoryPage() {
                   {logEntry?.updated_by && (
                     <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
                       ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                    </div>
-                  )}
-                  {isEdit && (
-                    <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-                        <span style={{ fontSize: 9, color: '#bbb' }}>최소</span>
-                        <input type="number" value={item.min_qty} onChange={e => updateMinQty(item.id, Math.max(0, Number(e.target.value)))}
-                          style={{ ...inp, width: 50, padding: '3px 6px', fontSize: 11, textAlign: 'center' }} />
-                      </div>
-                      <button onClick={() => setShowMoveItem(showMoveItem === item.id ? null : item.id)}
-                        style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.2)', color: '#2DC6D6', fontSize: 10, cursor: 'pointer' }}>장소배치</button>
-                      <button onClick={() => deleteItem(item.id, item.name)}
-                        style={{ padding: '3px 8px', borderRadius: 6, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#bbb', fontSize: 10, cursor: 'pointer' }}>삭제</button>
-                    </div>
-                  )}
-                  {showMoveItem === item.id && (
-                    <div style={{ marginTop: 8, padding: 8, borderRadius: 8, background: 'rgba(45,198,214,0.05)', border: '1px solid rgba(45,198,214,0.15)' }}>
-                      <div style={{ fontSize: 10, color: '#2DC6D6', marginBottom: 6 }}>장소 배치</div>
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {places.map(pl => {
-                          const has = hasStock(item.id, pl)
-                          return (
-                            <button key={pl} onClick={() => has ? removeFromPlace(item.id, pl) : addToPlace(item.id, pl)}
-                              style={{ padding: '3px 8px', borderRadius: 6, background: has ? 'rgba(255,107,53,0.1)' : '#F4F6F9', border: has ? '1px solid rgba(255,107,53,0.3)' : '1px solid #E8ECF0', color: has ? '#FF6B35' : '#888', fontSize: 10, cursor: 'pointer' }}>
-                              {has ? '✓ ' : ''}{pl}
-                            </button>
-                          )
-                        })}
-                      </div>
                     </div>
                   )}
                 </div>
