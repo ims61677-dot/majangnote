@@ -299,9 +299,9 @@ function GridEditor({ year, month, schedules, staffList, role, storeId, myName, 
   const popupData = popup ? (scheduleMap[`${popup.staff}-${popup.date}`] || null) : null
 
   // 셀 클릭 가능 여부
-  function canClick(staff: string) {
+  function canClick(staff: string, hasSchedule: boolean) {
     if (isOwner) return true
-    if (isManager) return true // 포지션 편집 + 요청 가능
+    if (isManager) return hasSchedule // 관리자는 기존 근무 있는 셀만 클릭 가능
     return false // 직원은 읽기 전용
   }
 
@@ -356,10 +356,10 @@ function GridEditor({ year, month, schedules, staffList, role, storeId, myName, 
         <div style={{ flex:1 }}>
           <YearMonthPicker year={year} month={month} onChange={onChangeMonth} color="#6C5CE7" />
         </div>
-        {isOwner && pendingCount > 0 && (
+        {isOwner && (
           <button onClick={() => setShowRequests(true)}
-            style={{ padding:'7px 12px', borderRadius:10, background:'rgba(232,67,147,0.1)', border:'1px solid rgba(232,67,147,0.3)', color:'#E84393', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
-            📋 요청 <span style={{ background:'#E84393', color:'#fff', borderRadius:10, padding:'1px 6px', fontSize:10, marginLeft:4 }}>{pendingCount}</span>
+            style={{ padding:'7px 12px', borderRadius:10, background: pendingCount>0?'rgba(232,67,147,0.1)':'#F4F6F9', border: pendingCount>0?'1px solid rgba(232,67,147,0.3)':'1px solid #E8ECF0', color: pendingCount>0?'#E84393':'#aaa', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
+            📋 요청 {pendingCount > 0 && <span style={{ background:'#E84393', color:'#fff', borderRadius:10, padding:'1px 6px', fontSize:10, marginLeft:4 }}>{pendingCount}</span>}
           </button>
         )}
       </div>
@@ -421,7 +421,7 @@ function GridEditor({ year, month, schedules, staffList, role, storeId, myName, 
                 const dow = new Date(dateStr).getDay()
                 const isToday = dateStr === today
                 const isSun = dow===0; const isSat = dow===6
-                const clickable = canClick(staff)
+                const clickable = canClick(staff, !!s)
                 return (
                   <div key={day}
                     onClick={() => clickable && setPopup({ staff, date: dateStr })}
