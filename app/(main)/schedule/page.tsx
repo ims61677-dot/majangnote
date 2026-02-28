@@ -457,9 +457,16 @@ export default function SchedulePage() {
   }
 
   async function loadStaff(sid: string) {
-    const { data } = await supabase.from('mj_user').select('nm')
-      .eq('store_id', sid).eq('is_active', true).order('nm')
-    setStaffList((data || []).map((u: any) => u.nm).filter(Boolean))
+    const { data } = await supabase
+      .from("store_members")
+      .select("profile_id, role, active, profiles(nm)")
+      .eq("store_id", sid)
+      .eq("active", true)
+    const names = (data || [])
+      .map((m: any) => m.profiles?.nm)
+      .filter(Boolean)
+      .sort()
+    setStaffList(names)
   }
 
   function handleChangeMonth(y: number, m: number) {
