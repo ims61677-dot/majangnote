@@ -13,6 +13,58 @@ function fmtW(n: number) {
 }
 function fmtWFull(n: number) { return n.toLocaleString('ko-KR') + '원' }
 
+// ── 한국 공휴일 ──
+const KR_HOLIDAYS: Record<string, string> = {
+  '0101':'신정','0301':'삼일절','0505':'어린이날','0501':'근로자의날',
+  '0606':'현충일','0815':'광복절','1003':'개천절','1009':'한글날','1225':'크리스마스',
+  '20250128':'설 전날','20250129':'설날','20250130':'설 다음날',
+  '20250506':'대체공휴일','20251005':'추석 전날','20251006':'추석','20251007':'추석 다음날','20251008':'대체공휴일',
+  '20260216':'설 전날','20260217':'설날','20260218':'설 다음날',
+  '20260302':'대체공휴일','20260524':'부처님오신날',
+  '20260924':'추석 전날','20260925':'추석','20260926':'추석 다음날',
+  '20270206':'설 전날','20270207':'설날','20270208':'설 다음날',
+  '20270513':'부처님오신날','20271014':'추석 전날','20271015':'추석','20271016':'추석 다음날',
+}
+function isRedDay(y: number, m: number, d: number): boolean {
+  const dow = new Date(y, m - 1, d).getDay()
+  if (dow === 0 || dow === 6) return true
+  const mmdd = `${String(m).padStart(2,'0')}${String(d).padStart(2,'0')}`
+  return !!(KR_HOLIDAYS[`${y}${mmdd}`] || KR_HOLIDAYS[mmdd])
+}
+function getWeekNum(y: number, m: number, d: number) {
+  const startDow = new Date(y, m - 1, 1).getDay()
+  return Math.ceil((d + (startDow === 0 ? 6 : startDow - 1)) / 7)
+}
+// weekly_goals 기반 월 목표 계산
+function calcMonthGoalFromWeekly(y: number, m: number, weeklyGoals: Record<string,{weekday:number;weekend:number}>): number {
+  const days = new Date(y, m, 0).getDate()
+  let total = 0
+  for (let d = 1; d <= days; d++) {
+    const w = getWeekNum(y, m, d)
+    const wg = weeklyGoals[String(w)] || weeklyGoals[w] || null
+    if (!wg) continue
+    total += isRedDay(y, m, d) ? (wg.weekend || 0) : (wg.weekday || 0)
+  }
+  return total
+}
+// 이번 주 weekly_goals 기반 주간 목표
+function calcWeekGoalFromWeekly(y: number, m: number, weeklyGoals: Record<string,{weekday:number;weekend:number}>): number {
+  const today = new Date()
+  const w = getWeekNum(today.getFullYear(), today.getMonth()+1, today.getDate())
+  const wg = weeklyGoals[String(w)] || weeklyGoals[w] || null
+  if (!wg) return 0
+  // 해당 주 일수 계산
+  const startDow = new Date(y, m - 1, 1).getDay()
+  const days = new Date(y, m, 0).getDate()
+  let total = 0
+  for (let d = 1; d <= days; d++) {
+    if (getWeekNum(y, m, d) === w) {
+      total += isRedDay(y, m, d) ? (wg.weekend || 0) : (wg.weekday || 0)
+    }
+  }
+  return total
+}
+
 function getStatus(tot: number, minQty: number, warnQty: number) {
   if (tot <= minQty) return 'low'
   if (tot <= warnQty) return 'warn'
@@ -162,11 +214,16 @@ export default function DashPage() {
   // 월 목표
   const monthGoal = useMemo(() => {
     if (!goal) return 0
+    const moNum = mo + 1
+    // weekly_goals 있으면 공휴일 포함 정확한 계산
+    if (goal.weekly_goals && Object.keys(goal.weekly_goals).length > 0) {
+      return calcMonthGoalFromWeekly(yr, moNum, goal.weekly_goals)
+    }
+    // fallback: weekday_goal/weekend_goal
     const daysInMonth = new Date(yr, mo+1, 0).getDate()
     let weekdays = 0, weekends = 0
     for (let d = 1; d <= daysInMonth; d++) {
-      const dow = new Date(yr, mo, d).getDay()
-      if (dow === 0 || dow === 6) weekends++; else weekdays++
+      if (isRedDay(yr, moNum, d)) weekends++; else weekdays++
     }
     return (goal.weekday_goal || 0) * weekdays + (goal.weekend_goal || 0) * weekends
   }, [goal, yr, mo])
@@ -181,8 +238,13 @@ export default function DashPage() {
 
   const weekGoal = useMemo(() => {
     if (!goal) return 0
+    const moNum = mo + 1
+    // weekly_goals 있으면 이번 주 정확한 계산
+    if (goal.weekly_goals && Object.keys(goal.weekly_goals).length > 0) {
+      return calcWeekGoalFromWeekly(yr, moNum, goal.weekly_goals)
+    }
     return (goal.weekday_goal || 0) * 5 + (goal.weekend_goal || 0) * 2
-  }, [goal])
+  }, [goal, yr, mo])
 
   const weekAchieveRate = weekGoal > 0 ? Math.round((weekSales / weekGoal) * 100) : 0
 
