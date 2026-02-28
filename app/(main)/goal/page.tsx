@@ -1,14 +1,16 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import YearMonthPicker from '@/components/YearMonthPicker'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
-const inp = { width: '100%', padding: '10px 12px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 14, outline: 'none', boxSizing: 'border-box' as const }
-const ta = { ...{ width: '100%', padding: '10px 12px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, resize: 'vertical' as const, minHeight: 80 } }
+const inp = { width: '100%', padding: '9px 12px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 14, outline: 'none', boxSizing: 'border-box' as const, textAlign: 'right' as const }
+const ta = { width: '100%', padding: '9px 12px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 12, outline: 'none', boxSizing: 'border-box' as const, resize: 'vertical' as const, minHeight: 70, lineHeight: 1.6 }
 
 function toComma(v: number) { return v > 0 ? v.toLocaleString('ko-KR') : '' }
 function fromComma(s: string) { return Number(String(s).replace(/[^0-9]/g, '')) || 0 }
 function fmtW(n: number) {
+  if (n >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, '') + '억'
   if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, '') + '만원'
   return n.toLocaleString('ko-KR') + '원'
 }
@@ -17,100 +19,74 @@ function ProgressBar({ value, color = '#FF6B35', height = 8 }: { value: number; 
   const pct = Math.min(Math.max(value, 0), 100)
   return (
     <div style={{ width: '100%', height, borderRadius: height, background: '#F0F2F5', overflow: 'hidden' }}>
-      <div style={{ width: `${pct}%`, height: '100%', borderRadius: height, background: pct >= 100 ? '#00B894' : color, transition: 'width 0.5s ease' }} />
+      <div style={{ width: `${pct}%`, height: '100%', borderRadius: height, background: pct >= 100 ? '#00B894' : color, transition: 'width 0.5s' }} />
     </div>
   )
 }
 
-// 날짜 유틸
 function getDaysInMonth(y: number, m: number) { return new Date(y, m, 0).getDate() }
 function getDow(y: number, m: number, d: number) { return new Date(y, m - 1, d).getDay() }
-function getWeekNumber(y: number, m: number, d: number) {
-  const date = new Date(y, m - 1, d)
-  const startOfMonth = new Date(y, m - 1, 1)
-  const startDow = startOfMonth.getDay()
+function getWeekNum(y: number, m: number, d: number) {
+  const startDow = new Date(y, m - 1, 1).getDay()
   return Math.ceil((d + (startDow === 0 ? 6 : startDow - 1)) / 7)
 }
 function getWeeksInMonth(y: number, m: number) {
-  const days = getDaysInMonth(y, m)
-  return getWeekNumber(y, m, days)
+  return getWeekNum(y, m, getDaysInMonth(y, m))
 }
 function getWeekDays(y: number, m: number, week: number) {
-  const days = []
-  const total = getDaysInMonth(y, m)
-  for (let d = 1; d <= total; d++) {
-    if (getWeekNumber(y, m, d) === week) days.push(d)
+  const days: number[] = []
+  for (let d = 1; d <= getDaysInMonth(y, m); d++) {
+    if (getWeekNum(y, m, d) === week) days.push(d)
   }
   return days
 }
 
-const TABS = ['월 목표', '주 목표', '일 목표', '리뷰', '액션플랜']
-const DOW_LABEL = ['일', '월', '화', '수', '목', '금', '토']
-const FAIL_CHECKS = ['날씨/외부 요인', '인력 부족', '재고 부족', '서비스 문제', '경쟁사 영향', '마케팅 부족', '시즌 비수기', '기타']
+const DOW = ['일', '월', '화', '수', '목', '금', '토']
+const FAIL_CHECKS = ['날씨/외부요인', '인력 부족', '재고 부족', '서비스 문제', '경쟁사 영향', '마케팅 부족', '시즌 비수기', '기타']
 
 export default function GoalPage() {
   const supabase = createSupabaseBrowserClient()
   const now = new Date()
   const [yr, setYr] = useState(now.getFullYear())
-  const [mo, setMo] = useState(now.getMonth() + 1)
+  const [mo, setMo] = useState(now.getMonth()) // 0-based for YearMonthPicker
   const [storeId, setStoreId] = useState('')
   const [myRole, setMyRole] = useState('')
   const [myName, setMyName] = useState('')
-  const [tab, setTab] = useState(0)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
 
-  // 목표 데이터
-  const [monthGoal, setMonthGoal] = useState(0)
-  const [weekGoals, setWeekGoals] = useState<Record<number, number>>({})
-  const [dayGoals, setDayGoals] = useState<Record<number, number>>({})
-  const [goalNote, setGoalNote] = useState('')
-
-  // 실제 매출 데이터
+  // 주간 목표: { [week]: { weekday: number, weekend: number } }
+  const [weekGoals, setWeekGoals] = useState<Record<number, { weekday: number; weekend: number }>>({})
+  // 주간 리뷰: { [week]: { failReasons, comment, action } }
+  const [weekReviews, setWeekReviews] = useState<Record<number, { failReasons: string[]; comment: string; action: string }>>({})
+  // 실제 매출
   const [dailySales, setDailySales] = useState<Record<number, number>>({})
+  const [saving, setSaving] = useState(false)
+  const [savedWeek, setSavedWeek] = useState<number | null>(null)
+  const [expandedWeek, setExpandedWeek] = useState<number | null>(null)
 
-  // 리뷰
-  const [goodPoints, setGoodPoints] = useState('')
-  const [badPoints, setBadPoints] = useState('')
-  const [nextStrategy, setNextStrategy] = useState('')
-  const [failReasons, setFailReasons] = useState<string[]>([])
-  const [failComment, setFailComment] = useState('')
-
-  // 액션 플랜
-  const [actionPlans, setActionPlans] = useState<any[]>([])
-  const [newPlanTitle, setNewPlanTitle] = useState('')
-  const [newPlanDesc, setNewPlanDesc] = useState('')
-  const [showAddPlan, setShowAddPlan] = useState(false)
-
-  const isOwner = myRole === 'owner'
-  const isManager = myRole === 'manager'
-  const canEdit = isOwner || isManager
-  const totalWeeks = getWeeksInMonth(yr, mo)
-  const daysInMonth = getDaysInMonth(yr, mo)
+  const canEdit = myRole === 'owner' || myRole === 'manager'
+  const moNum = mo + 1
+  const totalWeeks = getWeeksInMonth(yr, moNum)
+  const daysInMonth = getDaysInMonth(yr, moNum)
 
   useEffect(() => {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
     const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
     if (!store.id) return
     setStoreId(store.id)
-    setMyRole(user.role)
+    setMyRole(user.role || '')
     setMyName(user.nm || '')
-    loadAll(store.id, yr, mo)
+    loadAll(store.id, yr, moNum)
   }, [yr, mo])
 
   async function loadAll(sid: string, y: number, m: number) {
     // 목표 로드
     const { data: g } = await supabase.from('goals').select('*').eq('store_id', sid).eq('year', y).eq('month', m).single()
-    if (g) {
-      setMonthGoal(g.weekday_goal * 20 + g.weekend_goal * 8 || 0)
-      setWeekGoals(g.weekly_goals || {})
-      setDayGoals(g.daily_goals || {})
-      setGoalNote(g.note || '')
-    } else {
-      setMonthGoal(0); setWeekGoals({}); setDayGoals({}); setGoalNote('')
-    }
+    if (g?.weekly_goals) setWeekGoals(g.weekly_goals)
+    else setWeekGoals({})
+    if (g?.week_reviews) setWeekReviews(g.week_reviews)
+    else setWeekReviews({})
 
-    // 실제 매출 로드
+    // 실제 매출 로드 (마감일지 연동)
     const from = `${y}-${String(m).padStart(2, '0')}-01`
     const to = `${y}-${String(m).padStart(2, '0')}-${String(getDaysInMonth(y, m)).padStart(2, '0')}`
     const { data: cls } = await supabase.from('closings').select('id, closing_date').eq('store_id', sid).gte('closing_date', from).lte('closing_date', to)
@@ -123,431 +99,268 @@ export default function GoalPage() {
         if (total > 0) map[day] = total
       })
       setDailySales(map)
-    } else { setDailySales({}) }
-
-    // 리뷰 로드
-    const { data: rv } = await supabase.from('goal_reviews').select('*').eq('store_id', sid).eq('year', y).eq('month', m).single()
-    if (rv) {
-      setGoodPoints(rv.good_points || ''); setBadPoints(rv.bad_points || '')
-      setNextStrategy(rv.next_strategy || ''); setFailReasons(rv.fail_reasons || [])
-      setFailComment(rv.fail_comment || '')
-    } else { setGoodPoints(''); setBadPoints(''); setNextStrategy(''); setFailReasons([]); setFailComment('') }
-
-    // 액션 플랜 로드
-    const { data: ap } = await supabase.from('goal_action_plans').select('*').eq('store_id', sid).eq('year', y).eq('month', m).order('sort_order')
-    setActionPlans(ap || [])
+    } else setDailySales({})
   }
 
-  // 매출 집계
-  const totalSales = useMemo(() => Object.values(dailySales).reduce((a, b) => a + b, 0), [dailySales])
-  const weekSales = useMemo(() => {
-    const map: Record<number, number> = {}
-    Object.entries(dailySales).forEach(([d, t]) => {
-      const w = getWeekNumber(yr, mo, parseInt(d))
-      map[w] = (map[w] || 0) + t
-    })
-    return map
-  }, [dailySales, yr, mo])
+  // 주간 목표 계산
+  const weekCalc = useMemo(() => {
+    const result: Record<number, { goal: number; actual: number; weekdays: number; weekends: number }> = {}
+    for (let w = 1; w <= totalWeeks; w++) {
+      const days = getWeekDays(yr, moNum, w)
+      let weekdays = 0, weekends = 0, actual = 0
+      days.forEach(d => {
+        const dow = getDow(yr, moNum, d)
+        if (dow === 0 || dow === 6) weekends++; else weekdays++
+        actual += dailySales[d] || 0
+      })
+      const wg = weekGoals[w] || { weekday: 0, weekend: 0 }
+      const goal = wg.weekday * weekdays + wg.weekend * weekends
+      result[w] = { goal, actual, weekdays, weekends }
+    }
+    return result
+  }, [weekGoals, dailySales, yr, moNum, totalWeeks])
 
-  const monthAchieve = monthGoal > 0 ? Math.round((totalSales / monthGoal) * 100) : 0
+  // 월 목표 자동 합산
+  const monthGoalTotal = useMemo(() => Object.values(weekCalc).reduce((a, b) => a + b.goal, 0), [weekCalc])
+  const monthActualTotal = useMemo(() => Object.values(dailySales).reduce((a, b) => a + b, 0), [dailySales])
+  const monthRate = monthGoalTotal > 0 ? Math.round((monthActualTotal / monthGoalTotal) * 100) : 0
 
-  async function saveGoals() {
+  // 평균 weekday/weekend 목표 계산 (대시보드 연동용)
+  const avgWeekday = useMemo(() => {
+    const vals = Object.values(weekGoals).map(w => w.weekday).filter(v => v > 0)
+    return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0
+  }, [weekGoals])
+  const avgWeekend = useMemo(() => {
+    const vals = Object.values(weekGoals).map(w => w.weekend).filter(v => v > 0)
+    return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0
+  }, [weekGoals])
+
+  async function saveWeek(week: number) {
     if (!storeId || !canEdit) return
     setSaving(true)
+    const newWeekGoals = { ...weekGoals }
+    const newWeekReviews = { ...weekReviews }
+
+    // goals 테이블에 저장 + 대시보드 연동용 weekday_goal/weekend_goal도 업데이트
     await supabase.from('goals').upsert({
-      store_id: storeId, year: yr, month: mo,
-      weekday_goal: 0, weekend_goal: 0,
-      weekly_goals: weekGoals, daily_goals: dayGoals, note: goalNote
+      store_id: storeId, year: yr, month: moNum,
+      weekday_goal: avgWeekday,
+      weekend_goal: avgWeekend,
+      weekly_goals: newWeekGoals,
+      week_reviews: newWeekReviews,
     }, { onConflict: 'store_id,year,month' })
-    setSaving(false); setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+
+    setSaving(false)
+    setSavedWeek(week)
+    setTimeout(() => setSavedWeek(null), 2000)
   }
 
-  async function saveReview() {
-    if (!storeId || !canEdit) return
-    setSaving(true)
-    await supabase.from('goal_reviews').upsert({
-      store_id: storeId, year: yr, month: mo,
-      good_points: goodPoints, bad_points: badPoints,
-      next_strategy: nextStrategy, fail_reasons: failReasons,
-      fail_comment: failComment, created_by: myName
-    }, { onConflict: 'store_id,year,month' })
-    setSaving(false); setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  function setWeekGoal(week: number, field: 'weekday' | 'weekend', val: number) {
+    setWeekGoals(p => ({ ...p, [week]: { ...(p[week] || { weekday: 0, weekend: 0 }), [field]: val } }))
   }
-
-  async function addActionPlan() {
-    if (!newPlanTitle.trim() || !storeId) return
-    const { data } = await supabase.from('goal_action_plans').insert({
-      store_id: storeId, year: yr, month: mo,
-      title: newPlanTitle.trim(), description: newPlanDesc.trim() || null,
-      sort_order: actionPlans.length, created_by: myName
-    }).select().single()
-    if (data) setActionPlans(p => [...p, data])
-    setNewPlanTitle(''); setNewPlanDesc(''); setShowAddPlan(false)
-  }
-
-  async function togglePlan(id: string, checked: boolean) {
-    await supabase.from('goal_action_plans').update({ is_checked: checked, checked_by: checked ? myName : null, checked_at: checked ? new Date().toISOString() : null }).eq('id', id)
-    setActionPlans(p => p.map(a => a.id === id ? { ...a, is_checked: checked, checked_by: checked ? myName : null } : a))
-  }
-
-  async function deletePlan(id: string) {
-    if (!confirm('삭제할까요?')) return
-    await supabase.from('goal_action_plans').delete().eq('id', id)
-    setActionPlans(p => p.filter(a => a.id !== id))
+  function setWeekReview(week: number, field: string, val: any) {
+    setWeekReviews(p => ({ ...p, [week]: { ...(p[week] || { failReasons: [], comment: '', action: '' }), [field]: val } }))
   }
 
   return (
     <div>
-      {/* 헤더 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>🎯 목표매출</span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={() => { if (mo === 1) { setYr(yr - 1); setMo(12) } else setMo(mo - 1) }}
-            style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 14 }}>←</button>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e', minWidth: 80, textAlign: 'center' }}>{yr}년 {mo}월</span>
-          <button onClick={() => { if (mo === 12) { setYr(yr + 1); setMo(1) } else setMo(mo + 1) }}
-            style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 14 }}>→</button>
-        </div>
+      {/* YearMonthPicker */}
+      <div style={{ marginBottom: 16 }}>
+        <YearMonthPicker year={yr} month={mo} onChange={(y, m) => { setYr(y); setMo(m) }} color="#FF6B35" />
       </div>
 
-      {/* 월 달성률 요약 */}
-      <div style={{ ...bx, background: 'linear-gradient(135deg,rgba(255,107,53,0.06),rgba(232,67,147,0.06))', border: '1px solid rgba(255,107,53,0.2)' }}>
+      {/* 월 목표 요약 (자동 합산) */}
+      <div style={{ ...bx, background: 'linear-gradient(135deg,rgba(255,107,53,0.07),rgba(232,67,147,0.07))', border: '1px solid rgba(255,107,53,0.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{mo}월 전체 달성률</span>
-          <span style={{ fontSize: 16, fontWeight: 900, color: monthAchieve >= 100 ? '#00B894' : '#FF6B35' }}>{monthAchieve}%</span>
-        </div>
-        <ProgressBar value={monthAchieve} color="#FF6B35" height={12} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
           <div>
-            <div style={{ fontSize: 10, color: '#aaa' }}>실제 매출</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#FF6B35' }}>{fmtW(totalSales)}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>📊 {moNum}월 전체 현황</div>
+            <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>주간 목표 자동 합산</div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: '#aaa' }}>월 목표</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#1a1a2e' }}>{monthGoal > 0 ? fmtW(monthGoal) : '미설정'}</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: monthRate >= 100 ? '#00B894' : '#FF6B35' }}>{monthRate}%</div>
           </div>
         </div>
-        {monthGoal > 0 && totalSales < monthGoal && (
-          <div style={{ marginTop: 8, fontSize: 11, color: '#aaa', textAlign: 'right' }}>목표까지 {fmtW(monthGoal - totalSales)} 남음</div>
-        )}
-        {monthAchieve >= 100 && (
-          <div style={{ marginTop: 10, textAlign: 'center', fontSize: 12, color: '#00B894', fontWeight: 700, background: 'rgba(0,184,148,0.08)', borderRadius: 8, padding: '6px 0' }}>🎉 이번 달 목표 달성!</div>
-        )}
-      </div>
-
-      {/* 탭 */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, overflowX: 'auto' }}>
-        {TABS.map((t, i) => (
-          <button key={i} onClick={() => setTab(i)}
-            style={{ padding: '7px 14px', borderRadius: 20, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
-              background: tab === i ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#F4F6F9',
-              color: tab === i ? '#fff' : '#888' }}>
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {/* ── 월 목표 탭 ── */}
-      {tab === 0 && (
-        <div>
-          <div style={bx}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 14 }}>📅 {mo}월 목표 설정</div>
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>월 목표 금액</div>
-            <input value={toComma(monthGoal)} onChange={e => canEdit && setMonthGoal(fromComma(e.target.value))}
-              placeholder="0" readOnly={!canEdit}
-              style={{ ...inp, textAlign: 'right', marginBottom: 12, fontSize: 18, fontWeight: 700 }} />
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>메모</div>
-            <textarea value={goalNote} onChange={e => canEdit && setGoalNote(e.target.value)}
-              placeholder="목표 설정 배경, 전략 메모..." style={ta} readOnly={!canEdit} />
-            {canEdit && (
-              <button onClick={saveGoals} disabled={saving}
-                style={{ width: '100%', marginTop: 12, padding: 12, borderRadius: 10, border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                  background: saved ? '#00B894' : saving ? '#ccc' : 'linear-gradient(135deg,#FF6B35,#E84393)' }}>
-                {saved ? '✓ 저장완료!' : saving ? '저장 중...' : '💾 저장'}
-              </button>
-            )}
+        <ProgressBar value={monthRate} color="#FF6B35" height={12} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
+          <div>
+            <div style={{ fontSize: 10, color: '#aaa' }}>실제 매출</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#FF6B35' }}>{fmtW(monthActualTotal)}</div>
           </div>
-
-          {/* 월간 캘린더 */}
-          <div style={bx}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📊 일별 현황</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, marginBottom: 6 }}>
-              {DOW_LABEL.map(d => (
-                <div key={d} style={{ fontSize: 10, color: '#bbb', textAlign: 'center', fontWeight: 600 }}>{d}</div>
-              ))}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
-              {/* 빈 칸 */}
-              {Array.from({ length: getDow(yr, mo, 1) }).map((_, i) => <div key={`e${i}`} />)}
-              {Array.from({ length: daysInMonth }).map((_, i) => {
-                const d = i + 1
-                const dow = getDow(yr, mo, d)
-                const sale = dailySales[d] || 0
-                const goal = dayGoals[d] || 0
-                const rate = goal > 0 ? Math.round((sale / goal) * 100) : null
-                const isToday = yr === now.getFullYear() && mo === now.getMonth() + 1 && d === now.getDate()
-                const isWeekend = dow === 0 || dow === 6
-                return (
-                  <div key={d} style={{ borderRadius: 8, padding: '4px 2px', textAlign: 'center', minHeight: 52,
-                    background: sale > 0 ? (rate !== null && rate >= 100 ? 'rgba(0,184,148,0.08)' : 'rgba(255,107,53,0.06)') : '#F8F9FB',
-                    border: isToday ? '2px solid #FF6B35' : '1px solid #F0F2F5' }}>
-                    <div style={{ fontSize: 11, fontWeight: isToday ? 800 : 500, color: isWeekend ? '#6C5CE7' : '#555' }}>{d}</div>
-                    {sale > 0 && <div style={{ fontSize: 9, color: '#FF6B35', fontWeight: 700, marginTop: 1 }}>{fmtW(sale)}</div>}
-                    {rate !== null && <div style={{ fontSize: 8, color: rate >= 100 ? '#00B894' : '#E84393', fontWeight: 600 }}>{rate}%</div>}
-                    {goal > 0 && sale === 0 && <div style={{ fontSize: 8, color: '#ccc' }}>목표{fmtW(goal)}</div>}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 주 목표 탭 ── */}
-      {tab === 1 && (
-        <div>
-          {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(week => {
-            const weekDays = getWeekDays(yr, mo, week)
-            const wGoal = weekGoals[week] || 0
-            const wSale = weekSales[week] || 0
-            const wRate = wGoal > 0 ? Math.round((wSale / wGoal) * 100) : 0
-            return (
-              <div key={week} style={bx}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{week}주차 ({mo}월 {weekDays[0]}일~{weekDays[weekDays.length - 1]}일)</span>
-                  {wGoal > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: wRate >= 100 ? '#00B894' : '#6C5CE7' }}>{wRate}%</span>}
-                </div>
-                <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>주간 목표</div>
-                <input value={toComma(wGoal)} onChange={e => canEdit && setWeekGoals(p => ({ ...p, [week]: fromComma(e.target.value) }))}
-                  placeholder="0" readOnly={!canEdit}
-                  style={{ ...inp, textAlign: 'right', marginBottom: wGoal > 0 ? 10 : 0 }} />
-                {wGoal > 0 && (
-                  <>
-                    <ProgressBar value={wRate} color="#6C5CE7" height={8} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                      <div style={{ fontSize: 11, color: '#aaa' }}>실제 {fmtW(wSale)}</div>
-                      <div style={{ fontSize: 11, color: '#aaa' }}>목표 {fmtW(wGoal)}</div>
-                    </div>
-                    {/* 해당 주 일별 매출 */}
-                    <div style={{ display: 'flex', gap: 4, marginTop: 10 }}>
-                      {weekDays.map(d => {
-                        const dow = getDow(yr, mo, d)
-                        const sale = dailySales[d] || 0
-                        return (
-                          <div key={d} style={{ flex: 1, textAlign: 'center', background: sale > 0 ? 'rgba(108,92,231,0.08)' : '#F8F9FB', borderRadius: 8, padding: '6px 2px' }}>
-                            <div style={{ fontSize: 9, color: dow === 0 || dow === 6 ? '#6C5CE7' : '#aaa' }}>{DOW_LABEL[dow]}</div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: '#555', marginTop: 2 }}>{d}</div>
-                            {sale > 0 && <div style={{ fontSize: 9, color: '#FF6B35', fontWeight: 700, marginTop: 2 }}>{fmtW(sale)}</div>}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </>
-                )}
+          {monthGoalTotal > 0 && (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 10, color: '#aaa' }}>남은 금액</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: monthActualTotal >= monthGoalTotal ? '#00B894' : '#E84393' }}>
+                {monthActualTotal >= monthGoalTotal ? '🎉 달성!' : fmtW(monthGoalTotal - monthActualTotal)}
               </div>
-            )
-          })}
-          {canEdit && (
-            <button onClick={saveGoals} disabled={saving}
-              style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                background: saved ? '#00B894' : saving ? '#ccc' : 'linear-gradient(135deg,#FF6B35,#E84393)' }}>
-              {saved ? '✓ 저장완료!' : saving ? '저장 중...' : '💾 주간 목표 저장'}
-            </button>
+            </div>
           )}
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: '#aaa' }}>월 목표 합계</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#1a1a2e' }}>{monthGoalTotal > 0 ? fmtW(monthGoalTotal) : '미설정'}</div>
+          </div>
         </div>
-      )}
+      </div>
 
-      {/* ── 일 목표 탭 ── */}
-      {tab === 2 && (
-        <div>
-          <div style={{ fontSize: 12, color: '#aaa', marginBottom: 12, textAlign: 'center' }}>날짜별 목표를 직접 설정하세요</div>
-          {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(week => {
-            const weekDays = getWeekDays(yr, mo, week)
-            return (
-              <div key={week} style={bx}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#888', marginBottom: 10 }}>{week}주차</div>
-                {weekDays.map(d => {
-                  const dow = getDow(yr, mo, d)
-                  const isWeekend = dow === 0 || dow === 6
+      {/* 주차별 카드 */}
+      {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(week => {
+        const days = getWeekDays(yr, moNum, week)
+        const calc = weekCalc[week] || { goal: 0, actual: 0, weekdays: 0, weekends: 0 }
+        const rate = calc.goal > 0 ? Math.round((calc.actual / calc.goal) * 100) : 0
+        const wg = weekGoals[week] || { weekday: 0, weekend: 0 }
+        const wr = weekReviews[week] || { failReasons: [], comment: '', action: '' }
+        const isExpanded = expandedWeek === week
+        const isCurrentWeek = yr === now.getFullYear() && moNum === now.getMonth() + 1 &&
+          days.includes(now.getDate())
+        const isSaved = savedWeek === week
+
+        return (
+          <div key={week} style={{ ...bx, border: isCurrentWeek ? '2px solid rgba(255,107,53,0.4)' : '1px solid #E8ECF0' }}>
+            {/* 주차 헤더 */}
+            <div onClick={() => setExpandedWeek(isExpanded ? null : week)} style={{ cursor: 'pointer' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {isCurrentWeek && <span style={{ fontSize: 10, background: 'rgba(255,107,53,0.15)', color: '#FF6B35', padding: '2px 7px', borderRadius: 6, fontWeight: 700 }}>이번 주</span>}
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>{week}주차</span>
+                  <span style={{ fontSize: 11, color: '#aaa' }}>{moNum}/{days[0]} ~ {moNum}/{days[days.length - 1]}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {calc.goal > 0 && (
+                    <span style={{ fontSize: 13, fontWeight: 800, color: rate >= 100 ? '#00B894' : rate >= 70 ? '#FF6B35' : '#E84393' }}>
+                      {rate}%
+                    </span>
+                  )}
+                  <span style={{ fontSize: 12, color: '#ccc' }}>{isExpanded ? '▲' : '▼'}</span>
+                </div>
+              </div>
+
+              {/* 주간 프로그레스바 */}
+              {calc.goal > 0 && (
+                <>
+                  <ProgressBar value={rate} color={rate >= 100 ? '#00B894' : '#6C5CE7'} height={8} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                    <span style={{ fontSize: 11, color: '#aaa' }}>실제 {fmtW(calc.actual)}</span>
+                    <span style={{ fontSize: 11, color: '#aaa' }}>목표 {fmtW(calc.goal)}</span>
+                  </div>
+                </>
+              )}
+
+              {/* 일별 미니 현황 */}
+              <div style={{ display: 'flex', gap: 3, marginTop: 10 }}>
+                {days.map(d => {
+                  const dow = getDow(yr, moNum, d)
                   const sale = dailySales[d] || 0
-                  const goal = dayGoals[d] || 0
-                  const rate = goal > 0 ? Math.round((sale / goal) * 100) : null
+                  const isWeekend = dow === 0 || dow === 6
+                  const isToday = yr === now.getFullYear() && moNum === now.getMonth() + 1 && d === now.getDate()
+                  const dayGoal = isWeekend ? (wg.weekend || 0) : (wg.weekday || 0)
+                  const dayRate = dayGoal > 0 && sale > 0 ? Math.round((sale / dayGoal) * 100) : null
                   return (
-                    <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, padding: '8px 10px', borderRadius: 10,
-                      background: sale > 0 ? 'rgba(255,107,53,0.04)' : '#F8F9FB', border: '1px solid #F0F2F5' }}>
-                      <div style={{ minWidth: 36, textAlign: 'center' }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: isWeekend ? '#6C5CE7' : '#1a1a2e' }}>{d}일</div>
-                        <div style={{ fontSize: 9, color: '#bbb' }}>{DOW_LABEL[dow]}</div>
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <input value={toComma(goal)} onChange={e => canEdit && setDayGoals(p => ({ ...p, [d]: fromComma(e.target.value) }))}
-                          placeholder="목표 입력" readOnly={!canEdit}
-                          style={{ ...inp, padding: '6px 10px', fontSize: 13, textAlign: 'right' }} />
-                      </div>
-                      <div style={{ minWidth: 70, textAlign: 'right' }}>
-                        {sale > 0 ? (
-                          <>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#FF6B35' }}>{fmtW(sale)}</div>
-                            {rate !== null && <div style={{ fontSize: 10, color: rate >= 100 ? '#00B894' : '#E84393', fontWeight: 600 }}>{rate}%</div>}
-                          </>
-                        ) : (
-                          <div style={{ fontSize: 10, color: '#ccc' }}>미기록</div>
-                        )}
-                      </div>
+                    <div key={d} style={{ flex: 1, textAlign: 'center', borderRadius: 8, padding: '5px 2px',
+                      background: sale > 0 ? (dayRate !== null && dayRate >= 100 ? 'rgba(0,184,148,0.1)' : 'rgba(255,107,53,0.07)') : '#F8F9FB',
+                      border: isToday ? '2px solid #FF6B35' : '1px solid #F0F0F0' }}>
+                      <div style={{ fontSize: 9, color: isWeekend ? '#6C5CE7' : '#bbb', fontWeight: 600 }}>{DOW[dow]}</div>
+                      <div style={{ fontSize: 11, fontWeight: isToday ? 800 : 500, color: '#555', marginTop: 1 }}>{d}</div>
+                      {sale > 0 && <div style={{ fontSize: 8, color: '#FF6B35', fontWeight: 700, marginTop: 1 }}>{fmtW(sale)}</div>}
+                      {dayRate !== null && <div style={{ fontSize: 7, color: dayRate >= 100 ? '#00B894' : '#E84393', fontWeight: 700 }}>{dayRate}%</div>}
                     </div>
                   )
                 })}
               </div>
-            )
-          })}
-          {canEdit && (
-            <button onClick={saveGoals} disabled={saving}
-              style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                background: saved ? '#00B894' : saving ? '#ccc' : 'linear-gradient(135deg,#FF6B35,#E84393)' }}>
-              {saved ? '✓ 저장완료!' : saving ? '저장 중...' : '💾 일별 목표 저장'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* ── 리뷰 탭 ── */}
-      {tab === 3 && (
-        <div>
-          {/* 달성률 요약 */}
-          <div style={{ ...bx, background: monthAchieve >= 100 ? 'rgba(0,184,148,0.06)' : 'rgba(232,67,147,0.06)', border: `1px solid ${monthAchieve >= 100 ? 'rgba(0,184,148,0.3)' : 'rgba(232,67,147,0.3)'}` }}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: monthAchieve >= 100 ? '#00B894' : '#E84393' }}>
-              {monthAchieve >= 100 ? '🎉 목표 달성!' : `😓 목표 미달성 (${monthAchieve}%)`}
             </div>
-            <div style={{ fontSize: 12, color: '#888' }}>
-              실제 매출 <strong style={{ color: '#FF6B35' }}>{fmtW(totalSales)}</strong> / 목표 <strong>{monthGoal > 0 ? fmtW(monthGoal) : '미설정'}</strong>
-            </div>
-          </div>
 
-          {/* 실패 체크리스트 (미달성 시) */}
-          {monthAchieve < 100 && monthGoal > 0 && (
-            <div style={bx}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>❓ 미달성 원인 체크</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                {FAIL_CHECKS.map(fc => (
-                  <label key={fc} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, cursor: canEdit ? 'pointer' : 'default',
-                    background: failReasons.includes(fc) ? 'rgba(232,67,147,0.08)' : '#F8F9FB',
-                    border: `1px solid ${failReasons.includes(fc) ? 'rgba(232,67,147,0.3)' : '#E8ECF0'}` }}>
-                    <input type="checkbox" checked={failReasons.includes(fc)} disabled={!canEdit}
-                      onChange={e => setFailReasons(p => e.target.checked ? [...p, fc] : p.filter(r => r !== fc))}
-                      style={{ accentColor: '#E84393' }} />
-                    <span style={{ fontSize: 11, color: failReasons.includes(fc) ? '#E84393' : '#666', fontWeight: failReasons.includes(fc) ? 700 : 400 }}>{fc}</span>
-                  </label>
-                ))}
+            {/* 확장 영역 */}
+            {isExpanded && (
+              <div style={{ marginTop: 16, borderTop: '1px solid #F4F6F9', paddingTop: 16 }}>
+
+                {/* 목표 입력 */}
+                {canEdit && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#555', marginBottom: 10 }}>🎯 목표 설정</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div style={{ background: '#FFF5F0', borderRadius: 12, padding: 12, border: '1px solid rgba(255,107,53,0.2)' }}>
+                        <div style={{ fontSize: 10, color: '#FF6B35', fontWeight: 700, marginBottom: 6 }}>
+                          📅 평일 목표 ({calc.weekdays}일)
+                        </div>
+                        <input value={toComma(wg.weekday)} onChange={e => setWeekGoal(week, 'weekday', fromComma(e.target.value))}
+                          placeholder="0" style={{ ...inp, background: '#fff', fontSize: 13 }} />
+                        {wg.weekday > 0 && <div style={{ fontSize: 9, color: '#FF6B35', textAlign: 'right', marginTop: 3 }}>합계 {fmtW(wg.weekday * calc.weekdays)}</div>}
+                      </div>
+                      <div style={{ background: '#F5F0FF', borderRadius: 12, padding: 12, border: '1px solid rgba(108,92,231,0.2)' }}>
+                        <div style={{ fontSize: 10, color: '#6C5CE7', fontWeight: 700, marginBottom: 6 }}>
+                          🎉 주말/공휴일 목표 ({calc.weekends}일)
+                        </div>
+                        <input value={toComma(wg.weekend)} onChange={e => setWeekGoal(week, 'weekend', fromComma(e.target.value))}
+                          placeholder="0" style={{ ...inp, background: '#fff', fontSize: 13 }} />
+                        {wg.weekend > 0 && <div style={{ fontSize: 9, color: '#6C5CE7', textAlign: 'right', marginTop: 3 }}>합계 {fmtW(wg.weekend * calc.weekends)}</div>}
+                      </div>
+                    </div>
+                    {calc.goal > 0 && (
+                      <div style={{ marginTop: 8, background: 'rgba(255,107,53,0.06)', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 12, color: '#888' }}>이번 주 목표 합계</span>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: '#FF6B35' }}>{fmtW(calc.goal)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!canEdit && calc.goal > 0 && (
+                  <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ background: '#FFF5F0', borderRadius: 12, padding: 12 }}>
+                      <div style={{ fontSize: 10, color: '#FF6B35', fontWeight: 700 }}>평일 목표</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#FF6B35', marginTop: 4 }}>{fmtW(wg.weekday)}</div>
+                    </div>
+                    <div style={{ background: '#F5F0FF', borderRadius: 12, padding: 12 }}>
+                      <div style={{ fontSize: 10, color: '#6C5CE7', fontWeight: 700 }}>주말/공휴일 목표</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#6C5CE7', marginTop: 4 }}>{fmtW(wg.weekend)}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 리뷰 & 액션 */}
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#555', marginBottom: 10 }}>📝 주간 리뷰</div>
+
+                {/* 미달성 시 원인 체크 */}
+                {calc.goal > 0 && calc.actual < calc.goal && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: '#E84393', fontWeight: 600, marginBottom: 8 }}>미달성 원인</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                      {FAIL_CHECKS.map(fc => (
+                        <label key={fc} onClick={() => !canEdit ? null : undefined} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8,
+                          background: wr.failReasons?.includes(fc) ? 'rgba(232,67,147,0.08)' : '#F8F9FB',
+                          border: `1px solid ${wr.failReasons?.includes(fc) ? 'rgba(232,67,147,0.25)' : '#E8ECF0'}`,
+                          cursor: canEdit ? 'pointer' : 'default' }}>
+                          <input type="checkbox" checked={wr.failReasons?.includes(fc) || false} disabled={!canEdit}
+                            onChange={e => setWeekReview(week, 'failReasons', e.target.checked ? [...(wr.failReasons || []), fc] : (wr.failReasons || []).filter((r: string) => r !== fc))}
+                            style={{ accentColor: '#E84393', flexShrink: 0 }} />
+                          <span style={{ fontSize: 11, color: wr.failReasons?.includes(fc) ? '#E84393' : '#666' }}>{fc}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>코멘트 / 분석</div>
+                <textarea value={wr.comment || ''} onChange={e => canEdit && setWeekReview(week, 'comment', e.target.value)}
+                  placeholder={canEdit ? "이번 주 성과 분석, 특이사항..." : "작성된 내용이 없습니다"}
+                  style={{ ...ta, marginBottom: 10 }} readOnly={!canEdit} />
+
+                <div style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 600, marginBottom: 5 }}>🚀 다음 주 액션 플랜</div>
+                <textarea value={wr.action || ''} onChange={e => canEdit && setWeekReview(week, 'action', e.target.value)}
+                  placeholder={canEdit ? "다음 주 매출 향상을 위한 구체적인 실행 계획..." : "작성된 내용이 없습니다"}
+                  style={{ ...ta, borderColor: 'rgba(108,92,231,0.3)' }} readOnly={!canEdit} />
+
+                {canEdit && (
+                  <button onClick={() => saveWeek(week)} disabled={saving}
+                    style={{ width: '100%', marginTop: 12, padding: '11px 0', borderRadius: 10, border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                      background: isSaved ? '#00B894' : saving ? '#ddd' : 'linear-gradient(135deg,#FF6B35,#E84393)' }}>
+                    {isSaved ? '✓ 저장완료!' : saving ? '저장 중...' : '💾 저장'}
+                  </button>
+                )}
+                {!canEdit && <div style={{ marginTop: 10, textAlign: 'center', fontSize: 11, color: '#ccc' }}>목표 설정은 대표/관리자만 가능합니다</div>}
               </div>
-              <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>추가 코멘트</div>
-              <textarea value={failComment} onChange={e => canEdit && setFailComment(e.target.value)}
-                placeholder="미달성 원인에 대한 상세 내용..." style={ta} readOnly={!canEdit} />
-            </div>
-          )}
-
-          {/* 월간 리뷰 */}
-          <div style={bx}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 14 }}>📝 월간 리뷰</div>
-            <div style={{ fontSize: 11, color: '#00B894', fontWeight: 700, marginBottom: 6 }}>✅ 잘한 점</div>
-            <textarea value={goodPoints} onChange={e => canEdit && setGoodPoints(e.target.value)}
-              placeholder="이번 달 잘한 점, 성과..." style={{ ...ta, marginBottom: 12, borderColor: 'rgba(0,184,148,0.3)' }} readOnly={!canEdit} />
-            <div style={{ fontSize: 11, color: '#E84393', fontWeight: 700, marginBottom: 6 }}>⚠️ 개선할 점</div>
-            <textarea value={badPoints} onChange={e => canEdit && setBadPoints(e.target.value)}
-              placeholder="이번 달 부족했던 점, 문제..." style={{ ...ta, marginBottom: 12, borderColor: 'rgba(232,67,147,0.3)' }} readOnly={!canEdit} />
-            <div style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 700, marginBottom: 6 }}>🚀 다음 달 전략</div>
-            <textarea value={nextStrategy} onChange={e => canEdit && setNextStrategy(e.target.value)}
-              placeholder="다음 달 목표 달성을 위한 전략..." style={{ ...ta, borderColor: 'rgba(108,92,231,0.3)' }} readOnly={!canEdit} />
-          </div>
-
-          {canEdit && (
-            <button onClick={saveReview} disabled={saving}
-              style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                background: saved ? '#00B894' : saving ? '#ccc' : 'linear-gradient(135deg,#FF6B35,#E84393)' }}>
-              {saved ? '✓ 저장완료!' : saving ? '저장 중...' : '💾 리뷰 저장'}
-            </button>
-          )}
-          {!canEdit && <div style={{ textAlign: 'center', padding: 12, fontSize: 12, color: '#bbb' }}>리뷰 작성은 대표/관리자만 가능합니다</div>}
-        </div>
-      )}
-
-      {/* ── 액션 플랜 탭 ── */}
-      {tab === 4 && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div>
-              <span style={{ fontSize: 13, color: '#888' }}>완료 </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#00B894' }}>{actionPlans.filter(a => a.is_checked).length}</span>
-              <span style={{ fontSize: 13, color: '#888' }}> / {actionPlans.length}개</span>
-            </div>
-            {canEdit && (
-              <button onClick={() => setShowAddPlan(p => !p)}
-                style={{ padding: '6px 14px', borderRadius: 8, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                + 추가
-              </button>
             )}
           </div>
-
-          {showAddPlan && canEdit && (
-            <div style={{ ...bx, border: '1px solid rgba(255,107,53,0.3)', marginBottom: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>새 액션 플랜</div>
-              <input value={newPlanTitle} onChange={e => setNewPlanTitle(e.target.value)} placeholder="액션 플랜 제목 (예: 점심 할인 이벤트 진행)" style={{ ...inp, marginBottom: 8 }} />
-              <textarea value={newPlanDesc} onChange={e => setNewPlanDesc(e.target.value)} placeholder="상세 내용 (선택)" style={{ ...ta, minHeight: 60, marginBottom: 10 }} />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={addActionPlan} style={{ flex: 1, padding: '10px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>추가</button>
-                <button onClick={() => setShowAddPlan(false)} style={{ padding: '10px 16px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 13, cursor: 'pointer' }}>취소</button>
-              </div>
-            </div>
-          )}
-
-          {actionPlans.length === 0 && (
-            <div style={{ ...bx, textAlign: 'center', padding: 32, color: '#bbb' }}>
-              <div style={{ fontSize: 24, marginBottom: 8 }}>📋</div>
-              <div style={{ fontSize: 13 }}>액션 플랜을 추가해보세요</div>
-              <div style={{ fontSize: 11, marginTop: 4 }}>매출 올리기 위한 구체적인 실행 계획</div>
-            </div>
-          )}
-
-          {actionPlans.map((plan, idx) => (
-            <div key={plan.id} style={{ ...bx, border: plan.is_checked ? '1px solid rgba(0,184,148,0.3)' : '1px solid #E8ECF0',
-              background: plan.is_checked ? 'rgba(0,184,148,0.04)' : '#fff' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                <div onClick={() => togglePlan(plan.id, !plan.is_checked)}
-                  style={{ width: 24, height: 24, borderRadius: 6, border: `2px solid ${plan.is_checked ? '#00B894' : '#E0E4E8'}`,
-                    background: plan.is_checked ? '#00B894' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    cursor: 'pointer', flexShrink: 0, marginTop: 2 }}>
-                  {plan.is_checked && <span style={{ color: '#fff', fontSize: 14, fontWeight: 900 }}>✓</span>}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: plan.is_checked ? '#aaa' : '#1a1a2e',
-                    textDecoration: plan.is_checked ? 'line-through' : 'none', marginBottom: plan.description ? 4 : 0 }}>
-                    {plan.title}
-                  </div>
-                  {plan.description && <div style={{ fontSize: 12, color: '#aaa', lineHeight: 1.5 }}>{plan.description}</div>}
-                  {plan.is_checked && plan.checked_by && (
-                    <div style={{ fontSize: 10, color: '#00B894', marginTop: 4 }}>✓ {plan.checked_by} 완료</div>
-                  )}
-                </div>
-                {canEdit && (
-                  <button onClick={() => deletePlan(plan.id)}
-                    style={{ background: 'none', border: 'none', color: '#ddd', fontSize: 16, cursor: 'pointer', padding: '0 4px' }}>✕</button>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {actionPlans.length > 0 && (
-            <div style={{ ...bx, background: '#F8F9FB' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#888', marginBottom: 8 }}>진행률</div>
-              <ProgressBar value={actionPlans.length > 0 ? Math.round((actionPlans.filter(a => a.is_checked).length / actionPlans.length) * 100) : 0} color="#00B894" height={10} />
-              <div style={{ fontSize: 11, color: '#aaa', marginTop: 6, textAlign: 'right' }}>
-                {actionPlans.filter(a => a.is_checked).length}/{actionPlans.length} 완료
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+        )
+      })}
     </div>
   )
 }
