@@ -7,62 +7,90 @@ const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '
 const ROLES: Record<string,string> = { owner:'대표', manager:'관리자', staff:'사원', pt:'PT' }
 const ROLE_COLORS: Record<string,string> = { owner:'#FF6B35', manager:'#6C5CE7', staff:'#2DC6D6', pt:'#00B894' }
 
-// ─── 이름 수정 모달 ───
-function EditNameModal({ profile, storeId, onClose, onSaved }: {
-  profile: any; storeId: string; onClose: () => void; onSaved: () => void
+// ─── 정보 수정 모달 ───
+function EditInfoModal({ profile, member, storeId, onClose, onSaved }: {
+  profile: any; member: any; storeId: string; onClose: () => void; onSaved: () => void
 }) {
   const supabase = createSupabaseBrowserClient()
   const [newName, setNewName] = useState(profile.nm)
+  const [newRole, setNewRole] = useState(profile.role || 'staff')
+  const [newPhone, setNewPhone] = useState(profile.phone || '')
+  const [newJoinedAt, setNewJoinedAt] = useState(profile.joined_at || member?.joined_at || '')
   const [saving, setSaving] = useState(false)
 
   async function handleSave() {
-    if (!newName.trim() || newName.trim() === profile.nm) { onClose(); return }
-    if (!confirm(`"${profile.nm}" → "${newName.trim()}"으로 변경할까요?\n\n스케줄, 마감일지, 공지 등 모든 기록이 자동으로 변경됩니다.`)) return
+    if (!newName.trim()) { alert('이름을 입력해주세요'); return }
     setSaving(true)
     const oldName = profile.nm
     const trimmed = newName.trim()
     try {
-      await supabase.from('profiles').update({ nm: trimmed }).eq('id', profile.id)
-      await supabase.from('schedules').update({ staff_name: trimmed }).eq('store_id', storeId).eq('staff_name', oldName)
-      await supabase.from('schedule_requests').update({ staff_name: trimmed }).eq('store_id', storeId).eq('staff_name', oldName)
-      await supabase.from('schedule_requests').update({ requester_nm: trimmed }).eq('store_id', storeId).eq('requester_nm', oldName)
-      await supabase.from('closings').update({ writer: trimmed }).eq('store_id', storeId).eq('writer', oldName)
-      await supabase.from('closings').update({ close_staff: trimmed }).eq('store_id', storeId).eq('close_staff', oldName)
-      const { data: closings } = await supabase.from('closings').select('id').eq('store_id', storeId)
-      if (closings && closings.length > 0) {
-        const ids = closings.map((c: any) => c.id)
-        await supabase.from('closing_checks').update({ checked_by: trimmed }).in('closing_id', ids).eq('checked_by', oldName)
-        await supabase.from('closing_soldout').update({ created_by: trimmed }).in('closing_id', ids).eq('created_by', oldName)
-        await supabase.from('closing_next_todos').update({ created_by: trimmed }).in('closing_id', ids).eq('created_by', oldName)
-        await supabase.from('closing_next_todo_checks').update({ checked_by: trimmed }).eq('checked_by', oldName)
+      // profiles 업데이트
+      await supabase.from('profiles').update({
+        nm: trimmed, role: newRole, phone: newPhone || null, joined_at: newJoinedAt || null
+      }).eq('id', profile.id)
+
+      // store_members 직급 + 입사일 업데이트
+      await supabase.from('store_members').update({
+        role: newRole, joined_at: newJoinedAt || null
+      }).eq('store_id', storeId).eq('profile_id', profile.id)
+
+      // 이름 변경된 경우 모든 테이블 반영
+      if (trimmed !== oldName) {
+        await supabase.from('schedules').update({ staff_name: trimmed }).eq('store_id', storeId).eq('staff_name', oldName)
+        await supabase.from('schedule_requests').update({ staff_name: trimmed }).eq('store_id', storeId).eq('staff_name', oldName)
+        await supabase.from('schedule_requests').update({ requester_nm: trimmed }).eq('store_id', storeId).eq('requester_nm', oldName)
+        await supabase.from('closings').update({ writer: trimmed }).eq('store_id', storeId).eq('writer', oldName)
+        await supabase.from('closings').update({ close_staff: trimmed }).eq('store_id', storeId).eq('close_staff', oldName)
+        const { data: closings } = await supabase.from('closings').select('id').eq('store_id', storeId)
+        if (closings && closings.length > 0) {
+          const ids = closings.map((c: any) => c.id)
+          await supabase.from('closing_checks').update({ checked_by: trimmed }).in('closing_id', ids).eq('checked_by', oldName)
+          await supabase.from('closing_soldout').update({ created_by: trimmed }).in('closing_id', ids).eq('created_by', oldName)
+          await supabase.from('closing_next_todos').update({ created_by: trimmed }).in('closing_id', ids).eq('created_by', oldName)
+          await supabase.from('closing_next_todo_checks').update({ checked_by: trimmed }).eq('checked_by', oldName)
+        }
+        await supabase.from('notices').update({ created_by: trimmed }).eq('store_id', storeId).eq('created_by', oldName)
+        await supabase.from('notice_reads').update({ read_by: trimmed }).eq('read_by', oldName)
+        await supabase.from('notice_todos').update({ created_by: trimmed }).eq('created_by', oldName)
+        await supabase.from('notice_todo_checks').update({ checked_by: trimmed }).eq('checked_by', oldName)
       }
-      await supabase.from('notices').update({ created_by: trimmed }).eq('store_id', storeId).eq('created_by', oldName)
-      await supabase.from('notice_reads').update({ read_by: trimmed }).eq('read_by', oldName)
-      await supabase.from('notice_todos').update({ created_by: trimmed }).eq('created_by', oldName)
-      await supabase.from('notice_todo_checks').update({ checked_by: trimmed }).eq('checked_by', oldName)
-      alert(`✅ "${oldName}" → "${trimmed}" 변경 완료!\n모든 기록이 자동 반영되었습니다.`)
+
+      alert('✅ 정보가 수정되었습니다!')
       onSaved(); onClose()
     } catch (e: any) {
-      alert('변경 실패: ' + e?.message)
+      alert('수정 실패: ' + e?.message)
     } finally { setSaving(false) }
   }
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={onClose}>
-      <div style={{ background:'#fff', borderRadius:20, padding:24, width:'100%', maxWidth:320 }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>✏️ 이름 수정</div>
-        <div style={{ fontSize:11, color:'#aaa', marginBottom:16 }}>변경 시 스케줄, 마감일지, 공지 등 모든 기록에 자동 반영됩니다</div>
-        <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>현재 이름</div>
-        <div style={{ fontSize:14, fontWeight:700, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', borderRadius:8, padding:'8px 12px', marginBottom:12 }}>{profile.nm}</div>
-        <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>새 이름</div>
-        <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key==='Enter' && handleSave()}
-          placeholder="새 이름 입력" style={{ ...inp, marginBottom:16 }} autoFocus />
+      <div style={{ background:'#fff', borderRadius:20, padding:24, width:'100%', maxWidth:340 }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>✏️ 직원 정보 수정</div>
+        <div style={{ fontSize:11, color:'#aaa', marginBottom:16 }}>이름 변경 시 모든 기록에 자동 반영됩니다</div>
+
+        <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>이름</div>
+        <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="이름" style={{ ...inp, marginBottom:12 }} />
+
+        <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>직급</div>
+        <select value={newRole} onChange={e => setNewRole(e.target.value)} style={{ ...inp, marginBottom:12, appearance:'auto' as const }}>
+          <option value="staff">사원</option>
+          <option value="pt">PT (파트타임)</option>
+          <option value="manager">관리자</option>
+          <option value="owner">대표</option>
+        </select>
+
+        <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>전화번호</div>
+        <input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="전화번호" style={{ ...inp, marginBottom:12 }} />
+
+        <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>입사일</div>
+        <input type="date" value={newJoinedAt} onChange={e => setNewJoinedAt(e.target.value)} style={{ ...inp, marginBottom:20, color: newJoinedAt?'#1a1a2e':'#aaa' }} />
+
         <div style={{ display:'flex', gap:8 }}>
           <button onClick={onClose} style={{ flex:1, padding:'11px 0', borderRadius:10, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:13, cursor:'pointer' }}>취소</button>
-          <button onClick={handleSave} disabled={saving || !newName.trim() || newName.trim()===profile.nm}
+          <button onClick={handleSave} disabled={saving || !newName.trim()}
             style={{ flex:2, padding:'11px 0', borderRadius:10, border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:saving?'not-allowed':'pointer',
-              background: saving||!newName.trim()||newName.trim()===profile.nm ? '#ddd' : 'linear-gradient(135deg,#6C5CE7,#E84393)' }}>
-            {saving ? '변경 중...' : '변경 저장'}
+              background: saving||!newName.trim() ? '#ddd' : 'linear-gradient(135deg,#6C5CE7,#E84393)' }}>
+            {saving ? '저장 중...' : '저장'}
           </button>
         </div>
       </div>
@@ -199,7 +227,7 @@ export default function StaffPage() {
 
   async function loadMembers(sid: string) {
     const { data } = await supabase.from('store_members')
-      .select('*, profiles(id, nm, role, phone, pin, resigned, joined_at)')
+      .select('*, profiles(id, nm, role, phone, pin, resigned, joined_at)') 
       .eq('store_id', sid).eq('active', true)
       .order('created_at')
     const active = (data || []).filter(m => !m.profiles?.resigned)
@@ -253,7 +281,7 @@ export default function StaffPage() {
 
   return (
     <div>
-      {editingProfile && <EditNameModal profile={editingProfile} storeId={storeId} onClose={() => setEditingProfile(null)} onSaved={() => loadMembers(storeId)} />}
+      {editingProfile && <EditInfoModal profile={editingProfile} member={members.find(m => m.profiles?.id === editingProfile?.id)} storeId={storeId} onClose={() => setEditingProfile(null)} onSaved={() => loadMembers(storeId)} />}
       {resigningProfile && <ResignModal profile={resigningProfile} storeId={storeId} onClose={() => setResigningProfile(null)} onSaved={() => loadMembers(storeId)} />}
       {showPinModal && <PinViewModal members={members} onClose={() => setShowPinModal(false)} />}
 
@@ -318,13 +346,13 @@ export default function StaffPage() {
                   </span>
                 </div>
                 {p.phone && <div style={{ fontSize:12, color:'#999' }}>{p.phone}</div>}
-                {p.joined_at && <div style={{ fontSize:11, color:'#bbb' }}>입사일: {new Date(p.joined_at).toLocaleDateString('ko', {year:'numeric',month:'long',day:'numeric'})}</div>}
+                {(p.joined_at || m.joined_at) && <div style={{ fontSize:11, color:'#bbb' }}>입사일: {new Date(p.joined_at || m.joined_at).toLocaleDateString('ko', {year:'numeric',month:'long',day:'numeric'})}</div>}
               </div>
               {isOwner && (
                 <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
                   <button onClick={() => setEditingProfile(p)}
                     style={{ padding:'4px 10px', borderRadius:6, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:10, cursor:'pointer', fontWeight:600 }}>
-                    ✏️ 이름수정
+                    ✏️ 정보수정
                   </button>
                   <button onClick={() => resetPin(p.id)}
                     style={{ padding:'4px 10px', borderRadius:6, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:10, cursor:'pointer' }}>
