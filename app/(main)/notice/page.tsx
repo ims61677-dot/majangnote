@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import YearMonthPicker from '@/components/YearMonthPicker'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
@@ -9,7 +10,6 @@ function toDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
-// ─── 캘린더 ───
 function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onChangeMonth }: {
   year: number; month: number; todoDates: Set<string>
   selectedDate: string; onSelectDate: (d: string) => void; onChangeMonth: (y: number, m: number) => void
@@ -28,12 +28,8 @@ function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onCh
 
   return (
     <div style={{ ...bx, padding: '14px 12px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-        <button onClick={() => month===0 ? onChangeMonth(year-1,11) : onChangeMonth(year,month-1)}
-          style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer', padding:'0 6px' }}>‹</button>
-        <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{year}년 {month+1}월</div>
-        <button onClick={() => month===11 ? onChangeMonth(year+1,0) : onChangeMonth(year,month+1)}
-          style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer', padding:'0 6px' }}>›</button>
+      <div style={{ marginBottom: 10 }}>
+        <YearMonthPicker year={year} month={month} onChange={onChangeMonth} color="#6C5CE7" />
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', marginBottom:4 }}>
         {['일','월','화','수','목','금','토'].map((d,i) => (
@@ -70,7 +66,6 @@ function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onCh
   )
 }
 
-// ─── 할일 아이템 ───
 function TodoItem({ todo, checks, onToggle, canCheck, myName }: {
   todo: any; checks: any[]; onToggle: () => void; canCheck: boolean; myName: string
 }) {
@@ -104,7 +99,6 @@ function TodoItem({ todo, checks, onToggle, canCheck, myName }: {
   )
 }
 
-// ─── 공지 카드 (읽음 확인 포함) ───
 function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete }: {
   notice: any; reads: any[]; myName: string; isManager: boolean
   onRead: (id: string) => void; onEdit: (n: any) => void; onDelete: (id: string) => void
@@ -114,13 +108,11 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
 
   function handleExpand() {
     setExpanded(p => !p)
-    // 펼칠 때 자동 읽음 처리
     if (!myRead) onRead(notice.id)
   }
 
   return (
     <div style={{ ...bx, border: notice.is_pinned?'1px solid rgba(108,92,231,0.25)':'1px solid #E8ECF0', background: notice.is_pinned?'rgba(108,92,231,0.02)':'#fff' }}>
-      {/* 헤더 - 항상 표시 */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
         <button onClick={handleExpand} style={{ flex:1, background:'none', border:'none', cursor:'pointer', textAlign:'left', padding:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
@@ -130,10 +122,7 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
             <span style={{ fontSize:10, color:'#bbb' }}>{notice.created_by} · {new Date(notice.created_at).toLocaleDateString('ko')}</span>
-            {/* 읽음 수 */}
-            <span style={{ fontSize:10, color: reads.length>0?'#00B894':'#bbb' }}>
-              👁 {reads.length}명 확인
-            </span>
+            <span style={{ fontSize:10, color: reads.length>0?'#00B894':'#bbb' }}>👁 {reads.length}명 확인</span>
             <span style={{ fontSize:10, color:'#bbb', marginLeft:'auto' }}>{expanded ? '▲' : '▼'}</span>
           </div>
         </button>
@@ -144,8 +133,6 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
           </div>
         )}
       </div>
-
-      {/* 펼쳐진 내용 */}
       {expanded && (
         <div style={{ marginTop:12 }}>
           {notice.content && (
@@ -153,13 +140,9 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
               {notice.content}
             </div>
           )}
-
-          {/* 읽음 확인 목록 */}
           <div style={{ background: reads.length>0?'rgba(0,184,148,0.04)':'#F8F9FB', borderRadius:10, padding:'10px 12px', border: reads.length>0?'1px solid rgba(0,184,148,0.2)':'1px solid #E8ECF0' }}>
-            <div style={{ fontSize:11, fontWeight:700, color: reads.length>0?'#00B894':'#aaa', marginBottom: reads.length>0?8:0 }}>
-              👁 읽음 확인 {reads.length}명
-            </div>
-            {reads.length > 0 && (
+            <div style={{ fontSize:11, fontWeight:700, color: reads.length>0?'#00B894':'#aaa', marginBottom: reads.length>0?8:0 }}>👁 읽음 확인 {reads.length}명</div>
+            {reads.length > 0 ? (
               <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
                 {reads.map((r: any) => (
                   <span key={r.id} style={{ fontSize:10, color:'#00B894', background:'rgba(0,184,148,0.1)', padding:'2px 8px', borderRadius:10 }}>
@@ -167,13 +150,8 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
                   </span>
                 ))}
               </div>
-            )}
-            {reads.length === 0 && (
-              <div style={{ fontSize:11, color:'#bbb' }}>아직 아무도 읽지 않았어요</div>
-            )}
+            ) : <div style={{ fontSize:11, color:'#bbb' }}>아직 아무도 읽지 않았어요</div>}
           </div>
-
-          {/* 내가 아직 안 읽었으면 확인 버튼 */}
           {!myRead && (
             <button onClick={() => onRead(notice.id)}
               style={{ width:'100%', marginTop:10, padding:'10px 0', borderRadius:10, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:13, fontWeight:700, cursor:'pointer' }}>
@@ -191,9 +169,6 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
   )
 }
 
-// ═══════════════════════════════════════
-// 메인
-// ═══════════════════════════════════════
 export default function NoticePage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
@@ -202,7 +177,6 @@ export default function NoticePage() {
   const today = toDateStr(new Date())
   const [subTab, setSubTab] = useState<'notice' | 'todo'>('notice')
 
-  // ── 공지 ──
   const [notices, setNotices] = useState<any[]>([])
   const [noticeReads, setNoticeReads] = useState<Record<string, any[]>>({})
   const [showNoticeForm, setShowNoticeForm] = useState(false)
@@ -212,7 +186,6 @@ export default function NoticePage() {
   const [formPinned, setFormPinned] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
-  // ── 할일 ──
   const nowD = new Date()
   const [calYear, setCalYear] = useState(nowD.getFullYear())
   const [calMonth, setCalMonth] = useState(nowD.getMonth())
@@ -225,7 +198,6 @@ export default function NoticePage() {
   const [formTodos, setFormTodos] = useState<string[]>([''])
   const [isSavingTodo, setIsSavingTodo] = useState(false)
 
-  // ── 전달사항 ──
   const [closingTodos, setClosingTodos] = useState<any[]>([])
   const [closingChecks, setClosingChecks] = useState<Record<string, any[]>>({})
   const [closingDateLabel, setClosingDateLabel] = useState('')
@@ -237,32 +209,21 @@ export default function NoticePage() {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
     const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
     if (!store.id) return
-    setStoreId(store.id)
-    setUserName(user.nm || '')
-    setUserRole(user.role || '')
-    loadNotices(store.id)
-    loadTodoDates(store.id)
+    setStoreId(store.id); setUserName(user.nm || ''); setUserRole(user.role || '')
+    loadNotices(store.id); loadTodoDates(store.id)
   }, [])
 
   useEffect(() => {
     if (!storeId) return
-    loadDayTodos(storeId, selectedDate)
-    loadClosingTodos(storeId, selectedDate)
+    loadDayTodos(storeId, selectedDate); loadClosingTodos(storeId, selectedDate)
   }, [selectedDate, storeId])
 
   async function loadNotices(sid: string) {
-    const { data } = await supabase
-      .from('notices').select('*')
-      .eq('store_id', sid).eq('is_from_closing', false)
-      .order('is_pinned', { ascending: false })
-      .order('created_at', { ascending: false })
+    const { data } = await supabase.from('notices').select('*').eq('store_id', sid).eq('is_from_closing', false)
+      .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
     setNotices(data || [])
-
-    // 읽음 데이터 로드
     if (data && data.length > 0) {
-      const { data: reads } = await supabase
-        .from('notice_reads').select('*')
-        .in('notice_id', data.map((n: any) => n.id))
+      const { data: reads } = await supabase.from('notice_reads').select('*').in('notice_id', data.map((n: any) => n.id))
       const rm: Record<string, any[]> = {}
       if (reads) reads.forEach((r: any) => { if (!rm[r.notice_id]) rm[r.notice_id] = []; rm[r.notice_id].push(r) })
       setNoticeReads(rm)
@@ -270,19 +231,14 @@ export default function NoticePage() {
   }
 
   async function loadTodoDates(sid: string) {
-    const { data } = await supabase
-      .from('notices').select('id, notice_date, notice_todos(id)')
-      .eq('store_id', sid).eq('is_from_closing', false)
+    const { data } = await supabase.from('notices').select('id, notice_date, notice_todos(id)').eq('store_id', sid).eq('is_from_closing', false)
     const dates = new Set<string>()
     ;(data || []).forEach((n: any) => { if (n.notice_todos?.length > 0) dates.add(n.notice_date) })
     setTodoDates(dates)
   }
 
   async function loadDayTodos(sid: string, date: string) {
-    const { data } = await supabase
-      .from('notices').select('*, notice_todos(*)')
-      .eq('store_id', sid).eq('notice_date', date).eq('is_from_closing', false)
-      .order('created_at')
+    const { data } = await supabase.from('notices').select('*, notice_todos(*)').eq('store_id', sid).eq('notice_date', date).eq('is_from_closing', false).order('created_at')
     setDayNotices(data || [])
     const allIds = (data || []).flatMap((n: any) => (n.notice_todos||[]).map((t: any) => t.id))
     if (allIds.length > 0) {
@@ -302,20 +258,17 @@ export default function NoticePage() {
     const { data: todos } = await supabase.from('closing_next_todos').select('*').eq('closing_id', closing.id).order('created_at')
     setClosingTodos(todos || [])
     if (todos && todos.length > 0) {
-      const { data: chks } = await supabase.from('closing_next_todo_checks').select('*').in('todo_id', todos.map((t: any) => t.id))
+      const { data: chks } = await supabase.from('closing_next_todo_checks').select('*').in('todo_id', todos.map((t:any) => t.id))
       const tm: Record<string, any[]> = {}
-      if (chks) chks.forEach((c: any) => { if (!tm[c.todo_id]) tm[c.todo_id] = []; tm[c.todo_id].push(c) })
+      if (chks) chks.forEach((c:any) => { if (!tm[c.todo_id]) tm[c.todo_id] = []; tm[c.todo_id].push(c) })
       setClosingChecks(tm)
     } else { setClosingChecks({}) }
   }
 
-  // ── 읽음 처리 ──
   async function markRead(noticeId: string) {
     const already = (noticeReads[noticeId]||[]).find((r: any) => r.read_by === userName)
     if (already) return
-    const { data } = await supabase.from('notice_reads')
-      .upsert({ notice_id: noticeId, read_by: userName, read_at: new Date().toISOString() }, { onConflict: 'notice_id,read_by' })
-      .select().single()
+    const { data } = await supabase.from('notice_reads').upsert({ notice_id: noticeId, read_by: userName, read_at: new Date().toISOString() }, { onConflict: 'notice_id,read_by' }).select().single()
     if (data) setNoticeReads(p => ({ ...p, [noticeId]: [...(p[noticeId]||[]), data] }))
   }
 
@@ -331,10 +284,7 @@ export default function NoticePage() {
       if (editingNotice) {
         await supabase.from('notices').update({ title: formTitle, content: formContent || null, is_pinned: formPinned }).eq('id', editingNotice.id)
       } else {
-        await supabase.from('notices').insert({
-          store_id: storeId, title: formTitle, content: formContent || null,
-          notice_date: today, created_by: userName, is_from_closing: false, is_pinned: formPinned
-        })
+        await supabase.from('notices').insert({ store_id: storeId, title: formTitle, content: formContent || null, notice_date: today, created_by: userName, is_from_closing: false, is_pinned: formPinned })
       }
       setShowNoticeForm(false); setFormTitle(''); setFormContent(''); setFormPinned(false); setEditingNotice(null)
       loadNotices(storeId)
@@ -354,10 +304,7 @@ export default function NoticePage() {
     if (validTodos.length === 0) { alert('할일을 1개 이상 입력해주세요'); return }
     setIsSavingTodo(true)
     try {
-      const { data, error } = await supabase.from('notices').insert({
-        store_id: storeId, title: formTodoTitle, content: null,
-        notice_date: selectedDate, created_by: userName, is_from_closing: false, is_pinned: false
-      }).select().single()
+      const { data, error } = await supabase.from('notices').insert({ store_id: storeId, title: formTodoTitle, content: null, notice_date: selectedDate, created_by: userName, is_from_closing: false, is_pinned: false }).select().single()
       if (error) throw error
       await supabase.from('notice_todos').insert(validTodos.map(content => ({ notice_id: data.id, content, created_by: userName })))
       setShowTodoForm(false); setFormTodoTitle(''); setFormTodos([''])
@@ -399,24 +346,19 @@ export default function NoticePage() {
   const tabBtn = (active: boolean) => ({
     flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', cursor: 'pointer' as const,
     fontSize: 13, fontWeight: active ? 700 : 400,
-    background: active ? '#fff' : 'transparent',
-    color: active ? '#1a1a2e' : '#aaa',
+    background: active ? '#fff' : 'transparent', color: active ? '#1a1a2e' : '#aaa',
     boxShadow: active ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
   })
 
-  // 안 읽은 공지 수
   const unreadCount = notices.filter(n => !(noticeReads[n.id]||[]).find((r: any) => r.read_by === userName)).length
 
   return (
     <div>
-      {/* 헤더 */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>📢 공지</span>
           {unreadCount > 0 && subTab === 'notice' && (
-            <span style={{ fontSize:10, padding:'2px 7px', borderRadius:10, background:'#FF6B35', color:'#fff', fontWeight:700 }}>
-              {unreadCount} 안읽음
-            </span>
+            <span style={{ fontSize:10, padding:'2px 7px', borderRadius:10, background:'#FF6B35', color:'#fff', fontWeight:700 }}>{unreadCount} 안읽음</span>
           )}
         </div>
         {isManager && subTab === 'notice' && (
@@ -433,40 +375,29 @@ export default function NoticePage() {
         )}
       </div>
 
-      {/* 서브탭 */}
       <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:14 }}>
-        <button style={tabBtn(subTab==='notice')} onClick={() => setSubTab('notice')}>
-          📢 공지 {unreadCount > 0 ? `(${unreadCount})` : ''}
-        </button>
+        <button style={tabBtn(subTab==='notice')} onClick={() => setSubTab('notice')}>📢 공지 {unreadCount > 0 ? `(${unreadCount})` : ''}</button>
         <button style={tabBtn(subTab==='todo')} onClick={() => setSubTab('todo')}>✅ 할일</button>
       </div>
 
-      {/* ══════ 공지 탭 ══════ */}
       {subTab === 'notice' && (
         <>
-          {/* 공지 작성 폼 */}
           {showNoticeForm && (
             <div style={{ ...bx, border:'1px solid rgba(108,92,231,0.3)', background:'rgba(108,92,231,0.02)', marginBottom:12 }}>
-              <div style={{ fontSize:13, fontWeight:700, color:'#6C5CE7', marginBottom:12 }}>
-                {editingNotice ? '✏️ 공지 수정' : '✏️ 공지 작성'}
-              </div>
+              <div style={{ fontSize:13, fontWeight:700, color:'#6C5CE7', marginBottom:12 }}>{editingNotice ? '✏️ 공지 수정' : '✏️ 공지 작성'}</div>
               <button onClick={() => setFormPinned(p=>!p)}
                 style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, padding:'7px 12px', borderRadius:8, border:formPinned?'1px solid rgba(108,92,231,0.4)':'1px solid #E8ECF0', background:formPinned?'rgba(108,92,231,0.1)':'#F8F9FB', cursor:'pointer', width:'100%' }}>
                 <span style={{ fontSize:13 }}>{formPinned ? '📌' : '📋'}</span>
-                <span style={{ fontSize:12, color:formPinned?'#6C5CE7':'#888', fontWeight:formPinned?700:400 }}>
-                  {formPinned ? '고정 공지 — 항상 최상단 표시' : '일반 공지 — 날짜순 표시'}
-                </span>
+                <span style={{ fontSize:12, color:formPinned?'#6C5CE7':'#888', fontWeight:formPinned?700:400 }}>{formPinned ? '고정 공지 — 항상 최상단 표시' : '일반 공지 — 날짜순 표시'}</span>
               </button>
               <input value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="공지 제목" style={{ ...inp, marginBottom:8 }} />
-              <textarea value={formContent} onChange={e => setFormContent(e.target.value)} placeholder="공지 내용 (선택사항)" rows={4}
-                style={{ ...inp, resize:'none' as const, lineHeight:1.7, marginBottom:10 }} />
+              <textarea value={formContent} onChange={e => setFormContent(e.target.value)} placeholder="공지 내용 (선택사항)" rows={4} style={{ ...inp, resize:'none' as const, lineHeight:1.7, marginBottom:10 }} />
               <button onClick={saveNotice} disabled={isSaving}
                 style={{ width:'100%', padding:'12px 0', borderRadius:12, background:isSaving?'#ddd':'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:14, fontWeight:700, cursor:isSaving?'not-allowed':'pointer' }}>
                 {isSaving ? '저장 중...' : editingNotice ? '수정 저장' : '공지 등록'}
               </button>
             </div>
           )}
-
           {notices.length === 0 ? (
             <div style={{ ...bx, textAlign:'center', padding:32, color:'#bbb' }}>
               <div style={{ fontSize:24, marginBottom:8 }}>📭</div>
@@ -479,8 +410,7 @@ export default function NoticePage() {
                 <div style={{ marginBottom:4 }}>
                   <div style={{ fontSize:10, fontWeight:700, color:'#6C5CE7', marginBottom:6, paddingLeft:2 }}>📌 고정</div>
                   {notices.filter(n => n.is_pinned).map(notice => (
-                    <NoticeCard key={notice.id} notice={notice} reads={noticeReads[notice.id]||[]}
-                      myName={userName} isManager={isManager} onRead={markRead}
+                    <NoticeCard key={notice.id} notice={notice} reads={noticeReads[notice.id]||[]} myName={userName} isManager={isManager} onRead={markRead}
                       onEdit={n => { setEditingNotice(n); setFormTitle(n.title); setFormContent(n.content||''); setFormPinned(n.is_pinned); setShowNoticeForm(true) }}
                       onDelete={deleteNotice} />
                   ))}
@@ -490,8 +420,7 @@ export default function NoticePage() {
                 <div>
                   <div style={{ fontSize:10, fontWeight:700, color:'#aaa', marginBottom:6, paddingLeft:2 }}>📋 전체 공지</div>
                   {notices.filter(n => !n.is_pinned).map(notice => (
-                    <NoticeCard key={notice.id} notice={notice} reads={noticeReads[notice.id]||[]}
-                      myName={userName} isManager={isManager} onRead={markRead}
+                    <NoticeCard key={notice.id} notice={notice} reads={noticeReads[notice.id]||[]} myName={userName} isManager={isManager} onRead={markRead}
                       onEdit={n => { setEditingNotice(n); setFormTitle(n.title); setFormContent(n.content||''); setFormPinned(n.is_pinned); setShowNoticeForm(true) }}
                       onDelete={deleteNotice} />
                   ))}
@@ -502,10 +431,8 @@ export default function NoticePage() {
         </>
       )}
 
-      {/* ══════ 할일 탭 ══════ */}
       {subTab === 'todo' && (
         <>
-          {/* 전날 마감 전달사항 */}
           <div style={{ ...bx, border:closingTodos.length>0?'1px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0', background:closingTodos.length>0?'rgba(255,107,53,0.02)':'#fff' }}>
             <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:closingTodos.length>0?12:0 }}>
               <span style={{ fontSize:13, fontWeight:700, color:'#FF6B35' }}>📢 마감 전달사항</span>
@@ -513,13 +440,10 @@ export default function NoticePage() {
               {closingTodos.length === 0 && <span style={{ fontSize:11, color:'#bbb', marginLeft:'auto' }}>전달사항 없음 ✓</span>}
             </div>
             {closingTodos.map((todo: any) => (
-              <TodoItem key={todo.id} todo={todo} checks={closingChecks[todo.id]||[]}
-                onToggle={() => toggleClosingTodo(todo.id)}
-                canCheck={canCheckDate(selectedDate)} myName={userName} />
+              <TodoItem key={todo.id} todo={todo} checks={closingChecks[todo.id]||[]} onToggle={() => toggleClosingTodo(todo.id)} canCheck={canCheckDate(selectedDate)} myName={userName} />
             ))}
           </div>
 
-          {/* 할일 작성 폼 */}
           {showTodoForm && isManager && (
             <div style={{ ...bx, border:'1px solid rgba(108,92,231,0.3)', background:'rgba(108,92,231,0.02)' }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>✅ {selectedDate.replace(/-/g,'.')} 할일 추가</div>
@@ -527,32 +451,21 @@ export default function NoticePage() {
               <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>할일 항목</div>
               {formTodos.map((todo, i) => (
                 <div key={i} style={{ display:'flex', gap:6, marginBottom:6 }}>
-                  <input value={todo} onChange={e => { const n=[...formTodos]; n[i]=e.target.value; setFormTodos(n) }}
-                    onKeyDown={e => e.key==='Enter' && setFormTodos([...formTodos,''])}
-                    placeholder={`항목 ${i+1}`} style={{ ...inp, flex:1 }} />
-                  {formTodos.length > 1 && (
-                    <button onClick={() => setFormTodos(formTodos.filter((_,j)=>j!==i))}
-                      style={{ padding:'8px 10px', borderRadius:8, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#bbb', cursor:'pointer', fontSize:13 }}>✕</button>
-                  )}
+                  <input value={todo} onChange={e => { const n=[...formTodos]; n[i]=e.target.value; setFormTodos(n) }} onKeyDown={e => e.key==='Enter' && setFormTodos([...formTodos,''])} placeholder={`항목 ${i+1}`} style={{ ...inp, flex:1 }} />
+                  {formTodos.length > 1 && <button onClick={() => setFormTodos(formTodos.filter((_,j)=>j!==i))} style={{ padding:'8px 10px', borderRadius:8, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#bbb', cursor:'pointer', fontSize:13 }}>✕</button>}
                 </div>
               ))}
-              <button onClick={() => setFormTodos([...formTodos,''])}
-                style={{ width:'100%', padding:'7px 0', borderRadius:8, border:'1px dashed #E8ECF0', background:'transparent', color:'#bbb', fontSize:12, cursor:'pointer', marginBottom:10 }}>
-                + 항목 추가
-              </button>
-              <button onClick={saveTodo} disabled={isSavingTodo}
-                style={{ width:'100%', padding:'11px 0', borderRadius:12, background:isSavingTodo?'#ddd':'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:isSavingTodo?'not-allowed':'pointer' }}>
+              <button onClick={() => setFormTodos([...formTodos,''])} style={{ width:'100%', padding:'7px 0', borderRadius:8, border:'1px dashed #E8ECF0', background:'transparent', color:'#bbb', fontSize:12, cursor:'pointer', marginBottom:10 }}>+ 항목 추가</button>
+              <button onClick={saveTodo} disabled={isSavingTodo} style={{ width:'100%', padding:'11px 0', borderRadius:12, background:isSavingTodo?'#ddd':'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:isSavingTodo?'not-allowed':'pointer' }}>
                 {isSavingTodo ? '저장 중...' : '할일 등록'}
               </button>
             </div>
           )}
 
-          {/* 캘린더 */}
           <MiniCalendar year={calYear} month={calMonth} todoDates={todoDates} selectedDate={selectedDate}
             onSelectDate={d => { setSelectedDate(d); const [y,m]=d.split('-').map(Number); setCalYear(y); setCalMonth(m-1) }}
             onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }} />
 
-          {/* 날짜별 할일 */}
           <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:10, paddingLeft:2 }}>
             {selectedDate.replace(/-/g,'.')} 할일
             {selectedDate === today && <span style={{ fontSize:10, color:'#FF6B35', background:'rgba(255,107,53,0.1)', padding:'1px 7px', borderRadius:6, marginLeft:6 }}>오늘</span>}
@@ -565,27 +478,20 @@ export default function NoticePage() {
               <div style={{ fontSize:13 }}>이 날짜에 등록된 할일이 없습니다</div>
               {isManager && <div style={{ fontSize:11, marginTop:4, color:'#aaa' }}>상단 "+ 할일 추가"로 등록하세요</div>}
             </div>
-          ) : (
-            dayNotices.map(notice => (
-              <div key={notice.id} style={bx}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{notice.title}</div>
-                    <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{notice.created_by}</div>
-                  </div>
-                  {isManager && (
-                    <button onClick={() => deleteTodoNotice(notice.id)}
-                      style={{ fontSize:11, color:'#E84393', background:'none', border:'none', cursor:'pointer' }}>삭제</button>
-                  )}
+          ) : dayNotices.map(notice => (
+            <div key={notice.id} style={bx}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{notice.title}</div>
+                  <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{notice.created_by}</div>
                 </div>
-                {(notice.notice_todos||[]).map((todo: any) => (
-                  <TodoItem key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]}
-                    onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date)}
-                    canCheck={canCheckDate(notice.notice_date)} myName={userName} />
-                ))}
+                {isManager && <button onClick={() => deleteTodoNotice(notice.id)} style={{ fontSize:11, color:'#E84393', background:'none', border:'none', cursor:'pointer' }}>삭제</button>}
               </div>
-            ))
-          )}
+              {(notice.notice_todos||[]).map((todo: any) => (
+                <TodoItem key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]} onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date)} canCheck={canCheckDate(notice.notice_date)} myName={userName} />
+              ))}
+            </div>
+          ))}
         </>
       )}
     </div>
