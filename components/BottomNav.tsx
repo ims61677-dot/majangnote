@@ -11,6 +11,7 @@ const TABS = [
 ]
 
 const MORE_ITEMS = [
+  { href: '/analytics', ic: '📈', l: '분석' },
   { href: '/inventory', ic: '📦', l: '재고' },
   { href: '/recipe',    ic: '🍳', l: '레시피' },
   { href: '/staff',     ic: '👥', l: '직원관리' },
