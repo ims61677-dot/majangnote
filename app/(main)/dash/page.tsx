@@ -122,6 +122,7 @@ export default function DashPage() {
   const [salesRows, setSalesRows] = useState<any[]>([])
   const [items, setItems] = useState<any[]>([])
   const [stock, setStock] = useState<any[]>([])
+  const [unreadNotices, setUnreadNotices] = useState<any[]>([])
   const [goal, setGoal] = useState<any>(null)
 
   // 전년 동월
@@ -174,6 +175,22 @@ export default function DashPage() {
     // 목표
     const { data: g } = await supabase.from('goals').select('*').eq('store_id', sid).eq('year', yr).eq('month', moNum).single()
     setGoal(g || null)
+
+    // 공지 (읽지 않은 것)
+    const { data: myInfo } = await supabase.from('store_members').select('member_id').eq('store_id', sid).single()
+    if (myInfo?.member_id) {
+      const { data: nts } = await supabase.from('notices')
+        .select('id, title, created_at, is_important')
+        .eq('store_id', sid)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      if (nts && nts.length > 0) {
+        const { data: reads } = await supabase.from('notice_reads')
+          .select('notice_id').eq('member_id', myInfo.member_id)
+        const readIds = new Set((reads || []).map((r: any) => r.notice_id))
+        setUnreadNotices(nts.filter((n: any) => !readIds.has(n.id)))
+      } else setUnreadNotices([])
+    }
 
     // 재고
     const { data: it } = await supabase.from('inventory_items').select('id, name, unit, min_qty, warn_qty').eq('store_id', sid)
@@ -309,6 +326,31 @@ export default function DashPage() {
       <div style={{ marginBottom: 16 }}>
         <YearMonthPicker year={yr} month={mo} onChange={(y, m) => { setYr(y); setMo(m) }} color="#FF6B35" />
       </div>
+
+      {/* 공지 알림 */}
+      {unreadNotices.length > 0 && (
+        <div onClick={() => router.push('/notice')} style={{ ...bx, cursor:'pointer',
+          border: unreadNotices.some((n:any) => n.is_important) ? '1px solid rgba(108,92,231,0.4)' : '1px solid rgba(108,92,231,0.25)',
+          background: unreadNotices.some((n:any) => n.is_important) ? 'rgba(108,92,231,0.04)' : 'rgba(108,92,231,0.02)' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <span style={{ fontSize:16 }}>📢</span>
+              <span style={{ fontSize:13, fontWeight:700, color:'#6C5CE7' }}>읽지 않은 공지</span>
+              {unreadNotices.some((n:any) => n.is_important) && (
+                <span style={{ fontSize:11, background:'rgba(232,67,147,0.12)', color:'#E84393', padding:'2px 8px', borderRadius:6, fontWeight:700 }}>중요</span>
+              )}
+              <span style={{ fontSize:11, background:'rgba(108,92,231,0.12)', color:'#6C5CE7', padding:'2px 8px', borderRadius:6, fontWeight:700 }}>{unreadNotices.length}건</span>
+            </div>
+            <span style={{ fontSize:11, color:'#bbb' }}>공지 탭 →</span>
+          </div>
+          {unreadNotices[0] && (
+            <div style={{ marginTop:8, fontSize:12, color:'#888', paddingLeft:24,
+              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              최신: {unreadNotices[0].title}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 재고 알림 */}
       {hasAlert && (
