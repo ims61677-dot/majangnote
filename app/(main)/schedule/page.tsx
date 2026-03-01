@@ -223,6 +223,81 @@ function RequestPanel({ storeId, myName, onClose, onApproved }: {
   )
 }
 
+
+// ── 매장 전환 드롭다운 (PC 헤더용) ──
+function PCStoreDropdown() {
+  const supabase = createSupabaseBrowserClient()
+  const [stores, setStores] = useState<any[]>([])
+  const [currentStore, setCurrentStore] = useState<any>(null)
+  const [show, setShow] = useState(false)
+
+  useEffect(() => {
+    const s = JSON.parse(localStorage.getItem('mj_store') || '{}')
+    const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
+    setCurrentStore(s)
+    if (u.id) {
+      supabase.from('store_members').select('*, stores(*)')
+        .eq('profile_id', u.id).eq('active', true)
+        .then(({ data }) => setStores(data || []))
+    }
+  }, [])
+
+  function switchStore(member: any) {
+    const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
+    localStorage.setItem('mj_user', JSON.stringify({ ...u, role: member.role }))
+    localStorage.setItem('mj_store', JSON.stringify(member.stores))
+    window.location.href = '/schedule'
+  }
+
+  return (
+    <div style={{ position:'relative', flexShrink:0 }}>
+      <div onClick={() => setShow(p => !p)}
+        style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
+        <div style={{ width:32, height:32, borderRadius:8, background:'linear-gradient(135deg,#FF6B35,#E84393)',
+          display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:800, color:'#fff' }}>M</div>
+        <div>
+          <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', lineHeight:1 }}>매장노트</div>
+          <div style={{ display:'flex', alignItems:'center', gap:3, marginTop:1 }}>
+            <span style={{ fontSize:10, color:'#FF6B35', fontWeight:600 }}>{currentStore?.name || ''}</span>
+            <span style={{ fontSize:8, color:'#FF6B35' }}>▼</span>
+          </div>
+        </div>
+      </div>
+      {show && (
+        <>
+          <div onClick={() => setShow(false)} style={{ position:'fixed', inset:0, zIndex:298 }} />
+          <div style={{ position:'absolute', top:'100%', left:0, marginTop:8, background:'#fff', borderRadius:14,
+            border:'1px solid #E8ECF0', boxShadow:'0 8px 24px rgba(0,0,0,0.12)', minWidth:220, zIndex:299, overflow:'hidden' }}>
+            <div style={{ padding:'10px 14px 6px', fontSize:11, color:'#aaa', fontWeight:600 }}>매장 선택</div>
+            {stores.map(member => {
+              const isCurrent = member.stores?.id === currentStore?.id
+              return (
+                <div key={member.id} onClick={() => switchStore(member)}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer',
+                    background: isCurrent ? '#FFF5F0' : '#fff', borderTop:'1px solid #F4F6F9' }}>
+                  <div style={{ width:32, height:32, borderRadius:8, flexShrink:0,
+                    background: isCurrent ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#F4F6F9',
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    fontSize:13, fontWeight:800, color: isCurrent ? '#fff' : '#999' }}>
+                    {member.stores?.name?.charAt(0)}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color: isCurrent ? '#FF6B35' : '#1a1a2e' }}>{member.stores?.name}</div>
+                    <div style={{ fontSize:10, color:'#aaa' }}>
+                      {member.role==='owner'?'대표':member.role==='manager'?'관리자':'사원'}
+                    </div>
+                  </div>
+                  {isCurrent && <span style={{ fontSize:12, color:'#FF6B35' }}>✓</span>}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ════════════════════════════════════════
 // PC 전용 그리드 (날짜↓ × 직원→ — 엑셀 방향)
 // ════════════════════════════════════════
@@ -239,9 +314,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [dragOrder, setDragOrder] = useState<string[]>([])
   const [dragIdx, setDragIdx] = useState<number | null>(null)
-  const [stores, setStores] = useState<any[]>([])
-  const [currentStore, setCurrentStore] = useState<any>(null)
-  const [showStoreDropdown, setShowStoreDropdown] = useState(false)
+
   const today = toDateStr(new Date())
   const daysInMonth = getDaysInMonth(year, month)
   const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
@@ -252,21 +325,6 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const isStaff = role === 'staff'
   const visibleStaff = isStaff ? staffList.filter(n => n === myName) : staffList
 
-  useEffect(() => {
-    const s = JSON.parse(localStorage.getItem('mj_store') || '{}')
-    const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
-    setCurrentStore(s)
-    supabase.from('store_members').select('*, stores(*)')
-      .eq('profile_id', u.id).eq('active', true)
-      .then(({ data }) => setStores(data || []))
-  }, [])
-
-  function switchStore(member: any) {
-    const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
-    localStorage.setItem('mj_user', JSON.stringify({ ...u, role: member.role }))
-    localStorage.setItem('mj_store', JSON.stringify(member.stores))
-    window.location.href = '/schedule'
-  }
 
   // 순서 모달 열 때 현재 순서 복사
   function openOrderModal() {
@@ -959,51 +1017,7 @@ export default function SchedulePage() {
       {/* PC 전용 헤더 */}
       <header style={{ background:'#fff', borderBottom:'1px solid #E8ECF0', boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
         display:'flex', alignItems:'center', padding:'0 24px', height:54, flexShrink:0, gap:16 }}>
-        <div style={{ position:'relative', flexShrink:0 }}>
-          <div onClick={() => setShowStoreDropdown(p => !p)}
-            style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
-            <div style={{ width:32, height:32, borderRadius:8, background:'linear-gradient(135deg,#FF6B35,#E84393)',
-              display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:800, color:'#fff' }}>M</div>
-            <div>
-              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', lineHeight:1 }}>매장노트</div>
-              <div style={{ display:'flex', alignItems:'center', gap:3, marginTop:1 }}>
-                <span style={{ fontSize:10, color:'#FF6B35', fontWeight:600 }}>{currentStore?.name || ''}</span>
-                <span style={{ fontSize:8, color:'#FF6B35' }}>▼</span>
-              </div>
-            </div>
-          </div>
-          {showStoreDropdown && (
-            <>
-              <div onClick={() => setShowStoreDropdown(false)} style={{ position:'fixed', inset:0, zIndex:298 }} />
-              <div style={{ position:'absolute', top:'100%', left:0, marginTop:8, background:'#fff', borderRadius:14,
-                border:'1px solid #E8ECF0', boxShadow:'0 8px 24px rgba(0,0,0,0.12)', minWidth:220, zIndex:299, overflow:'hidden' }}>
-                <div style={{ padding:'10px 14px 6px', fontSize:11, color:'#aaa', fontWeight:600 }}>매장 선택</div>
-                {stores.map(member => {
-                  const isCurrent = member.stores?.id === currentStore?.id
-                  return (
-                    <div key={member.id} onClick={() => switchStore(member)}
-                      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer',
-                        background: isCurrent ? '#FFF5F0' : '#fff', borderTop:'1px solid #F4F6F9' }}>
-                      <div style={{ width:32, height:32, borderRadius:8, flexShrink:0,
-                        background: isCurrent ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#F4F6F9',
-                        display:'flex', alignItems:'center', justifyContent:'center',
-                        fontSize:13, fontWeight:800, color: isCurrent ? '#fff' : '#999' }}>
-                        {member.stores?.name?.charAt(0)}
-                      </div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, fontWeight:600, color: isCurrent ? '#FF6B35' : '#1a1a2e' }}>{member.stores?.name}</div>
-                        <div style={{ fontSize:10, color:'#aaa' }}>
-                          {member.role==='owner'?'대표':member.role==='manager'?'관리자':'사원'}
-                        </div>
-                      </div>
-                      {isCurrent && <span style={{ fontSize:12, color:'#FF6B35' }}>✓</span>}
-                    </div>
-                  )
-                })}
-              </div>
-            </>
-          )}
-        </div>
+        <PCStoreDropdown />
         <nav style={{ display:'flex', gap:2, flex:1, justifyContent:'center' }}>
           {PC_NAV_TABS.map(t => {
             const active = t.href === '/schedule'
