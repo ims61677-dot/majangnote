@@ -26,10 +26,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [stores, setStores] = useState<any[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [isPC, setIsPC] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     const check = () => setIsPC(window.innerWidth >= 768)
     check()
+    setMounted(true)
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
@@ -64,6 +66,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const isOwner = user?.role === 'owner'
   const isSchedulePage = pathname === '/schedule'
   const isFullscreen = isSchedulePage && isPC
+
+  // 하이드레이션 전엔 모바일 레이아웃으로 렌더 (두 헤더 겹침 방지)
+  if (!mounted) return (
+    <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#F4F6F9' }}>
+      <div style={{ height: 60, background: '#fff', borderBottom: '1px solid #E8ECF0' }} />
+      <main style={{ flex: 1, padding: '16px 16px 100px' }}>{children}</main>
+    </div>
+  )
 
   return (
     <div style={{
