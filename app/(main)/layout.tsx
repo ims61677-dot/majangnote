@@ -12,6 +12,15 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [store, setStore] = useState<any>(null)
   const [stores, setStores] = useState<any[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
+  const [isPC, setIsPC] = useState(false)
+
+  // PC 감지
+  useEffect(() => {
+    const check = () => setIsPC(window.innerWidth >= 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   useEffect(() => {
     const u = localStorage.getItem('mj_user')
@@ -30,7 +39,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     setStores(data || [])
   }
 
-function switchStore(member: any) {
+  function switchStore(member: any) {
     const updatedUser = { ...user, role: member.role }
     localStorage.setItem('mj_user', JSON.stringify(updatedUser))
     localStorage.setItem('mj_store', JSON.stringify(member.stores))
@@ -39,16 +48,35 @@ function switchStore(member: any) {
     setShowDropdown(false)
     window.location.href = '/dash'
   }
+
   const isOwner = user?.role === 'owner'
 
-  return (
-    <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh',
-      display: 'flex', flexDirection: 'column', background: '#F4F6F9' }}>
+  // 스케줄 페이지 + PC = 풀스크린
+  const isSchedulePage = pathname === '/schedule'
+  const isFullscreen = isSchedulePage && isPC
 
-      <header style={{ background: '#ffffff', padding: '14px 20px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        borderBottom: '1px solid #E8ECF0', boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-        position: 'sticky', top: 0, zIndex: 50 }}>
+  return (
+    <div style={{
+      maxWidth: isFullscreen ? '100%' : 480,
+      margin: '0 auto',
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      background: '#F4F6F9'
+    }}>
+
+      <header style={{
+        background: '#ffffff',
+        padding: isFullscreen ? '10px 28px' : '14px 20px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderBottom: '1px solid #E8ECF0',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50
+      }}>
 
         <div style={{ position: 'relative' }}>
           <div onClick={() => setShowDropdown(p => !p)}
@@ -124,10 +152,15 @@ function switchStore(member: any) {
         </button>
       </header>
 
-      <main style={{ flex: 1, padding: '16px 16px 100px' }}>
+      <main style={{
+        flex: 1,
+        padding: isFullscreen ? '20px 28px 40px' : '16px 16px 100px'
+      }}>
         {children}
       </main>
-      <BottomNav current={pathname} />
+
+      {/* PC 스케줄 페이지에선 바텀 네비 숨김 */}
+      {!isFullscreen && <BottomNav current={pathname} />}
     </div>
   )
 }
