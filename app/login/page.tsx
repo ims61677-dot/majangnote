@@ -3,6 +3,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
+const SESSION_KEY = 'mj_user'
+const SESSION_EXPIRE_KEY = 'mj_user_expire'
+const KEEP_DAYS = 30 // 로그인 유지 기간 (일)
+
 export default function LoginPage() {
   const supabase = createSupabaseBrowserClient()
   const router = useRouter()
@@ -10,6 +14,7 @@ export default function LoginPage() {
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [keepLogin, setKeepLogin] = useState(true)
 
   async function handleLogin() {
     if (!nm.trim()) { setError('이름을 입력하세요'); return }
@@ -23,7 +28,18 @@ export default function LoginPage() {
     if (!user) { setError('등록되지 않은 이름입니다'); setLoading(false); return }
     if (user.pin !== pin) { setError('PIN이 틀렸습니다'); setLoading(false); return }
 
-    localStorage.setItem('mj_user', JSON.stringify(user))
+    localStorage.setItem(SESSION_KEY, JSON.stringify(user))
+
+    if (keepLogin) {
+      // 만료일 설정 (30일 후)
+      const expire = Date.now() + KEEP_DAYS * 24 * 60 * 60 * 1000
+      localStorage.setItem(SESSION_EXPIRE_KEY, String(expire))
+    } else {
+      // 로그인 유지 안 함 → 만료일 없음 (탭 닫으면 유지되나 세션 체크에서 당일 만료)
+      const expire = Date.now() + 24 * 60 * 60 * 1000 // 24시간
+      localStorage.setItem(SESSION_EXPIRE_KEY, String(expire))
+    }
+
     router.push('/select-store')
     setLoading(false)
   }
@@ -58,12 +74,30 @@ export default function LoginPage() {
               placeholder="이름을 입력하세요" style={inp} />
           </div>
 
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>PIN</div>
             <input type="password" placeholder="4자리" maxLength={4}
               value={pin} onChange={e => { setPin(e.target.value); setError('') }}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
               style={{ ...inp, textAlign: 'center', letterSpacing: 12, fontSize: 22 }} />
+          </div>
+
+          {/* 로그인 유지 체크박스 */}
+          <div
+            onClick={() => setKeepLogin(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, cursor: 'pointer', userSelect: 'none' }}>
+            <div style={{
+              width: 18, height: 18, borderRadius: 5,
+              border: `2px solid ${keepLogin ? '#FF6B35' : '#D0D5DD'}`,
+              background: keepLogin ? '#FF6B35' : '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, transition: 'all 0.15s'
+            }}>
+              {keepLogin && <span style={{ color: '#fff', fontSize: 11, fontWeight: 800 }}>✓</span>}
+            </div>
+            <span style={{ fontSize: 13, color: '#666', fontWeight: 500 }}>
+              로그인 유지 ({KEEP_DAYS}일)
+            </span>
           </div>
 
           {error && (

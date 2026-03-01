@@ -16,7 +16,24 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     const u = localStorage.getItem('mj_user')
     const s = localStorage.getItem('mj_store')
+    const expire = localStorage.getItem('mj_user_expire')
+
+    // 세션 만료 체크
     if (!u || !s) { router.push('/login'); return }
+    if (expire && Date.now() > Number(expire)) {
+      localStorage.removeItem('mj_user')
+      localStorage.removeItem('mj_store')
+      localStorage.removeItem('mj_user_expire')
+      router.push('/login')
+      return
+    }
+
+    // 만료일이 없는 구버전 세션 → 30일로 자동 연장
+    if (!expire) {
+      const newExpire = Date.now() + 30 * 24 * 60 * 60 * 1000
+      localStorage.setItem('mj_user_expire', String(newExpire))
+    }
+
     const parsedUser = JSON.parse(u)
     setUser(parsedUser)
     setStore(JSON.parse(s))
@@ -112,7 +129,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             </>
           )}
         </div>
-        <button onClick={() => { localStorage.clear(); router.push('/login') }}
+        <button onClick={() => {
+          localStorage.removeItem('mj_user')
+          localStorage.removeItem('mj_store')
+          localStorage.removeItem('mj_user_expire')
+          router.push('/login')
+        }}
           style={{ background: 'none', border: '1px solid #E8ECF0',
             color: '#999', padding: '5px 12px', borderRadius: 8,
             cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
