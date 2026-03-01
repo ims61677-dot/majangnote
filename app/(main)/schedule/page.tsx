@@ -198,10 +198,11 @@ function RequestPanel({ storeId, myName, onClose, onApproved }: {
 // ════════════════════════════════════════
 // PC 전용 그리드 (날짜↓ × 직원→ — 엑셀 방향)
 // ════════════════════════════════════════
-function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onChangeMonth, pendingCount }: {
+function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onReorderStaff, onChangeMonth, pendingCount }: {
   year: number; month: number; schedules: any[]
   staffList: string[]; role: string; storeId: string; myName: string
-  onSaved: () => void; onChangeMonth: (y: number, m: number) => void
+  onSaved: () => void; onReorderStaff: (newOrder: string[]) => void
+  onChangeMonth: (y: number, m: number) => void
   pendingCount: number
 }) {
   const supabase = createSupabaseBrowserClient()
@@ -227,8 +228,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   function saveOrder() {
     localStorage.setItem(`staff_order_${storeId}`, JSON.stringify(dragOrder))
     setShowOrderModal(false)
-    // staffList를 직접 갱신 (페이지 리로드 없이)
-    onSaved()
+    onReorderStaff(dragOrder)
   }
   function handleDragStart(idx: number) { setDragIdx(idx) }
   function handleDragOver(e: React.DragEvent, idx: number) {
@@ -883,6 +883,7 @@ export default function SchedulePage() {
     year: calYear, month: calMonth, schedules, staffList,
     role, storeId, myName, pendingCount,
     onSaved: () => { loadData(storeId, calYear, calMonth); if(role==='owner') loadPendingCount(storeId) },
+    onReorderStaff: (newOrder: string[]) => { setStaffList(newOrder) },
     onChangeMonth: handleChangeMonth,
   }
 
