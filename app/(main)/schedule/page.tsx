@@ -14,6 +14,34 @@ const STATUS_LABEL: Record<string, string> = { work: '근무', off: '휴일', ha
 const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35' }
 const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)' }
 const POS_COLOR: Record<string, string> = { K: '#FF6B35', H: '#2DC6D6', KH: '#6C5CE7' }
+
+// 한국 공휴일
+function getHolidays(year: number): Record<string, string> {
+  const h: Record<string, string> = {
+    [`${year}-01-01`]: '신정',
+    [`${year}-03-01`]: '삼일절',
+    [`${year}-05-05`]: '어린이날',
+    [`${year}-06-06`]: '현충일',
+    [`${year}-08-15`]: '광복절',
+    [`${year}-10-03`]: '개천절',
+    [`${year}-10-09`]: '한글날',
+    [`${year}-12-25`]: '크리스마스',
+  }
+  // 2025
+  if (year === 2025) Object.assign(h, {
+    '2025-01-28': '설날연휴', '2025-01-29': '설날', '2025-01-30': '설날연휴',
+    '2025-05-05': '어린이날/부처님오신날',
+    '2025-10-03': '추석연휴', '2025-10-05': '추석', '2025-10-06': '추석연휴', '2025-10-07': '대체공휴일',
+  })
+  // 2026
+  if (year === 2026) Object.assign(h, {
+    '2026-02-16': '설날연휴', '2026-02-17': '설날', '2026-02-18': '설날연휴', '2026-02-19': '대체공휴일',
+    '2026-05-24': '부처님오신날',
+    '2026-09-24': '추석연휴', '2026-09-25': '추석', '2026-09-26': '추석연휴', '2026-09-27': '대체공휴일',
+  })
+  return h
+}
+
 const DOW_LABEL = ['일','월','화','수','목','금','토']
 
 // ─── 셀 팝업 (기존 그대로) ───
@@ -211,14 +239,34 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [dragOrder, setDragOrder] = useState<string[]>([])
   const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [stores, setStores] = useState<any[]>([])
+  const [currentStore, setCurrentStore] = useState<any>(null)
+  const [showStoreDropdown, setShowStoreDropdown] = useState(false)
   const today = toDateStr(new Date())
   const daysInMonth = getDaysInMonth(year, month)
   const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
   const days = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
+  const holidays = useMemo(() => getHolidays(year), [year])
   const isOwner = role === 'owner'
   const isManager = role === 'manager'
   const isStaff = role === 'staff'
   const visibleStaff = isStaff ? staffList.filter(n => n === myName) : staffList
+
+  useEffect(() => {
+    const s = JSON.parse(localStorage.getItem('mj_store') || '{}')
+    const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
+    setCurrentStore(s)
+    supabase.from('store_members').select('*, stores(*)')
+      .eq('profile_id', u.id).eq('active', true)
+      .then(({ data }) => setStores(data || []))
+  }, [])
+
+  function switchStore(member: any) {
+    const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
+    localStorage.setItem('mj_user', JSON.stringify({ ...u, role: member.role }))
+    localStorage.setItem('mj_store', JSON.stringify(member.stores))
+    window.location.href = '/schedule'
+  }
 
   // 순서 모달 열 때 현재 순서 복사
   function openOrderModal() {
@@ -409,18 +457,20 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
               const rowBg = isSun ? 'rgba(232,67,147,0.025)' : isSat ? 'rgba(108,92,231,0.025)' : isToday ? 'rgba(108,92,231,0.04)' : '#fff'
 
               return (
-                <tr key={day} style={{ background: rowBg }}>
+                <tr key={day} style={{ background: rowBg, borderTop: dow === 1 && day !== 1 ? '2px solid #D0D4E8' : undefined }}>
                   {/* 날짜 열 */}
                   <td style={{
                     borderBottom:'1px solid #ECEEF2', borderRight:'2px solid #E8ECF0',
+                    borderTop: dow === 1 && day !== 1 ? '2px solid #D0D4E8' : undefined,
                     padding:'0 8px', height:40,
-                    background: isSun ? 'rgba(232,67,147,0.06)' : isSat ? 'rgba(108,92,231,0.05)' : isToday ? 'rgba(108,92,231,0.07)' : '#FAFBFC',
+                    background: isSun || holidays[dateStr] ? 'rgba(232,67,147,0.06)' : isSat ? 'rgba(108,92,231,0.05)' : isToday ? 'rgba(108,92,231,0.07)' : '#FAFBFC',
                     position:'sticky', left:0, zIndex:1
                   }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                      <span style={{ fontSize:13, fontWeight: isToday ? 700 : 500, color: isToday?'#6C5CE7' : isSun?'#E84393' : isSat?'#6C5CE7' : '#1a1a2e' }}>{day}</span>
-                      <span style={{ fontSize:10, fontWeight:600, color: isSun?'#E84393' : isSat?'#6C5CE7' : '#bbb' }}>{DOW_LABEL[dow]}</span>
+                    <div style={{ display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' }}>
+                      <span style={{ fontSize:13, fontWeight: isToday ? 700 : 500, color: isToday?'#6C5CE7' : (isSun || holidays[dateStr])?'#E84393' : isSat?'#6C5CE7' : '#1a1a2e' }}>{day}</span>
+                      <span style={{ fontSize:10, fontWeight:600, color: (isSun || holidays[dateStr])?'#E84393' : isSat?'#6C5CE7' : '#bbb' }}>{DOW_LABEL[dow]}</span>
                       {isToday && <span style={{ fontSize:8, background:'#6C5CE7', color:'#fff', borderRadius:4, padding:'1px 4px', fontWeight:700 }}>오늘</span>}
+                      {holidays[dateStr] && <span style={{ fontSize:8, color:'#E84393', fontWeight:600, whiteSpace:'nowrap' }}>{holidays[dateStr]}</span>}
                     </div>
                   </td>
 
@@ -909,13 +959,50 @@ export default function SchedulePage() {
       {/* PC 전용 헤더 */}
       <header style={{ background:'#fff', borderBottom:'1px solid #E8ECF0', boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
         display:'flex', alignItems:'center', padding:'0 24px', height:54, flexShrink:0, gap:16 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
-          <div style={{ width:32, height:32, borderRadius:8, background:'linear-gradient(135deg,#FF6B35,#E84393)',
-            display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:800, color:'#fff' }}>M</div>
-          <div>
-            <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', lineHeight:1 }}>매장노트</div>
-            <div style={{ fontSize:10, color:'#FF6B35', fontWeight:600, marginTop:1 }}>{JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('mj_store') || '{}' : '{}').name || ''}</div>
+        <div style={{ position:'relative', flexShrink:0 }}>
+          <div onClick={() => setShowStoreDropdown(p => !p)}
+            style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
+            <div style={{ width:32, height:32, borderRadius:8, background:'linear-gradient(135deg,#FF6B35,#E84393)',
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:800, color:'#fff' }}>M</div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', lineHeight:1 }}>매장노트</div>
+              <div style={{ display:'flex', alignItems:'center', gap:3, marginTop:1 }}>
+                <span style={{ fontSize:10, color:'#FF6B35', fontWeight:600 }}>{currentStore?.name || ''}</span>
+                <span style={{ fontSize:8, color:'#FF6B35' }}>▼</span>
+              </div>
+            </div>
           </div>
+          {showStoreDropdown && (
+            <>
+              <div onClick={() => setShowStoreDropdown(false)} style={{ position:'fixed', inset:0, zIndex:298 }} />
+              <div style={{ position:'absolute', top:'100%', left:0, marginTop:8, background:'#fff', borderRadius:14,
+                border:'1px solid #E8ECF0', boxShadow:'0 8px 24px rgba(0,0,0,0.12)', minWidth:220, zIndex:299, overflow:'hidden' }}>
+                <div style={{ padding:'10px 14px 6px', fontSize:11, color:'#aaa', fontWeight:600 }}>매장 선택</div>
+                {stores.map(member => {
+                  const isCurrent = member.stores?.id === currentStore?.id
+                  return (
+                    <div key={member.id} onClick={() => switchStore(member)}
+                      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer',
+                        background: isCurrent ? '#FFF5F0' : '#fff', borderTop:'1px solid #F4F6F9' }}>
+                      <div style={{ width:32, height:32, borderRadius:8, flexShrink:0,
+                        background: isCurrent ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#F4F6F9',
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        fontSize:13, fontWeight:800, color: isCurrent ? '#fff' : '#999' }}>
+                        {member.stores?.name?.charAt(0)}
+                      </div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, fontWeight:600, color: isCurrent ? '#FF6B35' : '#1a1a2e' }}>{member.stores?.name}</div>
+                        <div style={{ fontSize:10, color:'#aaa' }}>
+                          {member.role==='owner'?'대표':member.role==='manager'?'관리자':'사원'}
+                        </div>
+                      </div>
+                      {isCurrent && <span style={{ fontSize:12, color:'#FF6B35' }}>✓</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
         </div>
         <nav style={{ display:'flex', gap:2, flex:1, justifyContent:'center' }}>
           {PC_NAV_TABS.map(t => {
