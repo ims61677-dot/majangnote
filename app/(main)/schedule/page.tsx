@@ -899,6 +899,9 @@ export default function SchedulePage() {
     { href: '/export',    ic: '📥', l: '내보내기' },
   ]
 
+  // PC 감지 전엔 빈 화면 (layout 헤더가 잠깐 보이는 깜빡임 방지)
+  if (isPC === null) return <div style={{ minHeight: '100vh', background: '#F4F6F9' }} />
+
   // PC 풀스크린 모드
   if (isPC) return (
     <div style={{ position:'fixed', inset:0, background:'#F4F6F9', zIndex:200, display:'flex', flexDirection:'column', overflow:'hidden' }}>
