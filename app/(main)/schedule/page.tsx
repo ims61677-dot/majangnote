@@ -886,6 +886,79 @@ export default function SchedulePage() {
     onChangeMonth: handleChangeMonth,
   }
 
+  const PC_NAV_TABS = [
+    { href: '/dash',      ic: '📊', l: '대시' },
+    { href: '/schedule',  ic: '📅', l: '스케줄' },
+    { href: '/closing',   ic: '📝', l: '마감' },
+    { href: '/notice',    ic: '📢', l: '공지' },
+    { href: '/inventory', ic: '📦', l: '재고' },
+    { href: '/recipe',    ic: '🍳', l: '레시피' },
+    { href: '/staff',     ic: '👥', l: '직원관리' },
+    { href: '/goal',      ic: '🎯', l: '목표매출' },
+    { href: '/mypage',    ic: '📋', l: '마이페이지' },
+    { href: '/export',    ic: '📥', l: '내보내기' },
+  ]
+
+  // PC 풀스크린 모드
+  if (isPC) return (
+    <div style={{ position:'fixed', inset:0, background:'#F4F6F9', zIndex:200, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+      {/* PC 전용 헤더 */}
+      <header style={{ background:'#fff', borderBottom:'1px solid #E8ECF0', boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
+        display:'flex', alignItems:'center', padding:'0 24px', height:54, flexShrink:0, gap:16 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+          <div style={{ width:32, height:32, borderRadius:8, background:'linear-gradient(135deg,#FF6B35,#E84393)',
+            display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:800, color:'#fff' }}>M</div>
+          <div>
+            <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', lineHeight:1 }}>매장노트</div>
+            <div style={{ fontSize:10, color:'#FF6B35', fontWeight:600, marginTop:1 }}>{JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('mj_store') || '{}' : '{}').name || ''}</div>
+          </div>
+        </div>
+        <nav style={{ display:'flex', gap:2, flex:1, justifyContent:'center' }}>
+          {PC_NAV_TABS.map(t => {
+            const active = t.href === '/schedule'
+            return (
+              <a key={t.href} href={t.href} style={{ textDecoration:'none' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 11px', borderRadius:8, cursor:'pointer',
+                  background: active ? 'rgba(255,107,53,0.08)' : 'transparent',
+                  borderBottom: active ? '2px solid #FF6B35' : '2px solid transparent' }}>
+                  <span style={{ fontSize:13 }}>{t.ic}</span>
+                  <span style={{ fontSize:12, fontWeight: active?700:500, color: active?'#FF6B35':'#888', whiteSpace:'nowrap' }}>{t.l}</span>
+                </div>
+              </a>
+            )
+          })}
+        </nav>
+        <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+          <span style={{ fontSize:10, padding:'3px 10px', borderRadius:10,
+            background:role==='owner'?'rgba(108,92,231,0.1)':role==='manager'?'rgba(255,107,53,0.1)':'rgba(0,184,148,0.1)',
+            color:role==='owner'?'#6C5CE7':role==='manager'?'#FF6B35':'#00B894', fontWeight:700 }}>
+            {role==='owner'?'대표':role==='manager'?'관리자':'직원'}
+          </span>
+          <button onClick={() => { localStorage.clear(); window.location.href='/login' }}
+            style={{ background:'none', border:'1px solid #E8ECF0', color:'#999', padding:'5px 12px', borderRadius:8, cursor:'pointer', fontSize:12 }}>
+            로그아웃
+          </button>
+        </div>
+      </header>
+
+      {/* PC 탭 */}
+      <div style={{ background:'#fff', borderBottom:'1px solid #E8ECF0', padding:'0 24px', display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+        <button style={{ ...tabBtn(viewTab==='grid'), flex:'none', padding:'10px 20px' }} onClick={() => setViewTab('grid')}>📊 그리드 편집</button>
+        <button style={{ ...tabBtn(viewTab==='month'), flex:'none', padding:'10px 20px' }} onClick={() => setViewTab('month')}>📅 월간 보기</button>
+      </div>
+
+      {/* 컨텐츠 */}
+      <div style={{ flex:1, overflow:'auto', padding:'20px 24px' }}>
+        {viewTab==='grid' && <PCGridEditor {...sharedProps} />}
+        {viewTab==='month' && (
+          <MonthlyView year={calYear} month={calMonth} schedules={schedules}
+            onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} />
+        )}
+      </div>
+    </div>
+  )
+
+  // 모바일 기존 그대로
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
@@ -902,11 +975,7 @@ export default function SchedulePage() {
         <button style={tabBtn(viewTab==='month')} onClick={() => setViewTab('month')}>📅 월간 보기</button>
       </div>
 
-      {viewTab==='grid' && (
-        isPC
-          ? <PCGridEditor {...sharedProps} />
-          : <MobileGridEditor {...sharedProps} />
-      )}
+      {viewTab==='grid' && <MobileGridEditor {...sharedProps} />}
       {viewTab==='month' && (
         <MonthlyView year={calYear} month={calMonth} schedules={schedules}
           onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} />
