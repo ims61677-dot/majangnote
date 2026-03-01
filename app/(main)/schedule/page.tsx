@@ -207,6 +207,9 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const supabase = createSupabaseBrowserClient()
   const [popup, setPopup] = useState<{ staff: string; date: string } | null>(null)
   const [showRequests, setShowRequests] = useState(false)
+  const [showOrderModal, setShowOrderModal] = useState(false)
+  const [dragOrder, setDragOrder] = useState<string[]>([])
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
   const today = toDateStr(new Date())
   const daysInMonth = getDaysInMonth(year, month)
   const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
@@ -215,6 +218,29 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const isManager = role === 'manager'
   const isStaff = role === 'staff'
   const visibleStaff = isStaff ? staffList.filter(n => n === myName) : staffList
+
+  // 순서 모달 열 때 현재 순서 복사
+  function openOrderModal() {
+    setDragOrder([...visibleStaff])
+    setShowOrderModal(true)
+  }
+  function saveOrder() {
+    localStorage.setItem(`staff_order_${storeId}`, JSON.stringify(dragOrder))
+    setShowOrderModal(false)
+    // staffList를 직접 갱신 (페이지 리로드 없이)
+    onSaved()
+  }
+  function handleDragStart(idx: number) { setDragIdx(idx) }
+  function handleDragOver(e: React.DragEvent, idx: number) {
+    e.preventDefault()
+    if (dragIdx === null || dragIdx === idx) return
+    const next = [...dragOrder]
+    const [moved] = next.splice(dragIdx, 1)
+    next.splice(idx, 0, moved)
+    setDragOrder(next)
+    setDragIdx(idx)
+  }
+  function handleDragEnd() { setDragIdx(null) }
 
   const scheduleMap = useMemo(() => {
     const m: Record<string, any> = {}
@@ -276,6 +302,45 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
           onClose={() => setShowRequests(false)} onApproved={() => { onSaved(); setShowRequests(false) }} />
       )}
 
+      {/* 직원 순서 변경 모달 */}
+      {showOrderModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center' }}
+          onClick={() => setShowOrderModal(false)}>
+          <div style={{ background:'#fff', borderRadius:20, padding:24, width:320, boxShadow:'0 8px 32px rgba(0,0,0,0.18)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize:15, fontWeight:700, marginBottom:4 }}>👥 직원 순서 변경</div>
+            <div style={{ fontSize:11, color:'#aaa', marginBottom:16 }}>드래그해서 순서를 바꿔보세요</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:20 }}>
+              {dragOrder.map((name, idx) => (
+                <div key={name}
+                  draggable
+                  onDragStart={() => handleDragStart(idx)}
+                  onDragOver={e => handleDragOver(e, idx)}
+                  onDragEnd={handleDragEnd}
+                  style={{
+                    display:'flex', alignItems:'center', gap:10,
+                    padding:'10px 14px', borderRadius:10,
+                    background: dragIdx===idx ? 'rgba(108,92,231,0.08)' : '#F8F9FB',
+                    border: dragIdx===idx ? '1px solid rgba(108,92,231,0.3)' : '1px solid #E8ECF0',
+                    cursor:'grab', userSelect:'none',
+                    transition:'background 0.1s',
+                  }}>
+                  <span style={{ color:'#bbb', fontSize:14 }}>⠿</span>
+                  <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{name}</span>
+                  <span style={{ marginLeft:'auto', fontSize:11, color:'#bbb' }}>{idx+1}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={() => setShowOrderModal(false)}
+                style={{ flex:1, padding:'10px 0', borderRadius:10, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:13, cursor:'pointer' }}>취소</button>
+              <button onClick={saveOrder}
+                style={{ flex:2, padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PC 헤더 바 */}
       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
         <YearMonthPicker year={year} month={month} onChange={onChangeMonth} color="#6C5CE7" />
@@ -292,6 +357,12 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
               <span key={p} style={{ fontSize:10, color:POS_COLOR[p], fontWeight:700 }}>{p}</span>
             ))}
           </div>
+          {isOwner && (
+            <button onClick={openOrderModal}
+              style={{ padding:'6px 12px', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#6B7684', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
+              ↕ 순서
+            </button>
+          )}
           {isOwner && (
             <button onClick={() => setShowRequests(true)}
               style={{ padding:'6px 12px', borderRadius:9, background: pendingCount>0?'rgba(232,67,147,0.1)':'#F4F6F9', border: pendingCount>0?'1px solid rgba(232,67,147,0.3)':'1px solid #E8ECF0', color: pendingCount>0?'#E84393':'#aaa', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
@@ -777,8 +848,18 @@ export default function SchedulePage() {
     const { data } = await supabase.from('store_members')
       .select('profile_id, role, active, profiles(nm)')
       .eq('store_id', sid).eq('active', true)
-    const names = (data || []).map((m: any) => m.profiles?.nm).filter(Boolean).sort()
-    setStaffList(names)
+    const names = (data || []).map((m: any) => m.profiles?.nm).filter(Boolean)
+    // localStorage에 저장된 순서 적용
+    const savedOrder: string[] = JSON.parse(localStorage.getItem(`staff_order_${sid}`) || '[]')
+    if (savedOrder.length > 0) {
+      const ordered = [
+        ...savedOrder.filter((n: string) => names.includes(n)),
+        ...names.filter((n: string) => !savedOrder.includes(n)).sort()
+      ]
+      setStaffList(ordered)
+    } else {
+      setStaffList(names.sort())
+    }
   }
   async function loadPendingCount(sid: string) {
     const { count } = await supabase.from('schedule_requests')
