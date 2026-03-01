@@ -182,13 +182,15 @@ export default function AnalyticsPage() {
   const [month, setMonth] = useState(now.getMonth())
   const [storeId, setStoreId] = useState('')
   const [isPC, setIsPC] = useState<boolean|null>(null)
-  const [tab, setTab] = useState<'sales'|'unit'|'dow'|'platform'|'compare'|'memo'>('sales')
+  const [tab, setTab] = useState<'sales'|'unit'|'dow'|'platform'|'compare'|'yearcmp'|'memo'>('sales')
   const [loading, setLoading] = useState(false)
 
   const [closings, setClosings] = useState<any[]>([])
   const [salesRows, setSalesRows] = useState<any[]>([])
   const [prevClosings, setPrevClosings] = useState<any[]>([])
   const [prevSalesRows, setPrevSalesRows] = useState<any[]>([])
+  const [prevYearClosings, setPrevYearClosings] = useState<any[]>([])
+  const [prevYearSalesRows, setPrevYearSalesRows] = useState<any[]>([])
   const [goal, setGoal] = useState<any>(null)
 
   useEffect(() => {
@@ -235,6 +237,17 @@ export default function AnalyticsPage() {
       setPrevSalesRows(pSv || [])
     } else setPrevSalesRows([])
 
+    // 전년도 같은 달
+    const pyYear = y - 1
+    const pyFrom = `${pyYear}-${pad(moNum)}-01`
+    const pyTo = `${pyYear}-${pad(moNum)}-${pad(new Date(pyYear, m+1, 0).getDate())}`
+    const { data: pyCls } = await supabase.from('closings').select('*').eq('store_id', sid).gte('closing_date', pyFrom).lte('closing_date', pyTo)
+    setPrevYearClosings(pyCls || [])
+    if (pyCls && pyCls.length > 0) {
+      const { data: pySv } = await supabase.from('closing_sales').select('*').in('closing_id', pyCls.map((c:any)=>c.id))
+      setPrevYearSalesRows(pySv || [])
+    } else setPrevYearSalesRows([])
+
     const { data: g } = await supabase.from('goals').select('*').eq('store_id', sid).eq('year', y).eq('month', moNum).maybeSingle()
     setGoal(g || null)
     setLoading(false)
@@ -261,12 +274,21 @@ export default function AnalyticsPage() {
     return { day, amount, count, unitPrice: count>0?Math.round(amount/count):0 }
   }).sort((a,b)=>a.day-b.day), [prevClosings, prevSalesRows])
 
+  const prevYearDaily = useMemo(() => prevYearClosings.map(cl => {
+    const sv = prevYearSalesRows.filter(s=>s.closing_id===cl.id)
+    const amount = sv.reduce((s,r)=>s+(r.amount||0),0)
+    const count = sv.reduce((s,r)=>s+(r.count||0),0)
+    const day = parseInt(cl.closing_date.split('-')[2])
+    return { day, amount, count, unitPrice: count>0?Math.round(amount/count):0 }
+  }).sort((a,b)=>a.day-b.day), [prevYearClosings, prevYearSalesRows])
+
   const totalSales = useMemo(()=>daily.reduce((s,d)=>s+d.amount,0),[daily])
   const totalCount = useMemo(()=>daily.reduce((s,d)=>s+d.count,0),[daily])
   const totalCancel = useMemo(()=>daily.reduce((s,d)=>s+d.cancel,0),[daily])
   const totalDiscount = useMemo(()=>daily.reduce((s,d)=>s+d.discount,0),[daily])
   const avgUnit = totalCount>0 ? Math.round(totalSales/totalCount) : 0
   const prevTotal = useMemo(()=>prevDaily.reduce((s,d)=>s+d.amount,0),[prevDaily])
+  const prevYearTotal = useMemo(()=>prevYearDaily.reduce((s,d)=>s+d.amount,0),[prevYearDaily])
 
   const platforms = useMemo(()=>{
     const map: Record<string,{amount:number;count:number;cancel:number}> = {}
@@ -313,6 +335,7 @@ export default function AnalyticsPage() {
     {id:'dow',label:'📆 요일 패턴'},
     {id:'platform',label:'🥧 플랫폼'},
     {id:'compare',label:'🔄 전월 비교'},
+    {id:'yearcmp',label:'📅 전년 비교'},
     {id:'memo',label:'📌 특이사항'},
   ]
 
@@ -338,18 +361,31 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
-      {/* 전월 대비 배너 */}
-      {!loading && prevTotal>0 && (
-        <div style={{background:totalSales>=prevTotal?'rgba(0,184,148,0.08)':'rgba(232,67,147,0.08)',
-          border:`1px solid ${totalSales>=prevTotal?'rgba(0,184,148,0.3)':'rgba(232,67,147,0.3)'}`,
-          borderRadius:10,padding:'9px 14px',marginBottom:12,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-          <span style={{fontSize:13,fontWeight:700,color:totalSales>=prevTotal?'#00B894':'#E84393'}}>
-            {totalSales>=prevTotal?'▲':'▼'} 전월 대비 {prevTotal>0?Math.abs(Math.round(((totalSales-prevTotal)/prevTotal)*100)):0}%
-          </span>
-          <span style={{fontSize:11,color:'#aaa'}}>{prevMonthLabel} {fmtW(prevTotal)} → 이번달 {fmtW(totalSales)}</span>
-          <span style={{fontSize:12,fontWeight:700,color:totalSales>=prevTotal?'#00B894':'#E84393',marginLeft:'auto'}}>
-            {totalSales>=prevTotal?'+':''}{fmtW(totalSales-prevTotal)}
-          </span>
+      {/* 전월/전년 대비 배너 */}
+      {!loading && (prevTotal>0 || prevYearTotal>0) && (
+        <div style={{display:'grid',gridTemplateColumns:prevTotal>0&&prevYearTotal>0?'1fr 1fr':'1fr',gap:8,marginBottom:12}}>
+          {prevTotal>0 && (
+            <div style={{background:totalSales>=prevTotal?'rgba(0,184,148,0.08)':'rgba(232,67,147,0.08)',
+              border:`1px solid ${totalSales>=prevTotal?'rgba(0,184,148,0.3)':'rgba(232,67,147,0.3)'}`,
+              borderRadius:10,padding:'9px 14px',display:'flex',flexDirection:'column',gap:2}}>
+              <span style={{fontSize:10,color:'#aaa'}}>전월 대비</span>
+              <span style={{fontSize:14,fontWeight:800,color:totalSales>=prevTotal?'#00B894':'#E84393'}}>
+                {totalSales>=prevTotal?'▲':'▼'} {prevTotal>0?Math.abs(Math.round(((totalSales-prevTotal)/prevTotal)*100)):0}%
+              </span>
+              <span style={{fontSize:10,color:'#aaa'}}>{prevMonthLabel} {fmtW(prevTotal)}</span>
+            </div>
+          )}
+          {prevYearTotal>0 && (
+            <div style={{background:totalSales>=prevYearTotal?'rgba(0,184,148,0.08)':'rgba(232,67,147,0.08)',
+              border:`1px solid ${totalSales>=prevYearTotal?'rgba(0,184,148,0.3)':'rgba(232,67,147,0.3)'}`,
+              borderRadius:10,padding:'9px 14px',display:'flex',flexDirection:'column',gap:2}}>
+              <span style={{fontSize:10,color:'#aaa'}}>전년 동월 대비</span>
+              <span style={{fontSize:14,fontWeight:800,color:totalSales>=prevYearTotal?'#00B894':'#E84393'}}>
+                {totalSales>=prevYearTotal?'▲':'▼'} {Math.abs(Math.round(((totalSales-prevYearTotal)/prevYearTotal)*100))}%
+              </span>
+              <span style={{fontSize:10,color:'#aaa'}}>{year-1}년 {month+1}월 {fmtW(prevYearTotal)}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -586,19 +622,41 @@ export default function AnalyticsPage() {
         {/* ── 전월 비교 ── */}
         {!loading && tab==='compare' && (
           <div>
+            {/* 요약 비교 카드 3개 */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:12}}>
+              {[
+                {label:'이번달',value:fmtW(totalSales),color:'#FF6B35',sub:`${daily.length}일 영업`},
+                {label:`전월 (${prevMonthLabel})`,value:fmtW(prevTotal),color:'#6C5CE7',
+                  sub:prevTotal>0?`${totalSales>=prevTotal?'▲':'▼'} ${Math.abs(Math.round(((totalSales-prevTotal)/prevTotal)*100))}%`:'데이터없음'},
+                {label:`전년 (${year-1}년 ${month+1}월)`,value:fmtW(prevYearTotal),color:'#00B894',
+                  sub:prevYearTotal>0?`${totalSales>=prevYearTotal?'▲':'▼'} ${Math.abs(Math.round(((totalSales-prevYearTotal)/prevYearTotal)*100))}%`:'데이터없음'},
+              ].map(s=>(
+                <div key={s.label} style={{background:'#fff',borderRadius:12,border:'1px solid #E8ECF0',padding:'12px 14px'}}>
+                  <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>{s.label}</div>
+                  <div style={{fontSize:isPC?16:13,fontWeight:800,color:s.color}}>{s.value}</div>
+                  <div style={{fontSize:10,color:s.color,marginTop:3,opacity:0.8}}>{s.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* 전월 비교 차트 */}
             <div style={bx}>
-              <div style={{fontSize:14,fontWeight:700,color:'#1a1a2e',marginBottom:6}}>🔄 전월 비교</div>
+              <div style={{fontSize:13,fontWeight:700,color:'#1a1a2e',marginBottom:6}}>🔄 전월 비교</div>
               <div style={{display:'flex',gap:16,marginBottom:12,fontSize:11}}>
                 <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:14,height:3,background:'#FF6B35',borderRadius:2}} /><span style={{color:'#aaa'}}>이번달</span></div>
-                <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:14,height:3,background:'#6C5CE7',borderRadius:2,opacity:0.5}} /><span style={{color:'#aaa'}}>{prevMonthLabel}</span></div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:14,height:3,background:'#6C5CE7',borderRadius:2,opacity:0.6}} /><span style={{color:'#aaa'}}>{prevMonthLabel}</span></div>
               </div>
-              {compareData.length>0 ? (()=>{
-                const maxV=Math.max(...compareData.map(d=>Math.max(d.curr,d.prev)),1)
-                const barH=isPC?160:120
+              {(()=>{
+                const data=[...daily.map(d=>d.day),...prevDaily.map(d=>d.day)]
+                const days=[...new Set(data)].sort((a,b)=>a-b)
+                const cd=days.map(day=>({day,curr:daily.find(d=>d.day===day)?.amount||0,prev:prevDaily.find(d=>d.day===day)?.amount||0})).filter(d=>d.curr>0||d.prev>0)
+                if(!cd.length) return <div style={{textAlign:'center',padding:'30px 0',color:'#ccc',fontSize:13}}>비교할 데이터가 없어요</div>
+                const maxV=Math.max(...cd.map(d=>Math.max(d.curr,d.prev)),1)
+                const barH=isPC?140:110
                 return (
                   <div style={{overflowX:'auto'}}>
-                    <div style={{display:'flex',alignItems:'flex-end',gap:3,minWidth:compareData.length*32,height:barH+20,paddingBottom:18}}>
-                      {compareData.map(d=>(
+                    <div style={{display:'flex',alignItems:'flex-end',gap:3,minWidth:cd.length*28,height:barH+20,paddingBottom:18}}>
+                      {cd.map(d=>(
                         <div key={d.day} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:'100%'}}>
                           <div style={{display:'flex',alignItems:'flex-end',gap:1,width:'100%'}}>
                             <div style={{flex:1,height:Math.max(Math.round((d.curr/maxV)*barH),d.curr>0?3:0),background:'rgba(255,107,53,0.75)',borderRadius:'3px 3px 0 0'}} />
@@ -610,38 +668,184 @@ export default function AnalyticsPage() {
                     </div>
                   </div>
                 )
-              })() : <div style={{textAlign:'center',padding:'40px 0',color:'#ccc',fontSize:13}}>비교할 데이터가 없어요</div>}
+              })()}
             </div>
 
-            <div style={{display:'grid',gridTemplateColumns:isPC?'repeat(4,1fr)':'repeat(2,1fr)',gap:10,marginBottom:12}}>
-              {[
-                {label:'이번달 총매출',value:fmtW(totalSales),color:'#FF6B35'},
-                {label:`${prevMonthLabel} 총매출`,value:fmtW(prevTotal),color:'#6C5CE7'},
-                {label:'매출 차이',value:`${totalSales>=prevTotal?'+':''}${fmtW(totalSales-prevTotal)}`,color:totalSales>=prevTotal?'#00B894':'#E84393'},
-                {label:'성장률',value:prevTotal>0?`${totalSales>=prevTotal?'+':''}${Math.round(((totalSales-prevTotal)/prevTotal)*100)}%`:'—',color:totalSales>=prevTotal?'#00B894':'#E84393'},
-              ].map(s=>(
-                <div key={s.label} style={{background:'#fff',borderRadius:12,border:'1px solid #E8ECF0',padding:'14px 16px'}}>
-                  <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>{s.label}</div>
-                  <div style={{fontSize:18,fontWeight:800,color:s.color}}>{s.value}</div>
+            {/* 전년도 비교 차트 */}
+            <div style={bx}>
+              <div style={{fontSize:13,fontWeight:700,color:'#1a1a2e',marginBottom:6}}>📅 전년 동월 비교 <span style={{fontSize:11,color:'#aaa',fontWeight:400}}>({year-1}년 {month+1}월)</span></div>
+              <div style={{display:'flex',gap:16,marginBottom:12,fontSize:11}}>
+                <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:14,height:3,background:'#FF6B35',borderRadius:2}} /><span style={{color:'#aaa'}}>이번달</span></div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:14,height:3,background:'#00B894',borderRadius:2,opacity:0.6}} /><span style={{color:'#aaa'}}>{year-1}년 {month+1}월</span></div>
+              </div>
+              {(()=>{
+                const data=[...daily.map(d=>d.day),...prevYearDaily.map(d=>d.day)]
+                const days=[...new Set(data)].sort((a,b)=>a-b)
+                const cd=days.map(day=>({day,curr:daily.find(d=>d.day===day)?.amount||0,prev:prevYearDaily.find(d=>d.day===day)?.amount||0})).filter(d=>d.curr>0||d.prev>0)
+                if(!cd.length) return <div style={{textAlign:'center',padding:'30px 0',color:'#ccc',fontSize:13}}>{year-1}년 {month+1}월 데이터가 없어요</div>
+                const maxV=Math.max(...cd.map(d=>Math.max(d.curr,d.prev)),1)
+                const barH=isPC?140:110
+                return (
+                  <div style={{overflowX:'auto'}}>
+                    <div style={{display:'flex',alignItems:'flex-end',gap:3,minWidth:cd.length*28,height:barH+20,paddingBottom:18}}>
+                      {cd.map(d=>(
+                        <div key={d.day} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:'100%'}}>
+                          <div style={{display:'flex',alignItems:'flex-end',gap:1,width:'100%'}}>
+                            <div style={{flex:1,height:Math.max(Math.round((d.curr/maxV)*barH),d.curr>0?3:0),background:'rgba(255,107,53,0.75)',borderRadius:'3px 3px 0 0'}} />
+                            <div style={{flex:1,height:Math.max(Math.round((d.prev/maxV)*barH),d.prev>0?3:0),background:'rgba(0,184,148,0.5)',borderRadius:'3px 3px 0 0'}} />
+                          </div>
+                          <div style={{fontSize:8,color:'#bbb',marginTop:3}}>{d.day}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* 전년도 인사이트 */}
+            {prevYearTotal>0 && (
+              <div style={{...bx, border:`1px solid ${totalSales>=prevYearTotal?'rgba(0,184,148,0.25)':'rgba(232,67,147,0.25)'}`}}>
+                <div style={{fontSize:13,fontWeight:700,color:'#1a1a2e',marginBottom:10}}>💡 전년 동기 인사이트</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+                  <div style={{background:totalSales>=prevYearTotal?'rgba(0,184,148,0.07)':'rgba(232,67,147,0.07)',borderRadius:10,padding:'12px 14px'}}>
+                    <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>YoY 성장률</div>
+                    <div style={{fontSize:20,fontWeight:800,color:totalSales>=prevYearTotal?'#00B894':'#E84393'}}>
+                      {totalSales>=prevYearTotal?'+':''}{Math.round(((totalSales-prevYearTotal)/prevYearTotal)*100)}%
+                    </div>
+                    <div style={{fontSize:10,color:'#aaa',marginTop:2}}>전년 동월 대비</div>
+                  </div>
+                  <div style={{background:'rgba(255,107,53,0.06)',borderRadius:10,padding:'12px 14px'}}>
+                    <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>매출 증감</div>
+                    <div style={{fontSize:18,fontWeight:800,color:totalSales>=prevYearTotal?'#00B894':'#E84393'}}>
+                      {totalSales>=prevYearTotal?'+':''}{fmtW(totalSales-prevYearTotal)}
+                    </div>
+                    <div style={{fontSize:10,color:'#aaa',marginTop:2}}>{fmtW(prevYearTotal)} → {fmtW(totalSales)}</div>
+                  </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
 
-            {compareData.length>0 && (
+            {/* 일별 3열 비교 테이블 */}
+            {(prevTotal>0||prevYearTotal>0) && daily.length>0 && (
               <div style={bx}>
-                <div style={{fontSize:13,fontWeight:700,color:'#1a1a2e',marginBottom:12}}>📋 일별 비교</div>
-                <div style={{display:'grid',gridTemplateColumns:'52px 1fr 1fr 72px',gap:4,paddingBottom:8,borderBottom:'1px solid #F0F2F5',marginBottom:6}}>
-                  {['일','이번달','전월','차이'].map(h=><span key={h} style={{fontSize:10,color:'#aaa',fontWeight:600,textAlign:'center'}}>{h}</span>)}
+                <div style={{fontSize:13,fontWeight:700,color:'#1a1a2e',marginBottom:12}}>📋 일별 3열 비교</div>
+                <div style={{display:'grid',gridTemplateColumns:'44px 1fr 1fr 1fr',gap:4,paddingBottom:8,borderBottom:'1px solid #F0F2F5',marginBottom:6}}>
+                  <span style={{fontSize:10,color:'#aaa',fontWeight:600,textAlign:'center'}}>일</span>
+                  <span style={{fontSize:10,color:'#FF6B35',fontWeight:700,textAlign:'center'}}>이번달</span>
+                  <span style={{fontSize:10,color:'#6C5CE7',fontWeight:700,textAlign:'center'}}>전월</span>
+                  <span style={{fontSize:10,color:'#00B894',fontWeight:700,textAlign:'center'}}>전년</span>
                 </div>
-                {compareData.map(d=>{
-                  const diff=d.curr-d.prev
+                {(()=>{
+                  const allDays=[...new Set([...daily.map(d=>d.day),...prevDaily.map(d=>d.day),...prevYearDaily.map(d=>d.day)])].sort((a,b)=>b-a)
+                  return allDays.slice(0,20).map(day=>{
+                    const curr=daily.find(d=>d.day===day)?.amount||0
+                    const prev=prevDaily.find(d=>d.day===day)?.amount||0
+                    const pyear=prevYearDaily.find(d=>d.day===day)?.amount||0
+                    if(!curr&&!prev&&!pyear) return null
+                    return (
+                      <div key={day} style={{display:'grid',gridTemplateColumns:'44px 1fr 1fr 1fr',gap:4,padding:'7px 0',borderBottom:'1px solid #F8F9FB',alignItems:'center'}}>
+                        <span style={{fontSize:11,color:'#888',textAlign:'center'}}>{month+1}/{day}</span>
+                        <span style={{fontSize:11,fontWeight:curr>0?700:400,color:curr>0?'#FF6B35':'#ddd',textAlign:'center'}}>{curr>0?fmtW(curr):'-'}</span>
+                        <span style={{fontSize:11,color:prev>0?'#6C5CE7':'#ddd',textAlign:'center'}}>{prev>0?fmtW(prev):'-'}</span>
+                        <span style={{fontSize:11,color:pyear>0?'#00B894':'#ddd',textAlign:'center'}}>{pyear>0?fmtW(pyear):'-'}</span>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── 전년 비교 ── */}
+        {!loading && tab==='yearcmp' && (
+          <div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+              <div style={{background:'#fff',borderRadius:12,border:'1px solid #E8ECF0',padding:'14px 16px'}}>
+                <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>이번달 ({year}년 {month+1}월)</div>
+                <div style={{fontSize:18,fontWeight:800,color:'#FF6B35'}}>{fmtW(totalSales)}</div>
+                <div style={{fontSize:10,color:'#aaa',marginTop:2}}>{daily.length}일 영업</div>
+              </div>
+              <div style={{background:'#fff',borderRadius:12,border:'1px solid #E8ECF0',padding:'14px 16px'}}>
+                <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>전년 동월 ({year-1}년 {month+1}월)</div>
+                <div style={{fontSize:18,fontWeight:800,color:'#00B894'}}>{prevYearTotal>0?fmtW(prevYearTotal):'데이터없음'}</div>
+                <div style={{fontSize:10,color:'#aaa',marginTop:2}}>{prevYearDaily.length}일 영업</div>
+              </div>
+            </div>
+
+            {/* YoY 인사이트 */}
+            {prevYearTotal>0 && (
+              <div style={{...bx,border:`1px solid ${totalSales>=prevYearTotal?'rgba(0,184,148,0.3)':'rgba(232,67,147,0.3)'}`,
+                background:totalSales>=prevYearTotal?'rgba(0,184,148,0.05)':'rgba(232,67,147,0.05)',marginBottom:12}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+                  {[
+                    {label:'YoY 성장률',value:`${totalSales>=prevYearTotal?'+':''}${Math.round(((totalSales-prevYearTotal)/prevYearTotal)*100)}%`,color:totalSales>=prevYearTotal?'#00B894':'#E84393'},
+                    {label:'매출 증감',value:`${totalSales>=prevYearTotal?'+':''}${fmtW(totalSales-prevYearTotal)}`,color:totalSales>=prevYearTotal?'#00B894':'#E84393'},
+                    {label:'일평균 매출',value:fmtW(daily.length>0?Math.round(totalSales/daily.length):0),color:'#FF6B35'},
+                  ].map(s=>(
+                    <div key={s.label}>
+                      <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>{s.label}</div>
+                      <div style={{fontSize:16,fontWeight:800,color:s.color}}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 전년 비교 차트 */}
+            <div style={bx}>
+              <div style={{fontSize:13,fontWeight:700,color:'#1a1a2e',marginBottom:6}}>📅 전년 동월 일별 비교</div>
+              <div style={{display:'flex',gap:16,marginBottom:12,fontSize:11}}>
+                <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:14,height:3,background:'#FF6B35',borderRadius:2}} /><span style={{color:'#aaa'}}>{year}년</span></div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:14,height:3,background:'#00B894',borderRadius:2,opacity:0.6}} /><span style={{color:'#aaa'}}>{year-1}년</span></div>
+              </div>
+              {(()=>{
+                const days=[...new Set([...daily.map(d=>d.day),...prevYearDaily.map(d=>d.day)])].sort((a,b)=>a-b)
+                const cd=days.map(day=>({day,curr:daily.find(d=>d.day===day)?.amount||0,prev:prevYearDaily.find(d=>d.day===day)?.amount||0})).filter(d=>d.curr>0||d.prev>0)
+                if(!cd.length) return <div style={{textAlign:'center',padding:'30px 0',color:'#ccc',fontSize:13}}>{year-1}년 {month+1}월 데이터가 없어요</div>
+                const maxV=Math.max(...cd.map(d=>Math.max(d.curr,d.prev)),1)
+                const barH=isPC?160:120
+                return (
+                  <div style={{overflowX:'auto'}}>
+                    <div style={{display:'flex',alignItems:'flex-end',gap:3,minWidth:cd.length*28,height:barH+20,paddingBottom:18}}>
+                      {cd.map(d=>(
+                        <div key={d.day} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:'100%'}}>
+                          <div style={{display:'flex',alignItems:'flex-end',gap:1,width:'100%'}}>
+                            <div style={{flex:1,height:Math.max(Math.round((d.curr/maxV)*barH),d.curr>0?3:0),background:'rgba(255,107,53,0.75)',borderRadius:'3px 3px 0 0'}} />
+                            <div style={{flex:1,height:Math.max(Math.round((d.prev/maxV)*barH),d.prev>0?3:0),background:'rgba(0,184,148,0.5)',borderRadius:'3px 3px 0 0'}} />
+                          </div>
+                          <div style={{fontSize:8,color:'#bbb',marginTop:3}}>{d.day}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* 일별 전년 비교 테이블 */}
+            {(daily.length>0||prevYearDaily.length>0) && (
+              <div style={bx}>
+                <div style={{fontSize:13,fontWeight:700,color:'#1a1a2e',marginBottom:12}}>📋 일별 전년 비교</div>
+                <div style={{display:'grid',gridTemplateColumns:'44px 1fr 1fr 72px',gap:4,paddingBottom:8,borderBottom:'1px solid #F0F2F5',marginBottom:6}}>
+                  <span style={{fontSize:10,color:'#aaa',textAlign:'center'}}>일</span>
+                  <span style={{fontSize:10,color:'#FF6B35',fontWeight:700,textAlign:'center'}}>{year}년</span>
+                  <span style={{fontSize:10,color:'#00B894',fontWeight:700,textAlign:'center'}}>{year-1}년</span>
+                  <span style={{fontSize:10,color:'#aaa',textAlign:'center'}}>증감</span>
+                </div>
+                {[...new Set([...daily.map(d=>d.day),...prevYearDaily.map(d=>d.day)])].sort((a,b)=>b-a).map(day=>{
+                  const curr=daily.find(d=>d.day===day)?.amount||0
+                  const prev=prevYearDaily.find(d=>d.day===day)?.amount||0
+                  if(!curr&&!prev) return null
+                  const diff=curr-prev
                   return (
-                    <div key={d.day} style={{display:'grid',gridTemplateColumns:'52px 1fr 1fr 72px',gap:4,padding:'7px 0',borderBottom:'1px solid #F8F9FB',alignItems:'center'}}>
-                      <span style={{fontSize:11,color:'#888',textAlign:'center'}}>{month+1}/{d.day}</span>
-                      <span style={{fontSize:12,fontWeight:d.curr>0?700:400,color:d.curr>0?'#FF6B35':'#ddd',textAlign:'center'}}>{d.curr>0?fmtWFull(d.curr):'-'}</span>
-                      <span style={{fontSize:12,color:d.prev>0?'#6C5CE7':'#ddd',textAlign:'center'}}>{d.prev>0?fmtWFull(d.prev):'-'}</span>
+                    <div key={day} style={{display:'grid',gridTemplateColumns:'44px 1fr 1fr 72px',gap:4,padding:'7px 0',borderBottom:'1px solid #F8F9FB',alignItems:'center'}}>
+                      <span style={{fontSize:11,color:'#888',textAlign:'center'}}>{month+1}/{day}</span>
+                      <span style={{fontSize:11,fontWeight:curr>0?700:400,color:curr>0?'#FF6B35':'#ddd',textAlign:'center'}}>{curr>0?fmtW(curr):'-'}</span>
+                      <span style={{fontSize:11,color:prev>0?'#00B894':'#ddd',textAlign:'center'}}>{prev>0?fmtW(prev):'-'}</span>
                       <span style={{fontSize:11,fontWeight:600,color:diff>0?'#00B894':diff<0?'#E84393':'#ddd',textAlign:'center'}}>
-                        {d.curr>0&&d.prev>0?`${diff>=0?'+':''}${fmtW(diff)}`:'-'}
+                        {curr>0&&prev>0?`${diff>=0?'+':''}${fmtW(diff)}`:'-'}
                       </span>
                     </div>
                   )
@@ -651,7 +855,7 @@ export default function AnalyticsPage() {
           </div>
         )}
 
-        {/* ── 특이사항 ── */}
+
         {!loading && tab==='memo' && (
           <div>
             <div style={bx}>
