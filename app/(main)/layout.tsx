@@ -1,21 +1,8 @@
-'use client'
+﻿'use client'
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import BottomNav from '@/components/BottomNav'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-
-const PC_TABS = [
-  { href: '/dash',      ic: '📊', l: '대시' },
-  { href: '/schedule',  ic: '📅', l: '스케줄' },
-  { href: '/closing',   ic: '📝', l: '마감' },
-  { href: '/notice',    ic: '📢', l: '공지' },
-  { href: '/inventory', ic: '📦', l: '재고' },
-  { href: '/recipe',    ic: '🍳', l: '레시피' },
-  { href: '/staff',     ic: '👥', l: '직원관리' },
-  { href: '/goal',      ic: '🎯', l: '목표매출' },
-  { href: '/mypage',    ic: '📋', l: '마이페이지' },
-  { href: '/export',    ic: '📥', l: '내보내기' },
-]
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -25,14 +12,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [store, setStore] = useState<any>(null)
   const [stores, setStores] = useState<any[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
-  const [isPC, setIsPC] = useState(false)
-
-  useEffect(() => {
-    const check = () => setIsPC(window.innerWidth >= 768)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
 
   useEffect(() => {
     const u = localStorage.getItem('mj_user')
@@ -62,33 +41,15 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }
 
   const isOwner = user?.role === 'owner'
-  const isSchedulePage = pathname === '/schedule'
-  const isFullscreen = isSchedulePage && isPC
 
   return (
-    <div style={{
-      maxWidth: isFullscreen ? '100%' : 480,
-      margin: '0 auto',
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      background: '#F4F6F9',
-    }}>
-
-      <header style={{
-        background: '#ffffff',
-        padding: isPC ? '0 28px' : '14px 20px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderBottom: '1px solid #E8ECF0',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-        position: 'sticky', top: 0, zIndex: 50,
-        height: isPC ? 56 : 'auto',
-      }}>
-
-        {/* 브랜드 */}
-        <div style={{ position: 'relative', flexShrink: 0 }}>
+    <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh',
+      display: 'flex', flexDirection: 'column', background: '#F4F6F9' }}>
+      <header style={{ background: '#ffffff', padding: '14px 20px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        borderBottom: '1px solid #E8ECF0', boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+        position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ position: 'relative' }}>
           <div onClick={() => setShowDropdown(p => !p)}
             style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
             <div style={{ width: 32, height: 32, borderRadius: 8,
@@ -103,7 +64,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               </div>
             </div>
           </div>
-
           {showDropdown && (
             <>
               <div onClick={() => setShowDropdown(false)}
@@ -152,49 +112,17 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             </>
           )}
         </div>
-
-        {/* PC 중앙 탭 네비 */}
-        {isPC && (
-          <nav style={{ display: 'flex', gap: 2, flex: 1, justifyContent: 'center', padding: '0 20px' }}>
-            {PC_TABS.map(t => {
-              const active = pathname.startsWith(t.href)
-              return (
-                <a key={t.href} href={t.href} style={{ textDecoration: 'none' }}>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 4,
-                    padding: '6px 12px', borderRadius: 9, cursor: 'pointer',
-                    background: active ? 'rgba(255,107,53,0.08)' : 'transparent',
-                    borderBottom: active ? '2px solid #FF6B35' : '2px solid transparent',
-                    transition: 'all 0.15s',
-                  }}>
-                    <span style={{ fontSize: 13 }}>{t.ic}</span>
-                    <span style={{ fontSize: 12, fontWeight: active ? 700 : 500, color: active ? '#FF6B35' : '#888', whiteSpace: 'nowrap' }}>
-                      {t.l}
-                    </span>
-                  </div>
-                </a>
-              )
-            })}
-          </nav>
-        )}
-
         <button onClick={() => { localStorage.clear(); router.push('/login') }}
           style={{ background: 'none', border: '1px solid #E8ECF0',
             color: '#999', padding: '5px 12px', borderRadius: 8,
-            cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0 }}>
+            cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
           로그아웃
         </button>
       </header>
-
-      <main style={{
-        flex: 1,
-        padding: isFullscreen ? '20px 28px 40px' : '16px 16px 100px',
-      }}>
+      <main style={{ flex: 1, padding: '16px 16px 100px' }}>
         {children}
       </main>
-
-      {/* 모바일에서만 바텀 네비 */}
-      {!isPC && <BottomNav current={pathname} />}
+      <BottomNav current={pathname} />
     </div>
   )
 }
