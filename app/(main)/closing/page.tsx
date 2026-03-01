@@ -87,12 +87,15 @@ export default function ClosingPage() {
 
   const [writer, setWriter] = useState('')
   const [closeStaff, setCloseStaff] = useState('')
-  const [visitTables, setVisitTables] = useState(0)
+  const [discountAmount, setDiscountAmount] = useState(0)
   const [cancelCount, setCancelCount] = useState(0)
   const [cashAmount, setCashAmount] = useState(0)
   const [note, setNote] = useState('')
+  const [memo, setMemo] = useState('')  // 특이사항 메모 (이벤트/행사 등)
   const [platforms, setPlatforms] = useState<any[]>([])
   const [sales, setSales] = useState<Record<string, number>>({})
+  const [counts, setCounts] = useState<Record<string, number>>({})       // 플랫폼별 건수
+  const [cancelCounts, setCancelCounts] = useState<Record<string, number>>({}) // 플랫폼별 취소/환불
   const [checkItems, setCheckItems] = useState<any[]>([])
   const [checks, setChecks] = useState<Record<string, any>>({})
   const [showCheckMgr, setShowCheckMgr] = useState(false)
@@ -151,19 +154,33 @@ export default function ClosingPage() {
     const { data: cl } = await supabase.from('closings').select('*').eq('store_id', sid).eq('closing_date', date).maybeSingle()
     if (cl) {
       setClosing(cl); closingRef.current = cl
-      setWriter(cl.writer || cl.created_by || ''); setCloseStaff(cl.close_staff || '')
-      setVisitTables(cl.visit_tables || 0); setCancelCount(cl.cancel_count || 0)
-      setCashAmount(cl.cash_amount || 0); setNote(cl.note || '')
+      setWriter(cl.writer || cl.created_by || '')
+      setCloseStaff(cl.close_staff || '')
+      setCancelCount(cl.cancel_count || 0)
+      setCashAmount(cl.cash_amount || 0)
+      setNote(cl.note || '')
+      setMemo(cl.memo || '')
+      setDiscountAmount(cl.discount_amount || 0)
+
       const { data: sv } = await supabase.from('closing_sales').select('*').eq('closing_id', cl.id)
       const sm: Record<string, number> = {}
-      if (sv) sv.forEach((s:any) => { sm[s.platform] = s.amount })
-      setSales(sm)
+      const cm: Record<string, number> = {}
+      const ccm: Record<string, number> = {}
+      if (sv) sv.forEach((s:any) => {
+        sm[s.platform] = s.amount
+        cm[s.platform] = s.count || 0
+        ccm[s.platform] = s.cancel_count || 0
+      })
+      setSales(sm); setCounts(cm); setCancelCounts(ccm)
+
       const { data: ck } = await supabase.from('closing_checks').select('*').eq('closing_id', cl.id)
-      const cm: Record<string, any> = {}
-      if (ck) ck.forEach((c:any) => { cm[c.item_id] = c })
-      setChecks(cm)
+      const ckm: Record<string, any> = {}
+      if (ck) ck.forEach((c:any) => { ckm[c.item_id] = c })
+      setChecks(ckm)
+
       const { data: so } = await supabase.from('closing_soldout').select('*').eq('closing_id', cl.id).order('created_at')
       setSoldouts(so || [])
+
       const { data: todos } = await supabase.from('closing_next_todos').select('*').eq('closing_id', cl.id).order('created_at')
       setNextTodos(todos || [])
       if (todos && todos.length > 0) {
@@ -175,9 +192,10 @@ export default function ClosingPage() {
       setShowForm(true)
     } else {
       setClosing(null); closingRef.current = null
-      setWriter(''); setCloseStaff(''); setVisitTables(0); setCancelCount(0)
-      setCashAmount(0); setNote(''); setSales({}); setChecks({})
-      setSoldouts([]); setNextTodos([]); setTodoChecks({})
+      setWriter(''); setCloseStaff(''); setCancelCount(0)
+      setCashAmount(0); setNote(''); setMemo(''); setDiscountAmount(0)
+      setSales({}); setCounts({}); setCancelCounts({})
+      setChecks({}); setSoldouts([]); setNextTodos([]); setTodoChecks({})
       setShowForm(false)
     }
   }
@@ -193,7 +211,7 @@ export default function ClosingPage() {
     if (current?.id) return current.id
     const { data, error } = await supabase.from('closings').insert({
       store_id: storeId, closing_date: selectedDate, writer: userName, close_staff: closeStaff,
-      visit_tables: visitTables, cancel_count: cancelCount, cash_amount: cashAmount, note, created_by: userName
+      cancel_count: cancelCount, cash_amount: cashAmount, note, memo, discount_amount: discountAmount, created_by: userName
     }).select().single()
     if (error) throw error
     setClosing(data); closingRef.current = data
@@ -209,17 +227,28 @@ export default function ClosingPage() {
       let closingId: string
       if (current?.id) {
         closingId = current.id
-        await supabase.from('closings').update({ writer, close_staff: closeStaff, visit_tables: visitTables, cancel_count: cancelCount, cash_amount: cashAmount, note }).eq('id', closingId)
+        await supabase.from('closings').update({
+          writer, close_staff: closeStaff,
+          cancel_count: cancelCount, cash_amount: cashAmount,
+          note, memo, discount_amount: discountAmount
+        }).eq('id', closingId)
       } else {
         const { data, error } = await supabase.from('closings').insert({
           store_id: storeId, closing_date: selectedDate, writer, close_staff: closeStaff,
-          visit_tables: visitTables, cancel_count: cancelCount, cash_amount: cashAmount, note, created_by: userName
+          cancel_count: cancelCount, cash_amount: cashAmount, note, memo, discount_amount: discountAmount, created_by: userName
         }).select().single()
         if (error) throw error
         closingId = data.id; setClosing(data); closingRef.current = data
       }
       await supabase.from('closing_sales').delete().eq('closing_id', closingId)
-      const rows = platforms.map(p => ({ closing_id: closingId, platform: p.name, amount: sales[p.name]||0, sort_order: p.sort_order }))
+      const rows = platforms.map(p => ({
+        closing_id: closingId,
+        platform: p.name,
+        amount: sales[p.name] || 0,
+        count: counts[p.name] || 0,
+        cancel_count: cancelCounts[p.name] || 0,
+        sort_order: p.sort_order
+      }))
       if (rows.length > 0) await supabase.from('closing_sales').insert(rows)
       const newTotal = platforms.reduce((s, p) => s + (sales[p.name]||0), 0)
       setSalesMap(prev => ({ ...prev, [selectedDate]: newTotal }))
@@ -304,10 +333,15 @@ export default function ClosingPage() {
   }
 
   const totalSales = useMemo(() => platforms.reduce((sum, p) => sum + (sales[p.name]||0), 0), [platforms, sales])
+  const totalCount = useMemo(() => platforms.reduce((sum, p) => sum + (counts[p.name]||0), 0), [platforms, counts])
+  const totalCancelCount = useMemo(() => platforms.reduce((sum, p) => sum + (cancelCounts[p.name]||0), 0), [platforms, cancelCounts])
+  const avgPerOrder = totalCount > 0 ? Math.round(totalSales / totalCount) : 0
   const checkedCount = Object.keys(checks).length
+  const disabled = isSaved && !isManager
 
   return (
     <div>
+      {/* 플랫폼 관리 모달 */}
       {showPlatformMgr && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
           <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'75vh', overflowY:'auto' }}>
@@ -329,6 +363,7 @@ export default function ClosingPage() {
         </div>
       )}
 
+      {/* 체크리스트 관리 모달 */}
       {showCheckMgr && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
           <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'75vh', overflowY:'auto' }}>
@@ -361,7 +396,8 @@ export default function ClosingPage() {
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div>
             <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>{selectedDate.replace(/-/g,'.')}</div>
-            {isSaved ? <div style={{ fontSize:11, color:'#00B894', marginTop:2 }}>✓ 저장됨 · 총 매출 {totalSales.toLocaleString()}원</div>
+            {isSaved
+              ? <div style={{ fontSize:11, color:'#00B894', marginTop:2 }}>✓ 저장됨 · 총 매출 {totalSales.toLocaleString()}원 · {totalCount}건</div>
               : <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>미작성</div>}
           </div>
           <button onClick={() => setShowForm(p => !p)}
@@ -378,50 +414,104 @@ export default function ClosingPage() {
               🔒 저장된 마감일지는 매니저/대표만 수정 가능합니다. 체크리스트는 누구나 가능해요.
             </div>
           )}
+
+          {/* 작성자 */}
           <div style={bx}>
             <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>👤 작성자</div>
-            <input value={writer} onChange={e => setWriter(e.target.value)} placeholder="작성자 이름" disabled={isSaved && !isManager}
-              style={{ ...inp, background: isSaved&&!isManager?'#F4F6F9':'#F8F9FB' }} />
+            <input value={writer} onChange={e => setWriter(e.target.value)} placeholder="작성자 이름" disabled={disabled}
+              style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
+
+          {/* 매출 + 건수 + 취소환불 */}
           <div style={bx}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
               <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>💰 매출</span>
               {isManager && <button onClick={() => setShowPlatformMgr(true)} style={{ fontSize:10, color:'#2DC6D6', background:'rgba(45,198,214,0.1)', border:'1px solid rgba(45,198,214,0.3)', borderRadius:6, padding:'3px 8px', cursor:'pointer' }}>플랫폼 관리</button>}
             </div>
+
+            {/* 헤더 */}
+            <div style={{ display:'grid', gridTemplateColumns:'80px 1fr 64px 64px', gap:6, marginBottom:6, paddingBottom:6, borderBottom:'1px solid #F0F2F5' }}>
+              <span style={{ fontSize:10, color:'#aaa', fontWeight:600 }}>플랫폼</span>
+              <span style={{ fontSize:10, color:'#aaa', fontWeight:600, textAlign:'right' }}>매출</span>
+              <span style={{ fontSize:10, color:'#aaa', fontWeight:600, textAlign:'center' }}>건수</span>
+              <span style={{ fontSize:10, color:'#aaa', fontWeight:600, textAlign:'center' }}>취소/환불</span>
+            </div>
+
+            {/* 플랫폼별 행 */}
             {platforms.map(p => (
-              <div key={p.id} style={{ display:'flex', alignItems:'center', marginBottom:8, gap:8 }}>
-                <span style={{ fontSize:12, color:'#555', width:90, flexShrink:0 }}>{p.name}</span>
-                <input type="number" value={sales[p.name]||''} onChange={e => setSales(prev => ({ ...prev, [p.name]: Number(e.target.value) }))}
-                  placeholder="0" disabled={isSaved&&!isManager} style={{ ...inp, textAlign:'right', background: isSaved&&!isManager?'#F4F6F9':'#F8F9FB' }} />
-                <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
+              <div key={p.id} style={{ display:'grid', gridTemplateColumns:'80px 1fr 64px 64px', gap:6, marginBottom:8, alignItems:'center' }}>
+                <span style={{ fontSize:12, color:'#555', fontWeight:600 }}>{p.name}</span>
+                <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                  <input type="number" value={sales[p.name]||''} onChange={e => setSales(prev => ({ ...prev, [p.name]: Number(e.target.value) }))}
+                    placeholder="0" disabled={disabled} style={{ ...inp, textAlign:'right', padding:'6px 8px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
+                  <span style={{ fontSize:10, color:'#aaa', flexShrink:0 }}>원</span>
+                </div>
+                <input type="number" value={counts[p.name]||''} onChange={e => setCounts(prev => ({ ...prev, [p.name]: Number(e.target.value) }))}
+                  placeholder="0" disabled={disabled} style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
+                <input type="number" value={cancelCounts[p.name]||''} onChange={e => setCancelCounts(prev => ({ ...prev, [p.name]: Number(e.target.value) }))}
+                  placeholder="0" disabled={disabled} style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'rgba(232,67,147,0.04)', border: '1px solid rgba(232,67,147,0.2)' }} />
               </div>
             ))}
-            <div style={{ borderTop:'1px dashed #E8ECF0', paddingTop:10, marginTop:4, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>총 매출</span>
-              <span style={{ fontSize:20, fontWeight:800, color:'#FF6B35' }}>{totalSales.toLocaleString()}원</span>
+
+            {/* 합계 */}
+            <div style={{ borderTop:'1px dashed #E8ECF0', paddingTop:10, marginTop:4 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'80px 1fr 64px 64px', gap:6, alignItems:'center' }}>
+                <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>합계</span>
+                <span style={{ fontSize:18, fontWeight:800, color:'#FF6B35', textAlign:'right' }}>{totalSales.toLocaleString()}원</span>
+                <span style={{ fontSize:13, fontWeight:700, color:'#6C5CE7', textAlign:'center' }}>{totalCount}건</span>
+                <span style={{ fontSize:13, fontWeight:700, color:'#E84393', textAlign:'center' }}>{totalCancelCount}건</span>
+              </div>
+              {/* 객단가 */}
+              {avgPerOrder > 0 && (
+                <div style={{ marginTop:8, padding:'8px 12px', background:'rgba(108,92,231,0.06)', borderRadius:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <span style={{ fontSize:11, color:'#6C5CE7', fontWeight:600 }}>📊 객단가</span>
+                  <span style={{ fontSize:14, fontWeight:800, color:'#6C5CE7' }}>{avgPerOrder.toLocaleString()}원</span>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* 취소/환불 총 건수 + 할인 */}
           <div style={bx}>
-            <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>📊 운영 현황</div>
+            <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>📉 취소/할인</div>
             <div style={{ display:'flex', gap:8 }}>
               <div style={{ flex:1 }}>
-                <span style={lbl}>방문 테이블 수</span>
-                <input type="number" value={visitTables||''} onChange={e => setVisitTables(Number(e.target.value))} placeholder="0" disabled={isSaved&&!isManager}
-                  style={{ ...inp, textAlign:'center', background: isSaved&&!isManager?'#F4F6F9':'#F8F9FB' }} />
+                <span style={lbl}>총 취소/환불 건수</span>
+                <div style={{ padding:'10px 12px', borderRadius:8, background:'rgba(232,67,147,0.06)', border:'1px solid rgba(232,67,147,0.2)', fontSize:14, fontWeight:700, color:'#E84393', textAlign:'center' }}>
+                  {totalCancelCount}건
+                </div>
               </div>
               <div style={{ flex:1 }}>
-                <span style={lbl}>취소/환불 건수</span>
-                <input type="number" value={cancelCount||''} onChange={e => setCancelCount(Number(e.target.value))} placeholder="0" disabled={isSaved&&!isManager}
-                  style={{ ...inp, textAlign:'center', background: isSaved&&!isManager?'#F4F6F9':'#F8F9FB' }} />
+                <span style={lbl}>할인/프로모션 금액</span>
+                <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                  <input type="number" value={discountAmount||''} onChange={e => setDiscountAmount(Number(e.target.value))} placeholder="0" disabled={disabled}
+                    style={{ ...inp, textAlign:'right', background: disabled?'#F4F6F9':'#F8F9FB' }} />
+                  <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
+                </div>
               </div>
             </div>
           </div>
+
+          {/* 시재 */}
           <div style={bx}>
             <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>💵 시재</div>
-            <input type="number" value={cashAmount||''} onChange={e => setCashAmount(Number(e.target.value))} placeholder="마감 시재 금액 입력" disabled={isSaved&&!isManager}
-              style={{ ...inp, textAlign:'right', background: isSaved&&!isManager?'#F4F6F9':'#F8F9FB' }} />
+            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+              <input type="number" value={cashAmount||''} onChange={e => setCashAmount(Number(e.target.value))} placeholder="마감 시재 금액 입력" disabled={disabled}
+                style={{ ...inp, textAlign:'right', background: disabled?'#F4F6F9':'#F8F9FB' }} />
+              <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
+            </div>
             {cashAmount > 0 && <div style={{ fontSize:11, color:'#888', marginTop:4, textAlign:'right' }}>{cashAmount.toLocaleString()}원</div>}
           </div>
+
+          {/* 특이사항 메모 */}
+          <div style={bx}>
+            <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📌 특이사항 메모</div>
+            <div style={{ fontSize:10, color:'#aaa', marginBottom:8 }}>이벤트, 행사, 날씨, 특이 상황 등 — 분석탭에서 매출과 연결됩니다</div>
+            <textarea value={memo} onChange={e => setMemo(e.target.value)} placeholder="오늘의 특이사항을 기록하세요 (이벤트, 날씨, 행사 등)" disabled={disabled}
+              style={{ ...inp, minHeight:70, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
+          </div>
+
+          {/* 품절 메뉴 */}
           <div style={bx}>
             <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>🚫 품절 메뉴</div>
             {soldouts.length === 0 && <div style={{ fontSize:12, color:'#bbb', textAlign:'center', padding:'8px 0', marginBottom:8 }}>품절 메뉴 없음 ✓</div>}
@@ -439,6 +529,8 @@ export default function ClosingPage() {
               <button onClick={addSoldout} style={{ padding:'8px 12px', borderRadius:8, background:'rgba(232,67,147,0.1)', border:'1px solid rgba(232,67,147,0.3)', color:'#E84393', fontSize:12, fontWeight:700, cursor:'pointer' }}>추가</button>
             </div>
           </div>
+
+          {/* 마감 체크리스트 */}
           <div style={bx}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -463,11 +555,15 @@ export default function ClosingPage() {
               )
             })}
           </div>
+
+          {/* 클레임/특이사항 */}
           <div style={bx}>
             <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📝 클레임/특이사항</div>
-            <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={isSaved&&!isManager?'':'오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={isSaved&&!isManager}
-              style={{ ...inp, minHeight:80, resize:'none' as const, lineHeight:1.6, background: isSaved&&!isManager?'#F4F6F9':'#F8F9FB' }} />
+            <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={disabled?'':'오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={disabled}
+              style={{ ...inp, minHeight:80, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
+
+          {/* 다음 담당자 전달사항 */}
           <div style={{ ...bx, border: nextTodos.length>0?'1px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0' }}>
             <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>📢 다음 담당자 전달사항</div>
             <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>누구나 항목 추가 가능 · 공지 탭에서도 확인 가능</div>
@@ -507,6 +603,7 @@ export default function ClosingPage() {
               <button onClick={addNextTodo} style={{ padding:'8px 12px', borderRadius:8, background:'rgba(255,107,53,0.1)', border:'1px solid rgba(255,107,53,0.3)', color:'#FF6B35', fontSize:12, fontWeight:700, cursor:'pointer' }}>추가</button>
             </div>
           </div>
+
           {(!isSaved || isManager) ? (
             <button onClick={saveClosing} disabled={isSaving}
               style={{ width:'100%', padding:'15px 0', borderRadius:14, background: isSaving?'#ddd':'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor: isSaving?'not-allowed':'pointer', marginBottom:24 }}>
