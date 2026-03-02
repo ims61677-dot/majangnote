@@ -7,7 +7,7 @@ const supabase = createSupabaseBrowserClient()
 function pad(n: number) { return String(n).padStart(2, '0') }
 function toDateStr(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}` }
 function fmtTime(ts: string | null) {
-  if (!ts) return '-'
+  if (!ts) return null
   const d = new Date(ts)
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
@@ -20,12 +20,12 @@ function fmtDuration(inTs: string, outTs: string) {
 const DOW = ['일','월','화','수','목','금','토']
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  normal:  { label: '정상', color: '#00B894', bg: 'rgba(0,184,148,0.1)',    icon: '✅' },
-  late:    { label: '지각', color: '#E84393', bg: 'rgba(232,67,147,0.1)',   icon: '🔴' },
-  early:   { label: '조퇴', color: '#6C5CE7', bg: 'rgba(108,92,231,0.1)',   icon: '🌙' },
-  absent:  { label: '결근', color: '#E84393', bg: 'rgba(232,67,147,0.15)',  icon: '❌' },
-  working: { label: '근무중', color: '#FF6B35', bg: 'rgba(255,107,53,0.1)', icon: '💼' },
-  pending: { label: '대기', color: '#bbb',    bg: 'rgba(170,170,170,0.08)', icon: '⏳' },
+  normal:  { label: '정상출근', color: '#00B894', bg: 'rgba(0,184,148,0.1)',    icon: '✅' },
+  late:    { label: '지각',     color: '#E84393', bg: 'rgba(232,67,147,0.1)',   icon: '🔴' },
+  early:   { label: '조퇴',     color: '#6C5CE7', bg: 'rgba(108,92,231,0.1)',   icon: '🌙' },
+  absent:  { label: '결근',     color: '#E84393', bg: 'rgba(232,67,147,0.15)',  icon: '❌' },
+  working: { label: '근무중',   color: '#FF6B35', bg: 'rgba(255,107,53,0.1)',   icon: '💼' },
+  pending: { label: '대기',     color: '#bbb',    bg: 'rgba(170,170,170,0.08)', icon: '⏳' },
 }
 
 const bx: React.CSSProperties = {
@@ -199,11 +199,10 @@ export default function AttendancePage() {
   const [boardList,     setBoardList]     = useState<any[]>([])
   const [tab,           setTab]           = useState<'today'|'history'>('today')
 
-  // 기록 조회
   const [histYear,   setHistYear]   = useState(nowDate.getFullYear())
   const [histMonth,  setHistMonth]  = useState(nowDate.getMonth())
   const [staffList,  setStaffList]  = useState<{ id: string; nm: string }[]>([])
-  const [allAttData, setAllAttData] = useState<any[]>([])  // 전직원 출퇴근 데이터
+  const [allAttData, setAllAttData] = useState<any[]>([])
 
   const [showRequest,    setShowRequest]    = useState(false)
   const [showOwnerPanel, setShowOwnerPanel] = useState(false)
@@ -285,8 +284,6 @@ export default function AttendancePage() {
       .select('profile_id, profiles(nm)').eq('store_id', sid).eq('active', true)
     setStaffList((data || []).map((m: any) => ({ id: m.profile_id, nm: m.profiles?.nm || '' })))
   }
-
-  // 전직원 출퇴근 데이터 (기록 조회용)
   async function loadAllAttendance(sid: string, y: number, m: number) {
     const from = `${y}-${pad(m+1)}-01`
     const to   = `${y}-${pad(m+1)}-${pad(new Date(y, m+1, 0).getDate())}`
@@ -294,7 +291,6 @@ export default function AttendancePage() {
       .select('*, profiles(nm)')
       .eq('store_id', sid)
       .gte('work_date', from).lte('work_date', to)
-      .order('work_date', { ascending: true })
     setAllAttData(data || [])
   }
 
@@ -342,19 +338,9 @@ export default function AttendancePage() {
     else setHistMonth(m => m+1)
   }
 
-  // 전직원 × 날짜 표 데이터 가공
+  // 캘린더 날짜 계산
+  const firstDow = new Date(histYear, histMonth, 1).getDay()
   const lastDate = new Date(histYear, histMonth + 1, 0).getDate()
-  const dateRange = Array.from({ length: lastDate }, (_, i) => {
-    const d = i + 1
-    return `${histYear}-${pad(histMonth+1)}-${pad(d)}`
-  })
-
-  // profile_id → nm 맵
-  const pidToNm = useMemo(() => {
-    const m: Record<string, string> = {}
-    staffList.forEach(s => { m[s.id] = s.nm })
-    return m
-  }, [staffList])
 
   // attData를 { profile_id: { work_date: record } } 로 변환
   const attMatrix = useMemo(() => {
@@ -366,36 +352,44 @@ export default function AttendancePage() {
     return m
   }, [allAttData])
 
-  // 직원 목록 (사원 본인은 본인만)
-  const visibleStaff = canSeeAll
-    ? staffList
-    : staffList.filter(s => s.id === profileId)
+  const visibleStaff = canSeeAll ? staffList : staffList.filter(s => s.id === profileId)
+
+  // 날짜 칸에 표시할 직원 출퇴근 정보
+  function getDayAttendance(day: number) {
+    const dateStr = `${histYear}-${pad(histMonth+1)}-${pad(day)}`
+    return visibleStaff.map(staff => {
+      const rec = attMatrix[staff.id]?.[dateStr]
+      return { nm: staff.nm, id: staff.id, rec }
+    }).filter(x => x.rec) // 기록 있는 직원만
+  }
+
+  const STAFF_COLORS = ['#FF6B35','#E84393','#6C5CE7','#2DC6D6','#00B894','#FDCB6E','#A29BFE','#FD79A8','#55EFC4','#74B9FF']
+  const staffColorMap = useMemo(() => {
+    const m: Record<string, string> = {}
+    staffList.forEach((s, i) => { m[s.id] = STAFF_COLORS[i % STAFF_COLORS.length] })
+    return m
+  }, [staffList])
 
   return (
-    <div style={{ maxWidth: '100%' }}>
+    <div style={{ minHeight: '100vh', background: '#F4F6F9' }}>
       <style>{`
-        .att-page { padding: 16px; max-width: 480px; margin: 0 auto; }
-        @media (min-width: 768px) {
-          .att-page { max-width: 100%; padding: 24px 32px; }
-          .today-grid { display: grid !important; grid-template-columns: 400px 1fr; gap: 20px; align-items: start; }
-          .board-card { margin-bottom: 0 !important; }
+        .att-wrap {
+          max-width: 480px;
+          margin: 0 auto;
+          padding: 16px 16px 100px;
         }
-        .att-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .att-table th { background: #F4F6F9; color: #888; font-weight: 600; padding: 8px 6px; text-align: center; position: sticky; top: 0; z-index: 1; white-space: nowrap; }
-        .att-table th:first-child { position: sticky; left: 0; z-index: 2; background: #F4F6F9; }
-        .att-table td { padding: 7px 6px; text-align: center; border-bottom: 1px solid #F4F6F9; vertical-align: middle; }
-        .att-table td:first-child { position: sticky; left: 0; background: #fff; font-weight: 700; color: #1a1a2e; font-size: 12px; z-index: 1; min-width: 52px; }
-        .att-table tr:hover td { background: rgba(255,107,53,0.03); }
-        .att-table tr:hover td:first-child { background: rgba(255,107,53,0.05); }
-        .cell-normal  { color: #00B894; font-weight: 700; }
-        .cell-late    { color: #E84393; font-weight: 700; }
-        .cell-absent  { color: #E84393; }
-        .cell-working { color: #FF6B35; font-weight: 700; }
-        .cell-empty   { color: #ddd; }
-        .today-col    { background: rgba(255,107,53,0.04) !important; }
+        @media (min-width: 768px) {
+          .att-wrap {
+            max-width: 100%;
+            padding: 24px 40px 40px;
+          }
+          .cal-grid {
+            grid-template-columns: repeat(7, 1fr) !important;
+          }
+        }
       `}</style>
 
-      <div className="att-page">
+      <div className="att-wrap">
         {/* 헤더 */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>🕐 출퇴근</span>
@@ -415,7 +409,7 @@ export default function AttendancePage() {
         </div>
 
         {/* 탭 */}
-        <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:16 }}>
+        <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16 }}>
           {[{v:'today',l:'오늘'},{v:'history',l:'📋 기록 조회'}].map(t => (
             <button key={t.v} onClick={() => setTab(t.v as any)}
               style={{ flex:1, padding:'9px 0', borderRadius:10, border:'none', cursor:'pointer',
@@ -446,175 +440,170 @@ export default function AttendancePage() {
               </span>
             </div>
 
-            <div className="today-grid" style={{ display:'block' }}>
-              {/* 왼쪽: 출퇴근 + IP */}
-              <div>
-                {/* 전달사항 */}
-                {notices.length > 0 && !attendance?.clock_in && (
-                  <div style={bx}>
-                    <div style={{ fontSize:13, fontWeight:700, color:'#E84393', marginBottom:12,
-                      display:'flex', alignItems:'center', gap:6 }}>
-                      📢 출근 전 전달사항 확인 필수
-                      <span style={{ fontSize:10, color:'#aaa', fontWeight:500, marginLeft:'auto' }}>
-                        {checkedNotices.size}/{notices.length} 확인
-                      </span>
-                    </div>
-                    {notices.map(n => (
-                      <div key={n.id} onClick={() => {
-                        const next = new Set(checkedNotices)
-                        next.has(n.id) ? next.delete(n.id) : next.add(n.id)
-                        setCheckedNotices(next)
-                      }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
-                        borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
-                        <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
-                          border: `2px solid ${checkedNotices.has(n.id) ? '#FF6B35' : '#ddd'}`,
-                          background: checkedNotices.has(n.id) ? '#FF6B35' : '#fff',
-                          display:'flex', alignItems:'center', justifyContent:'center' }}>
-                          {checkedNotices.has(n.id) && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
-                        </div>
-                        <div>
-                          <div style={{ fontSize:13, lineHeight:1.5,
-                            color: checkedNotices.has(n.id) ? '#bbb' : '#555',
-                            textDecoration: checkedNotices.has(n.id) ? 'line-through' : 'none' }}>
-                            {n.content || n.title}
-                          </div>
-                          {n.author_nm && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {n.author_nm}</div>}
-                        </div>
-                      </div>
-                    ))}
-                    {!allChecked && (
-                      <div style={{ marginTop:10, padding:'8px 12px', borderRadius:8,
-                        background:'rgba(232,67,147,0.06)', fontSize:12, color:'#E84393', fontWeight:600 }}>
-                        ⚠️ 전달사항을 모두 확인해야 출근할 수 있어요
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* 출퇴근 카드 */}
-                <div style={bx}>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14 }}>🕐 출퇴근</div>
-                  <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px',
-                    background:'#F8F9FB', borderRadius:12, marginBottom:16 }}>
-                    <div style={{ width:10, height:10, borderRadius:'50%',
-                      background: attendance?.clock_out ? '#636e72' : attendance?.clock_in ? '#00B894' : '#aaa' }} />
-                    <span style={{ fontSize:13, fontWeight:600, color:'#888', flex:1 }}>
-                      {attLoading ? '확인중...' :
-                        attendance?.clock_out ? '퇴근 완료' :
-                        attendance?.clock_in  ? '근무중' :
-                        todaySchedule         ? '출근 대기중' : '오늘 스케줄 없음'}
-                    </span>
-                    {attendance?.clock_in && (
-                      <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>
-                        {fmtTime(attendance.clock_in)} 출근
-                        {attendance.clock_out && ` → ${fmtTime(attendance.clock_out)} 퇴근`}
-                      </span>
-                    )}
-                  </div>
-                  {!attendance?.clock_out && (
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-                      <button onClick={clockIn} disabled={!canClockIn}
-                        style={{ padding:'18px 10px', borderRadius:14, border:'none', fontSize:14, fontWeight:700,
-                          cursor: canClockIn ? 'pointer' : 'not-allowed', opacity: canClockIn ? 1 : 0.3,
-                          background:'linear-gradient(135deg,#FF6B35,#E84393)', color:'#fff',
-                          boxShadow: canClockIn ? '0 4px 16px rgba(255,107,53,0.35)' : 'none',
-                          display:'flex', flexDirection:'column', alignItems:'center', gap:5 }}>
-                        <span style={{ fontSize:24 }}>✅</span>출근
-                      </button>
-                      <button onClick={clockOut} disabled={!canClockOut}
-                        style={{ padding:'18px 10px', borderRadius:14, border:'none', fontSize:14, fontWeight:700,
-                          cursor: canClockOut ? 'pointer' : 'not-allowed', opacity: canClockOut ? 1 : 0.3,
-                          background:'linear-gradient(135deg,#636e72,#2d3436)', color:'#fff',
-                          boxShadow: canClockOut ? '0 4px 16px rgba(0,0,0,0.2)' : 'none',
-                          display:'flex', flexDirection:'column', alignItems:'center', gap:5 }}>
-                        <span style={{ fontSize:24 }}>🔴</span>퇴근
-                      </button>
-                    </div>
-                  )}
-                  {attendance?.clock_out && (
-                    <div style={{ padding:'14px', background:'rgba(0,184,148,0.06)',
-                      border:'1px solid rgba(0,184,148,0.2)', borderRadius:12, marginBottom:10, textAlign:'center' }}>
-                      <div style={{ fontSize:11, color:'#aaa', marginBottom:4 }}>오늘 실근무시간</div>
-                      <div style={{ fontSize:22, fontWeight:800, color:'#00B894' }}>
-                        {fmtDuration(attendance.clock_in, attendance.clock_out)}
-                      </div>
-                      <div style={{ fontSize:11, color:'#aaa', marginTop:4 }}>
-                        {fmtTime(attendance.clock_in)} 출근 → {fmtTime(attendance.clock_out)} 퇴근
-                      </div>
-                    </div>
-                  )}
-                  <button onClick={() => setShowRequest(true)}
-                    style={{ width:'100%', padding:13, borderRadius:12,
-                      border:'1px dashed rgba(108,92,231,0.4)', background:'rgba(108,92,231,0.05)',
-                      color:'#6C5CE7', fontSize:13, fontWeight:600, cursor:'pointer' }}>
-                    ✏️ 출퇴근 누락 수정 요청
-                  </button>
-                </div>
-
-                {/* 대표 IP 설정 */}
-                {isOwner && (
-                  <div style={bx}>
-                    <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>📶 매장 IP 설정</div>
-                    <div style={{ fontSize:12, color:'#aaa', marginBottom:12 }}>매장 와이파이에 연결된 상태에서 등록하세요</div>
-                    <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:10 }}>
-                      <div style={{ flex:1, padding:'10px 14px', background:'#F8F9FB', borderRadius:10,
-                        border:'1px solid #E8ECF0', fontSize:13, fontWeight:600, color:'#1a1a2e' }}>
-                        현재 IP: <span style={{ color:'#FF6B35' }}>{currentIp || '확인중...'}</span>
-                      </div>
-                      <button onClick={registerIp}
-                        style={{ padding:'10px 16px', borderRadius:10, border:'none',
-                          background:'linear-gradient(135deg,#FF6B35,#E84393)', color:'#fff',
-                          fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
-                        📶 등록
-                      </button>
-                    </div>
-                    {allowedIp && (
-                      <div style={{ padding:'8px 12px', background:'rgba(0,184,148,0.06)',
-                        borderRadius:8, fontSize:11, color:'#00B894', fontWeight:600 }}>
-                        ✅ 등록된 IP: {allowedIp}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* 오늘 현황판 */}
-              <div style={bx} className="board-card">
-                <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14,
-                  display:'flex', alignItems:'center' }}>
-                  👥 오늘 출퇴근 현황
-                  <span style={{ fontSize:11, color:'#aaa', fontWeight:500, marginLeft:'auto' }}>
-                    {nowDate.getMonth()+1}월 {nowDate.getDate()}일
+            {/* 전달사항 */}
+            {notices.length > 0 && !attendance?.clock_in && (
+              <div style={bx}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#E84393', marginBottom:12,
+                  display:'flex', alignItems:'center', gap:6 }}>
+                  📢 출근 전 전달사항 확인 필수
+                  <span style={{ fontSize:10, color:'#aaa', fontWeight:500, marginLeft:'auto' }}>
+                    {checkedNotices.size}/{notices.length} 확인
                   </span>
                 </div>
-                {boardList.length === 0 ? (
-                  <div style={{ textAlign:'center', padding:'28px 0', color:'#bbb', fontSize:13 }}>오늘 스케줄이 없습니다</div>
-                ) : boardList.map(item => {
-                  const st = STATUS_MAP[item.status] || STATUS_MAP.pending
-                  return (
-                    <div key={item.pid || item.nm} style={{ display:'flex', alignItems:'center', gap:12,
-                      padding:'11px 0', borderBottom:'1px solid #F8F9FB' }}>
-                      <div style={{ width:36, height:36, borderRadius:10, flexShrink:0,
-                        background:'linear-gradient(135deg,#FF6B35,#E84393)',
-                        display:'flex', alignItems:'center', justifyContent:'center',
-                        fontSize:14, fontWeight:800, color:'#fff' }}>
-                        {item.nm?.charAt(0)}
+                {notices.map(n => (
+                  <div key={n.id} onClick={() => {
+                    const next = new Set(checkedNotices)
+                    next.has(n.id) ? next.delete(n.id) : next.add(n.id)
+                    setCheckedNotices(next)
+                  }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
+                    borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
+                    <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
+                      border: `2px solid ${checkedNotices.has(n.id) ? '#FF6B35' : '#ddd'}`,
+                      background: checkedNotices.has(n.id) ? '#FF6B35' : '#fff',
+                      display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      {checkedNotices.has(n.id) && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:13, lineHeight:1.5,
+                        color: checkedNotices.has(n.id) ? '#bbb' : '#555',
+                        textDecoration: checkedNotices.has(n.id) ? 'line-through' : 'none' }}>
+                        {n.content || n.title}
                       </div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{item.nm}</div>
-                        <div style={{ fontSize:11, color:'#aaa', marginTop:1 }}>
-                          {item.att?.clock_in ? `${fmtTime(item.att.clock_in)} 출근` : '미출근'}
-                          {item.att?.clock_out ? ` → ${fmtTime(item.att.clock_out)} 퇴근` : ''}
-                        </div>
-                      </div>
-                      <div style={{ fontSize:10, padding:'3px 10px', borderRadius:20,
-                        fontWeight:700, background:st.bg, color:st.color }}>
-                        {st.icon} {st.label}
+                      {n.author_nm && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {n.author_nm}</div>}
+                    </div>
+                  </div>
+                ))}
+                {!allChecked && (
+                  <div style={{ marginTop:10, padding:'8px 12px', borderRadius:8,
+                    background:'rgba(232,67,147,0.06)', fontSize:12, color:'#E84393', fontWeight:600 }}>
+                    ⚠️ 전달사항을 모두 확인해야 출근할 수 있어요
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 출퇴근 카드 */}
+            <div style={bx}>
+              <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14 }}>🕐 출퇴근</div>
+              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px',
+                background:'#F8F9FB', borderRadius:12, marginBottom:16 }}>
+                <div style={{ width:10, height:10, borderRadius:'50%',
+                  background: attendance?.clock_out ? '#636e72' : attendance?.clock_in ? '#00B894' : '#aaa' }} />
+                <span style={{ fontSize:13, fontWeight:600, color:'#888', flex:1 }}>
+                  {attLoading ? '확인중...' :
+                    attendance?.clock_out ? '퇴근 완료' :
+                    attendance?.clock_in  ? '근무중' :
+                    todaySchedule         ? '출근 대기중' : '오늘 스케줄 없음'}
+                </span>
+                {attendance?.clock_in && (
+                  <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>
+                    {fmtTime(attendance.clock_in)} 출근
+                    {attendance.clock_out && ` → ${fmtTime(attendance.clock_out)} 퇴근`}
+                  </span>
+                )}
+              </div>
+              {!attendance?.clock_out && (
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+                  <button onClick={clockIn} disabled={!canClockIn}
+                    style={{ padding:'18px 10px', borderRadius:14, border:'none', fontSize:14, fontWeight:700,
+                      cursor: canClockIn ? 'pointer' : 'not-allowed', opacity: canClockIn ? 1 : 0.3,
+                      background:'linear-gradient(135deg,#FF6B35,#E84393)', color:'#fff',
+                      boxShadow: canClockIn ? '0 4px 16px rgba(255,107,53,0.35)' : 'none',
+                      display:'flex', flexDirection:'column', alignItems:'center', gap:5 }}>
+                    <span style={{ fontSize:24 }}>✅</span>출근
+                  </button>
+                  <button onClick={clockOut} disabled={!canClockOut}
+                    style={{ padding:'18px 10px', borderRadius:14, border:'none', fontSize:14, fontWeight:700,
+                      cursor: canClockOut ? 'pointer' : 'not-allowed', opacity: canClockOut ? 1 : 0.3,
+                      background:'linear-gradient(135deg,#636e72,#2d3436)', color:'#fff',
+                      boxShadow: canClockOut ? '0 4px 16px rgba(0,0,0,0.2)' : 'none',
+                      display:'flex', flexDirection:'column', alignItems:'center', gap:5 }}>
+                    <span style={{ fontSize:24 }}>🔴</span>퇴근
+                  </button>
+                </div>
+              )}
+              {attendance?.clock_out && (
+                <div style={{ padding:'14px', background:'rgba(0,184,148,0.06)',
+                  border:'1px solid rgba(0,184,148,0.2)', borderRadius:12, marginBottom:10, textAlign:'center' }}>
+                  <div style={{ fontSize:11, color:'#aaa', marginBottom:4 }}>오늘 실근무시간</div>
+                  <div style={{ fontSize:22, fontWeight:800, color:'#00B894' }}>
+                    {fmtDuration(attendance.clock_in, attendance.clock_out)}
+                  </div>
+                  <div style={{ fontSize:11, color:'#aaa', marginTop:4 }}>
+                    {fmtTime(attendance.clock_in)} 출근 → {fmtTime(attendance.clock_out)} 퇴근
+                  </div>
+                </div>
+              )}
+              <button onClick={() => setShowRequest(true)}
+                style={{ width:'100%', padding:13, borderRadius:12,
+                  border:'1px dashed rgba(108,92,231,0.4)', background:'rgba(108,92,231,0.05)',
+                  color:'#6C5CE7', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+                ✏️ 출퇴근 누락 수정 요청
+              </button>
+            </div>
+
+            {/* 대표 IP 설정 */}
+            {isOwner && (
+              <div style={bx}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>📶 매장 IP 설정</div>
+                <div style={{ fontSize:12, color:'#aaa', marginBottom:12 }}>매장 와이파이에 연결된 상태에서 등록하세요</div>
+                <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:10 }}>
+                  <div style={{ flex:1, padding:'10px 14px', background:'#F8F9FB', borderRadius:10,
+                    border:'1px solid #E8ECF0', fontSize:13, fontWeight:600, color:'#1a1a2e' }}>
+                    현재 IP: <span style={{ color:'#FF6B35' }}>{currentIp || '확인중...'}</span>
+                  </div>
+                  <button onClick={registerIp}
+                    style={{ padding:'10px 16px', borderRadius:10, border:'none',
+                      background:'linear-gradient(135deg,#FF6B35,#E84393)', color:'#fff',
+                      fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+                    📶 등록
+                  </button>
+                </div>
+                {allowedIp && (
+                  <div style={{ padding:'8px 12px', background:'rgba(0,184,148,0.06)',
+                    borderRadius:8, fontSize:11, color:'#00B894', fontWeight:600 }}>
+                    ✅ 등록된 IP: {allowedIp}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 오늘 현황판 */}
+            <div style={bx}>
+              <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14,
+                display:'flex', alignItems:'center' }}>
+                👥 오늘 출퇴근 현황
+                <span style={{ fontSize:11, color:'#aaa', fontWeight:500, marginLeft:'auto' }}>
+                  {nowDate.getMonth()+1}월 {nowDate.getDate()}일
+                </span>
+              </div>
+              {boardList.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'28px 0', color:'#bbb', fontSize:13 }}>오늘 스케줄이 없습니다</div>
+              ) : boardList.map(item => {
+                const st = STATUS_MAP[item.status] || STATUS_MAP.pending
+                return (
+                  <div key={item.pid || item.nm} style={{ display:'flex', alignItems:'center', gap:12,
+                    padding:'11px 0', borderBottom:'1px solid #F8F9FB' }}>
+                    <div style={{ width:36, height:36, borderRadius:10, flexShrink:0,
+                      background:'linear-gradient(135deg,#FF6B35,#E84393)',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      fontSize:14, fontWeight:800, color:'#fff' }}>
+                      {item.nm?.charAt(0)}
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{item.nm}</div>
+                      <div style={{ fontSize:11, color:'#aaa', marginTop:1 }}>
+                        {item.att?.clock_in ? `${fmtTime(item.att.clock_in)} 출근` : '미출근'}
+                        {item.att?.clock_out ? ` → ${fmtTime(item.att.clock_out)} 퇴근` : ''}
                       </div>
                     </div>
-                  )
-                })}
-              </div>
+                    <div style={{ fontSize:10, padding:'3px 10px', borderRadius:20,
+                      fontWeight:700, background:st.bg, color:st.color }}>
+                      {st.icon} {st.label}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </>
         )}
@@ -637,92 +626,103 @@ export default function AttendancePage() {
                   display:'flex', alignItems:'center', justifyContent:'center' }}>›</button>
             </div>
 
-            {/* 전직원 출퇴근 표 */}
-            <div style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0',
-              boxShadow:'0 1px 4px rgba(0,0,0,0.04)', overflow:'hidden' }}>
-              <div style={{ overflowX:'auto' }}>
-                <table className="att-table">
-                  <thead>
-                    <tr>
-                      <th style={{ minWidth:60 }}>직원</th>
-                      {dateRange.map(dateStr => {
-                        const d = new Date(dateStr + 'T00:00:00')
-                        const dow = d.getDay()
-                        const isToday = dateStr === today
-                        return (
-                          <th key={dateStr}
-                            style={{
-                              color: isToday ? '#FF6B35' : dow===0 ? '#E84393' : dow===6 ? '#2DC6D6' : '#888',
-                              background: isToday ? 'rgba(255,107,53,0.08)' : undefined,
-                              minWidth: 52,
-                            }}>
-                            <div>{d.getDate()}</div>
-                            <div style={{ fontSize:9, fontWeight:400 }}>{DOW[dow]}</div>
-                          </th>
-                        )
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleStaff.map(staff => (
-                      <tr key={staff.id}>
-                        <td>
-                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <div style={{ width:24, height:24, borderRadius:6, flexShrink:0,
-                              background:'linear-gradient(135deg,#FF6B35,#E84393)',
-                              display:'flex', alignItems:'center', justifyContent:'center',
-                              fontSize:11, fontWeight:800, color:'#fff' }}>
-                              {staff.nm?.charAt(0)}
-                            </div>
-                            <span style={{ fontSize:12, color:'#1a1a2e', fontWeight:700, whiteSpace:'nowrap' }}>
-                              {staff.nm}
-                            </span>
-                          </div>
-                        </td>
-                        {dateRange.map(dateStr => {
-                          const rec = attMatrix[staff.id]?.[dateStr]
-                          const isToday = dateStr === today
-                          const d = new Date(dateStr + 'T00:00:00')
-                          const dow = d.getDay()
-                          if (!rec) {
-                            return (
-                              <td key={dateStr}
-                                className={isToday ? 'today-col' : ''}
-                                style={{ color: dow===0||dow===6 ? '#ddd' : '#eee', fontSize:11 }}>
-                                —
-                              </td>
-                            )
-                          }
-                          const st = STATUS_MAP[rec.status] || STATUS_MAP.pending
-                          return (
-                            <td key={dateStr} className={isToday ? 'today-col' : ''}>
-                              <div style={{ fontSize:10, color:st.color, fontWeight:700, marginBottom:1 }}>
-                                {st.icon}
-                              </div>
-                              {rec.clock_in && (
-                                <div style={{ fontSize:10, color:'#555' }}>{fmtTime(rec.clock_in)}</div>
-                              )}
-                              {rec.clock_out && (
-                                <div style={{ fontSize:10, color:'#888' }}>{fmtTime(rec.clock_out)}</div>
-                              )}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* 범례 */}
-              <div style={{ display:'flex', gap:16, padding:'12px 16px', borderTop:'1px solid #F4F6F9',
-                flexWrap:'wrap' }}>
-                {Object.entries(STATUS_MAP).filter(([k]) => k !== 'pending').map(([k, v]) => (
-                  <div key={k} style={{ display:'flex', alignItems:'center', gap:4 }}>
-                    <span style={{ fontSize:12 }}>{v.icon}</span>
-                    <span style={{ fontSize:11, color:'#888' }}>{v.label}</span>
+            {/* 직원 색상 범례 */}
+            {visibleStaff.length > 0 && (
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:12, padding:'10px 14px',
+                background:'#fff', borderRadius:12, border:'1px solid #E8ECF0' }}>
+                {visibleStaff.map(s => (
+                  <div key={s.id} style={{ display:'flex', alignItems:'center', gap:5 }}>
+                    <div style={{ width:10, height:10, borderRadius:'50%', background: staffColorMap[s.id] || '#999' }} />
+                    <span style={{ fontSize:12, color:'#555', fontWeight:500 }}>{s.nm}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* 캘린더 */}
+            <div style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0',
+              boxShadow:'0 1px 4px rgba(0,0,0,0.04)', overflow:'hidden' }}>
+
+              {/* 요일 헤더 */}
+              <div className="cal-grid" style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)',
+                borderBottom:'1px solid #F0F2F5' }}>
+                {DOW.map((d, i) => (
+                  <div key={d} style={{
+                    textAlign:'center', padding:'10px 4px', fontSize:12, fontWeight:700,
+                    color: i===0 ? '#E84393' : i===6 ? '#2DC6D6' : '#888',
+                    background: '#F8F9FB'
+                  }}>{d}</div>
+                ))}
+              </div>
+
+              {/* 날짜 칸 */}
+              <div className="cal-grid" style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)' }}>
+                {/* 빈 칸 */}
+                {Array.from({ length: firstDow }).map((_, i) => (
+                  <div key={`e-${i}`} style={{
+                    minHeight: 80, borderRight:'1px solid #F0F2F5', borderBottom:'1px solid #F0F2F5',
+                    background:'#FAFAFA'
+                  }} />
+                ))}
+
+                {/* 날짜 */}
+                {Array.from({ length: lastDate }).map((_, i) => {
+                  const day = i + 1
+                  const dateStr = `${histYear}-${pad(histMonth+1)}-${pad(day)}`
+                  const dow = (firstDow + i) % 7
+                  const isToday = dateStr === today
+                  const dayAtts = getDayAttendance(day)
+
+                  return (
+                    <div key={day} style={{
+                      minHeight: 80, padding:'6px 6px 8px',
+                      borderRight:'1px solid #F0F2F5', borderBottom:'1px solid #F0F2F5',
+                      background: isToday ? 'rgba(255,107,53,0.04)' : '#fff',
+                      verticalAlign: 'top',
+                    }}>
+                      {/* 날짜 숫자 */}
+                      <div style={{ marginBottom:4 }}>
+                        <span style={{
+                          display:'inline-flex', alignItems:'center', justifyContent:'center',
+                          width:22, height:22, borderRadius:'50%', fontSize:12, fontWeight: isToday ? 800 : 500,
+                          background: isToday ? '#FF6B35' : 'transparent',
+                          color: isToday ? '#fff' : dow===0 ? '#E84393' : dow===6 ? '#2DC6D6' : '#1a1a2e',
+                        }}>{day}</span>
+                      </div>
+
+                      {/* 직원 출퇴근 */}
+                      <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                        {dayAtts.map(({ nm, id, rec }) => {
+                          const st = STATUS_MAP[rec.status] || STATUS_MAP.pending
+                          const color = staffColorMap[id] || '#999'
+                          const ci = fmtTime(rec.clock_in)
+                          const co = fmtTime(rec.clock_out)
+                          return (
+                            <div key={id} style={{
+                              background: `${color}15`,
+                              borderLeft: `3px solid ${color}`,
+                              borderRadius:'0 4px 4px 0',
+                              padding:'2px 5px',
+                              fontSize:10,
+                              lineHeight: 1.4,
+                            }}>
+                              <div style={{ fontWeight:700, color, marginBottom:1 }}>{nm}</div>
+                              <div style={{ color:'#666' }}>
+                                {ci || '-'} {co ? `→ ${co}` : rec.clock_in ? '근무중' : ''}
+                              </div>
+                              {rec.status !== 'normal' && rec.status !== 'working' && (
+                                <div style={{ color: st.color, fontSize:9, fontWeight:600 }}>{st.label}</div>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {dayAtts.length === 0 && (
+                          <div style={{ fontSize:10, color:'#ddd', textAlign:'center', paddingTop:4 }}>—</div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </>
