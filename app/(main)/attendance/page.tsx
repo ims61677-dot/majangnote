@@ -4,7 +4,6 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const supabase = createSupabaseBrowserClient()
 
-// ── 유틸 ──
 function pad(n: number) { return String(n).padStart(2, '0') }
 function toDateStr(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}` }
 function fmtTime(ts: string | null) {
@@ -15,10 +14,11 @@ function fmtTime(ts: string | null) {
 function fmtDuration(inTs: string, outTs: string) {
   const diff = Math.floor((new Date(outTs).getTime() - new Date(inTs).getTime()) / 60000)
   const h = Math.floor(diff / 60), m = diff % 60
-  return `${h}시간 ${m > 0 ? m+'분' : ''}`
+  return `${h}시간${m > 0 ? ` ${m}분` : ''}`
 }
 
 const DOW = ['일','월','화','수','목','금','토']
+const DOW_FULL = ['일요일','월요일','화요일','수요일','목요일','금요일','토요일']
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string; icon: string }> = {
   normal:  { label: '정상출근', color: '#00B894', bg: 'rgba(0,184,148,0.1)',    icon: '✅' },
@@ -29,21 +29,17 @@ const STATUS_MAP: Record<string, { label: string; color: string; bg: string; ico
   pending: { label: '대기',     color: '#aaa',    bg: 'rgba(170,170,170,0.08)', icon: '⏳' },
 }
 
-// ── 카드 스타일 ──
 const bx: React.CSSProperties = {
   background: '#fff', borderRadius: 16, border: '1px solid #E8ECF0',
   padding: 18, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
 }
 
-// ════════════════════════════════════════
-// 수정 요청 모달
-// ════════════════════════════════════════
+// ── 수정 요청 모달 ──
 function RequestModal({ today, onClose, onSubmit }: {
-  today: string
-  onClose: () => void
+  today: string; onClose: () => void
   onSubmit: (type: string, ci: string, co: string, reason: string) => void
 }) {
-  const [type, setType] = useState<'clock_in' | 'clock_out' | 'both'>('clock_in')
+  const [type, setType] = useState<'clock_in'|'clock_out'|'both'>('clock_in')
   const [ci, setCi] = useState('')
   const [co, setCo] = useState('')
   const [reason, setReason] = useState('')
@@ -61,16 +57,10 @@ function RequestModal({ today, onClose, onSubmit }: {
           marginBottom:16, fontSize:12, color:'#6C5CE7', fontWeight:600 }}>
           📋 요청 후 대표 승인 시 반영됩니다
         </div>
-
-        {/* 유형 선택 */}
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:11, color:'#aaa', fontWeight:600, marginBottom:8 }}>요청 유형</div>
           <div style={{ display:'flex', gap:8 }}>
-            {[
-              { v:'clock_in'  as const, l:'출근 누락' },
-              { v:'clock_out' as const, l:'퇴근 누락' },
-              { v:'both'      as const, l:'출퇴근 모두' },
-            ].map(o => (
+            {[{v:'clock_in' as const,l:'출근 누락'},{v:'clock_out' as const,l:'퇴근 누락'},{v:'both' as const,l:'출퇴근 모두'}].map(o => (
               <button key={o.v} onClick={() => setType(o.v)}
                 style={{ flex:1, padding:'8px 0', borderRadius:10, cursor:'pointer',
                   border: type===o.v ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
@@ -82,10 +72,8 @@ function RequestModal({ today, onClose, onSubmit }: {
             ))}
           </div>
         </div>
-
-        {/* 시간 입력 */}
         <div style={{ display:'grid', gridTemplateColumns: type==='both' ? '1fr 1fr' : '1fr', gap:10, marginBottom:14 }}>
-          {(type === 'clock_in' || type === 'both') && (
+          {(type==='clock_in'||type==='both') && (
             <div>
               <div style={{ fontSize:11, color:'#aaa', fontWeight:600, marginBottom:6 }}>출근 시간</div>
               <input type="time" value={ci} onChange={e => setCi(e.target.value)}
@@ -93,7 +81,7 @@ function RequestModal({ today, onClose, onSubmit }: {
                   background:'#F8F9FB', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' }} />
             </div>
           )}
-          {(type === 'clock_out' || type === 'both') && (
+          {(type==='clock_out'||type==='both') && (
             <div>
               <div style={{ fontSize:11, color:'#aaa', fontWeight:600, marginBottom:6 }}>퇴근 시간</div>
               <input type="time" value={co} onChange={e => setCo(e.target.value)}
@@ -102,23 +90,17 @@ function RequestModal({ today, onClose, onSubmit }: {
             </div>
           )}
         </div>
-
-        {/* 사유 */}
         <div style={{ marginBottom:20 }}>
           <div style={{ fontSize:11, color:'#aaa', fontWeight:600, marginBottom:6 }}>사유</div>
           <textarea value={reason} onChange={e => setReason(e.target.value)}
             placeholder="수정이 필요한 사유를 입력해주세요" rows={3}
             style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid #E8ECF0',
-              background:'#F8F9FB', fontSize:13, color:'#1a1a2e', outline:'none', resize:'none',
-              boxSizing:'border-box' }} />
+              background:'#F8F9FB', fontSize:13, color:'#1a1a2e', outline:'none', resize:'none', boxSizing:'border-box' }} />
         </div>
-
-        <button onClick={() => {
-          if (!reason.trim()) return alert('사유를 입력해주세요')
-          onSubmit(type, ci, co, reason)
-        }} style={{ width:'100%', padding:14, borderRadius:12, border:'none',
-          background:'linear-gradient(135deg,#6C5CE7,#E84393)', color:'#fff',
-          fontSize:14, fontWeight:700, cursor:'pointer' }}>
+        <button onClick={() => { if (!reason.trim()) return alert('사유를 입력해주세요'); onSubmit(type, ci, co, reason) }}
+          style={{ width:'100%', padding:14, borderRadius:12, border:'none',
+            background:'linear-gradient(135deg,#6C5CE7,#E84393)', color:'#fff',
+            fontSize:14, fontWeight:700, cursor:'pointer' }}>
           요청 보내기
         </button>
       </div>
@@ -126,9 +108,7 @@ function RequestModal({ today, onClose, onSubmit }: {
   )
 }
 
-// ════════════════════════════════════════
-// 대표 - 수정 요청 처리 패널
-// ════════════════════════════════════════
+// ── 대표 수정 요청 패널 ──
 function OwnerRequestPanel({ storeId, onClose, onApproved }: {
   storeId: string; onClose: () => void; onApproved: () => void
 }) {
@@ -138,34 +118,23 @@ function OwnerRequestPanel({ storeId, onClose, onApproved }: {
   useEffect(() => { loadRequests() }, [])
 
   async function loadRequests() {
-    const { data } = await supabase
-      .from('attendance_requests')
-      .select('*, profiles(nm)')
-      .eq('store_id', storeId)
-      .eq('status', 'pending')
+    const { data } = await supabase.from('attendance_requests')
+      .select('*, profiles(nm)').eq('store_id', storeId).eq('status', 'pending')
       .order('created_at', { ascending: false })
-    setRequests(data || [])
-    setLoading(false)
+    setRequests(data || []); setLoading(false)
   }
 
   async function approve(req: any) {
-    // 해당 날짜 기록 조회
     const { data: existing } = await supabase.from('attendance')
-      .select('*').eq('store_id', storeId)
-      .eq('profile_id', req.profile_id)
+      .select('*').eq('store_id', storeId).eq('profile_id', req.profile_id)
       .eq('work_date', req.work_date).maybeSingle()
-
     const updates: any = {}
-    if (req.request_type === 'clock_in'  || req.request_type === 'both') updates.clock_in  = req.requested_clock_in
-    if (req.request_type === 'clock_out' || req.request_type === 'both') updates.clock_out = req.requested_clock_out
-
+    if (req.request_type==='clock_in'||req.request_type==='both') updates.clock_in = req.requested_clock_in
+    if (req.request_type==='clock_out'||req.request_type==='both') updates.clock_out = req.requested_clock_out
     if (existing) {
       await supabase.from('attendance').update(updates).eq('id', existing.id)
     } else {
-      await supabase.from('attendance').insert({
-        store_id: storeId, profile_id: req.profile_id,
-        work_date: req.work_date, status: 'normal', ...updates
-      })
+      await supabase.from('attendance').insert({ store_id: storeId, profile_id: req.profile_id, work_date: req.work_date, status: 'normal', ...updates })
     }
     await supabase.from('attendance_requests').update({ status: 'approved' }).eq('id', req.id)
     loadRequests(); onApproved()
@@ -180,8 +149,7 @@ function OwnerRequestPanel({ storeId, onClose, onApproved }: {
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999,
       display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
       <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0',
-        padding:20, paddingBottom:44, maxHeight:'80vh', overflowY:'auto' }}
-        onClick={e => e.stopPropagation()}>
+        padding:20, paddingBottom:44, maxHeight:'80vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <span style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>✏️ 수정 요청 처리</span>
           <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
@@ -200,30 +168,16 @@ function OwnerRequestPanel({ storeId, onClose, onApproved }: {
               <span style={{ fontSize:11, color:'#aaa' }}>{req.work_date}</span>
             </div>
             <div style={{ fontSize:11, color:'#6C5CE7', fontWeight:600, marginBottom:6 }}>
-              {req.request_type === 'clock_in' ? '출근 누락' : req.request_type === 'clock_out' ? '퇴근 누락' : '출퇴근 모두'}
+              {req.request_type==='clock_in' ? '출근 누락' : req.request_type==='clock_out' ? '퇴근 누락' : '출퇴근 모두'}
             </div>
-            {req.requested_clock_in && (
-              <div style={{ fontSize:12, color:'#555', marginBottom:2 }}>출근: {fmtTime(req.requested_clock_in)}</div>
-            )}
-            {req.requested_clock_out && (
-              <div style={{ fontSize:12, color:'#555', marginBottom:2 }}>퇴근: {fmtTime(req.requested_clock_out)}</div>
-            )}
-            {req.reason && (
-              <div style={{ fontSize:11, color:'#888', padding:'6px 10px', background:'#fff',
-                borderRadius:8, marginTop:6, marginBottom:8 }}>📝 {req.reason}</div>
-            )}
+            {req.requested_clock_in && <div style={{ fontSize:12, color:'#555', marginBottom:2 }}>출근: {fmtTime(req.requested_clock_in)}</div>}
+            {req.requested_clock_out && <div style={{ fontSize:12, color:'#555', marginBottom:2 }}>퇴근: {fmtTime(req.requested_clock_out)}</div>}
+            {req.reason && <div style={{ fontSize:11, color:'#888', padding:'6px 10px', background:'#fff', borderRadius:8, marginTop:6, marginBottom:8 }}>📝 {req.reason}</div>}
             <div style={{ display:'flex', gap:8, marginTop:8 }}>
               <button onClick={() => reject(req)}
-                style={{ flex:1, padding:'8px 0', borderRadius:10, border:'1px solid #E8ECF0',
-                  background:'#fff', color:'#888', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-                ❌ 거절
-              </button>
+                style={{ flex:1, padding:'8px 0', borderRadius:10, border:'1px solid #E8ECF0', background:'#fff', color:'#888', fontSize:12, fontWeight:600, cursor:'pointer' }}>❌ 거절</button>
               <button onClick={() => approve(req)}
-                style={{ flex:2, padding:'8px 0', borderRadius:10, border:'none',
-                  background:'linear-gradient(135deg,#FF6B35,#E84393)', color:'#fff',
-                  fontSize:12, fontWeight:700, cursor:'pointer' }}>
-                ✅ 승인
-              </button>
+                style={{ flex:2, padding:'8px 0', borderRadius:10, border:'none', background:'linear-gradient(135deg,#FF6B35,#E84393)', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>✅ 승인</button>
             </div>
           </div>
         ))}
@@ -233,13 +187,12 @@ function OwnerRequestPanel({ storeId, onClose, onApproved }: {
 }
 
 // ════════════════════════════════════════
-// 메인 페이지
+// 메인
 // ════════════════════════════════════════
 export default function AttendancePage() {
   const today = toDateStr(new Date())
   const nowDate = new Date()
 
-  // ── 세션 ──
   const [profileId, setProfileId] = useState('')
   const [storeId,   setStoreId]   = useState('')
   const [myName,    setMyName]    = useState('')
@@ -249,47 +202,36 @@ export default function AttendancePage() {
   const isManager = role === 'manager'
   const canSeeAll = isOwner || isManager
 
-  // ── IP / 와이파이 ──
-  const [currentIp,  setCurrentIp]  = useState('')
-  const [allowedIp,  setAllowedIp]  = useState('')
-  const [ipLoading,  setIpLoading]  = useState(true)
-  const wifiOk = !allowedIp || currentIp === allowedIp
+  // IP — ✅ IP 미등록이면 무조건 false
+  const [currentIp, setCurrentIp] = useState('')
+  const [allowedIp, setAllowedIp] = useState('')
+  const [ipLoading, setIpLoading] = useState(true)
+  const wifiOk = !!allowedIp && currentIp === allowedIp
 
-  // ── 전달사항 ──
   const [notices,        setNotices]        = useState<any[]>([])
   const [checkedNotices, setCheckedNotices] = useState<Set<string>>(new Set())
   const allChecked = notices.length === 0 || notices.every(n => checkedNotices.has(n.id))
 
-  // ── 오늘 스케줄 (지각 기준) ──
   const [todaySchedule, setTodaySchedule] = useState<any>(null)
+  const [attendance,    setAttendance]    = useState<any>(null)
+  const [attLoading,    setAttLoading]    = useState(true)
+  const [boardList,     setBoardList]     = useState<any[]>([])
+  const [tab,           setTab]           = useState<'today'|'history'>('today')
 
-  // ── 오늘 내 출퇴근 ──
-  const [attendance,  setAttendance]  = useState<any>(null)
-  const [attLoading,  setAttLoading]  = useState(true)
-
-  // ── 현황판 ──
-  const [boardList, setBoardList] = useState<any[]>([])
-
-  // ── 탭 ──
-  const [tab, setTab] = useState<'today' | 'history'>('today')
-
-  // ── 기록 조회 ──
   const [histYear,  setHistYear]  = useState(nowDate.getFullYear())
   const [histMonth, setHistMonth] = useState(nowDate.getMonth())
   const [histStaff, setHistStaff] = useState('')
   const [histData,  setHistData]  = useState<any[]>([])
   const [staffList, setStaffList] = useState<{ id: string; nm: string }[]>([])
 
-  // ── 모달 ──
+  const [selectedDate,   setSelectedDate]   = useState<string>(today)
   const [showRequest,    setShowRequest]    = useState(false)
   const [showOwnerPanel, setShowOwnerPanel] = useState(false)
   const [pendingCount,   setPendingCount]   = useState(0)
 
-  // 출근/퇴근 가능 여부
   const canClockIn  = wifiOk && allChecked && !attendance?.clock_in
   const canClockOut = wifiOk && !!attendance?.clock_in && !attendance?.clock_out
 
-  // ── 초기화 ──
   useEffect(() => {
     const u = JSON.parse(localStorage.getItem('mj_user')  || '{}')
     const s = JSON.parse(localStorage.getItem('mj_store') || '{}')
@@ -297,161 +239,107 @@ export default function AttendancePage() {
     setProfileId(u.id); setStoreId(s.id)
     setMyName(u.nm || ''); setRole(u.role || 'staff')
     setHistStaff(u.id)
-
     fetchCurrentIp()
     loadAllowedIp(s.id)
     loadTodayNotices(s.id)
     loadMyAttendance(u.id, s.id)
     loadTodaySchedule(u.nm, s.id)
     loadBoard(s.id)
-    if (u.role === 'owner' || u.role === 'manager') {
+    if (u.role==='owner'||u.role==='manager') {
       loadPendingCount(s.id)
       loadStaffList(s.id)
     }
   }, [])
 
-  // ── 기록 조회 데이터 자동 갱신 ──
   useEffect(() => {
     if (storeId && histStaff) loadHistory(histStaff, storeId, histYear, histMonth)
   }, [histYear, histMonth, histStaff, storeId])
 
-  // ── 데이터 로드 함수들 ──
   async function fetchCurrentIp() {
-    try {
-      const r = await fetch('https://api.ipify.org?format=json')
-      const d = await r.json()
-      setCurrentIp(d.ip)
-    } catch { setCurrentIp('') }
+    try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); setCurrentIp(d.ip) }
+    catch { setCurrentIp('') }
     setIpLoading(false)
   }
-
   async function loadAllowedIp(sid: string) {
     const { data } = await supabase.from('stores').select('allowed_ip').eq('id', sid).single()
     setAllowedIp(data?.allowed_ip || '')
   }
-
   async function loadTodayNotices(sid: string) {
-    // 공지 탭의 notices 테이블에서 최근 5개 가져옴
-    const { data } = await supabase.from('notices')
-      .select('id, title, content, author_nm')
-      .eq('store_id', sid)
-      .order('created_at', { ascending: false })
-      .limit(5)
+    const { data } = await supabase.from('notices').select('id, title, content, author_nm')
+      .eq('store_id', sid).order('created_at', { ascending: false }).limit(5)
     setNotices(data || [])
   }
-
   async function loadMyAttendance(pid: string, sid: string) {
-    const { data } = await supabase.from('attendance')
-      .select('*').eq('profile_id', pid).eq('store_id', sid)
-      .eq('work_date', today).maybeSingle()
-    setAttendance(data || null)
-    setAttLoading(false)
+    const { data } = await supabase.from('attendance').select('*')
+      .eq('profile_id', pid).eq('store_id', sid).eq('work_date', today).maybeSingle()
+    setAttendance(data || null); setAttLoading(false)
   }
-
   async function loadTodaySchedule(nm: string, sid: string) {
-    const { data } = await supabase.from('schedules')
-      .select('*').eq('store_id', sid).eq('staff_name', nm)
-      .eq('schedule_date', today).maybeSingle()
+    const { data } = await supabase.from('schedules').select('*')
+      .eq('store_id', sid).eq('staff_name', nm).eq('schedule_date', today).maybeSingle()
     setTodaySchedule(data || null)
   }
-
   async function loadBoard(sid: string) {
-    // 오늘 스케줄 있는 직원 (work / half)
     const { data: todaySchedules } = await supabase.from('schedules')
-      .select('staff_name, status, note, store_id')
-      .eq('store_id', sid).eq('schedule_date', today)
-      .in('status', ['work', 'half'])
-
-    // 직원 profile_id 매핑
+      .select('staff_name, status').eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half'])
     const { data: members } = await supabase.from('store_members')
       .select('profile_id, profiles(nm)').eq('store_id', sid).eq('active', true)
     const nameToId: Record<string, string> = {}
     ;(members || []).forEach((m: any) => { nameToId[m.profiles?.nm] = m.profile_id })
-
-    // 오늘 출퇴근 기록
-    const { data: attRecords } = await supabase.from('attendance')
-      .select('*').eq('store_id', sid).eq('work_date', today)
+    const { data: attRecords } = await supabase.from('attendance').select('*').eq('store_id', sid).eq('work_date', today)
     const attMap: Record<string, any> = {}
     ;(attRecords || []).forEach((a: any) => { attMap[a.profile_id] = a })
-
-    const board = (todaySchedules || []).map((s: any) => {
+    setBoardList((todaySchedules || []).map((s: any) => {
       const pid = nameToId[s.staff_name] || ''
       const att = attMap[pid] || null
       let status = 'pending'
       if (att?.clock_out) status = att.status || 'normal'
       else if (att?.clock_in) status = 'working'
       return { pid, nm: s.staff_name, att, status }
-    })
-
-    setBoardList(board)
+    }))
   }
-
   async function loadPendingCount(sid: string) {
     const { count } = await supabase.from('attendance_requests')
-      .select('*', { count: 'exact', head: true })
-      .eq('store_id', sid).eq('status', 'pending')
+      .select('*', { count:'exact', head:true }).eq('store_id', sid).eq('status', 'pending')
     setPendingCount(count || 0)
   }
-
   async function loadStaffList(sid: string) {
     const { data } = await supabase.from('store_members')
       .select('profile_id, profiles(nm)').eq('store_id', sid).eq('active', true)
     setStaffList((data || []).map((m: any) => ({ id: m.profile_id, nm: m.profiles?.nm || '' })))
   }
-
   async function loadHistory(pid: string, sid: string, y: number, m: number) {
     const from = `${y}-${pad(m+1)}-01`
     const to   = `${y}-${pad(m+1)}-${pad(new Date(y, m+1, 0).getDate())}`
-    const { data } = await supabase.from('attendance')
-      .select('*, profiles(nm)')
+    const { data } = await supabase.from('attendance').select('*, profiles(nm)')
       .eq('store_id', sid).eq('profile_id', pid)
       .gte('work_date', from).lte('work_date', to)
-      .order('work_date', { ascending: false })
+      .order('work_date', { ascending: true })
     setHistData(data || [])
   }
 
-  // ── 출근 ──
   async function clockIn() {
     if (!canClockIn) return
     const now = new Date()
-
-    // 지각 계산 (스케줄 note에 "09:00" 형식 있으면 비교 — 추후 start_time 컬럼 추가 권장)
-    let isLate = false, lateMin = 0
-    // 예: todaySchedule?.start_time 이 있으면 비교
-    // 현재는 정상 처리
-
-    const rec = {
-      store_id: storeId, profile_id: profileId,
-      work_date: today, clock_in: now.toISOString(),
-      status: isLate ? 'late' : 'normal',
-      is_late: isLate, late_minutes: lateMin
-    }
-    const { data: existing } = await supabase.from('attendance')
-      .select('id').eq('store_id', storeId).eq('profile_id', profileId)
-      .eq('work_date', today).maybeSingle()
-
-    if (existing) {
-      await supabase.from('attendance').update({ clock_in: rec.clock_in }).eq('id', existing.id)
-    } else {
-      await supabase.from('attendance').insert(rec)
-    }
+    const rec = { store_id:storeId, profile_id:profileId, work_date:today,
+      clock_in:now.toISOString(), status:'normal', is_late:false, late_minutes:0 }
+    const { data: existing } = await supabase.from('attendance').select('id')
+      .eq('store_id', storeId).eq('profile_id', profileId).eq('work_date', today).maybeSingle()
+    if (existing) await supabase.from('attendance').update({ clock_in: rec.clock_in }).eq('id', existing.id)
+    else await supabase.from('attendance').insert(rec)
     await loadMyAttendance(profileId, storeId)
     await loadBoard(storeId)
   }
 
-  // ── 퇴근 ──
   async function clockOut() {
     if (!canClockOut || !attendance) return
-    const now = new Date()
     await supabase.from('attendance').update({
-      clock_out: now.toISOString(),
-      status: attendance.is_late ? 'late' : 'normal'
+      clock_out: new Date().toISOString(), status: attendance.is_late ? 'late' : 'normal'
     }).eq('id', attendance.id)
     await loadMyAttendance(profileId, storeId)
     await loadBoard(storeId)
   }
 
-  // ── IP 등록 ──
   async function registerIp() {
     if (!currentIp || !storeId) return
     await supabase.from('stores').update({ allowed_ip: currentIp }).eq('id', storeId)
@@ -459,21 +347,34 @@ export default function AttendancePage() {
     alert(`✅ IP 등록 완료\n${currentIp}`)
   }
 
-  // ── 수정 요청 제출 ──
   async function submitRequest(type: string, ci: string, co: string, reason: string) {
     const toTs = (t: string) => t ? `${today}T${t}:00+09:00` : null
     await supabase.from('attendance_requests').insert({
-      store_id: storeId, profile_id: profileId, work_date: today,
-      request_type: type,
-      requested_clock_in:  ci ? toTs(ci) : null,
-      requested_clock_out: co ? toTs(co) : null,
-      reason
+      store_id:storeId, profile_id:profileId, work_date:today, request_type:type,
+      requested_clock_in: ci ? toTs(ci) : null, requested_clock_out: co ? toTs(co) : null, reason
     })
     setShowRequest(false)
     alert('✅ 수정 요청이 전송되었습니다')
   }
 
-  // ── 기록 요약 ──
+  // ── 캘린더 ──
+  const calDays = useMemo(() => {
+    const firstDay = new Date(histYear, histMonth, 1).getDay()
+    const lastDate = new Date(histYear, histMonth + 1, 0).getDate()
+    const days: (number | null)[] = []
+    for (let i = 0; i < firstDay; i++) days.push(null)
+    for (let i = 1; i <= lastDate; i++) days.push(i)
+    return days
+  }, [histYear, histMonth])
+
+  const attByDate = useMemo(() => {
+    const m: Record<string, any> = {}
+    histData.forEach(r => { m[r.work_date] = r })
+    return m
+  }, [histData])
+
+  const selectedRec = attByDate[selectedDate] || null
+
   const histSummary = useMemo(() => ({
     attend: histData.filter(r => r.clock_in).length,
     late:   histData.filter(r => r.status === 'late').length,
@@ -481,7 +382,6 @@ export default function AttendancePage() {
     absent: histData.filter(r => r.status === 'absent').length,
   }), [histData])
 
-  // ── 월 이동 ──
   function prevMonth() {
     if (histMonth === 0) { setHistYear(y => y-1); setHistMonth(11) }
     else setHistMonth(m => m-1)
@@ -491,8 +391,29 @@ export default function AttendancePage() {
     else setHistMonth(m => m+1)
   }
 
+  function getDotColor(dateStr: string) {
+    const r = attByDate[dateStr]
+    if (!r) return null
+    if (r.status === 'absent') return '#E84393'
+    if (r.status === 'late') return '#FF6B35'
+    if (r.clock_out) return '#00B894'
+    if (r.clock_in) return '#FF6B35'
+    return null
+  }
+
   return (
     <div>
+      <style>{`
+        @media (min-width: 768px) {
+          .att-history-layout {
+            display: grid !important;
+            grid-template-columns: 1fr 320px !important;
+            gap: 16px;
+            align-items: start;
+          }
+        }
+      `}</style>
+
       {/* 헤더 */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
         <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>🕐 출퇴근</span>
@@ -501,8 +422,7 @@ export default function AttendancePage() {
             style={{ padding:'6px 14px', borderRadius:10, cursor:'pointer',
               background: pendingCount > 0 ? 'rgba(232,67,147,0.1)' : '#F4F6F9',
               border: pendingCount > 0 ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0',
-              color: pendingCount > 0 ? '#E84393' : '#888',
-              fontSize:12, fontWeight:700 }}>
+              color: pendingCount > 0 ? '#E84393' : '#888', fontSize:12, fontWeight:700 }}>
             ✏️ 수정요청
             {pendingCount > 0 && (
               <span style={{ marginLeft:6, background:'#E84393', color:'#fff',
@@ -514,7 +434,7 @@ export default function AttendancePage() {
 
       {/* 탭 */}
       <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:16 }}>
-        {[{ v:'today', l:'오늘' }, { v:'history', l:'📋 기록 조회' }].map(t => (
+        {[{v:'today',l:'오늘'},{v:'history',l:'📋 기록 조회'}].map(t => (
           <button key={t.v} onClick={() => setTab(t.v as any)}
             style={{ flex:1, padding:'9px 0', borderRadius:10, border:'none', cursor:'pointer',
               fontSize:13, fontWeight: tab===t.v ? 700 : 400,
@@ -529,27 +449,22 @@ export default function AttendancePage() {
       {/* ════ 오늘 탭 ════ */}
       {tab === 'today' && (
         <>
-          {/* 와이파이 상태 */}
-          <div style={{
-            borderRadius:12, padding:'10px 14px', marginBottom:12,
+          {/* 와이파이 */}
+          <div style={{ borderRadius:12, padding:'10px 14px', marginBottom:12,
             display:'flex', alignItems:'center', gap:10, fontSize:13, fontWeight:600,
             background: wifiOk ? 'rgba(0,184,148,0.08)' : 'rgba(232,67,147,0.08)',
             border: `1px solid ${wifiOk ? 'rgba(0,184,148,0.3)' : 'rgba(232,67,147,0.3)'}`,
-            color: wifiOk ? '#00B894' : '#E84393'
-          }}>
+            color: wifiOk ? '#00B894' : '#E84393' }}>
             <span>📶</span>
             <span style={{ flex:1 }}>
-              {ipLoading
-                ? '와이파이 확인중...'
-                : !allowedIp
-                  ? '매장 IP 미등록 — 대표가 등록해주세요'
-                  : wifiOk
-                    ? '매장 와이파이 연결됨 — 출퇴근 가능'
-                    : '매장 와이파이 미연결 — 출퇴근 불가'}
+              {ipLoading ? '와이파이 확인중...' :
+                !allowedIp ? '매장 IP 미등록 — 대표가 먼저 IP를 등록해주세요' :
+                wifiOk     ? '매장 와이파이 연결됨 — 출퇴근 가능' :
+                             '매장 와이파이 미연결 — 출퇴근 불가'}
             </span>
           </div>
 
-          {/* 전달사항 (출근 전 & 미출근 시만 표시) */}
+          {/* 전달사항 */}
           {notices.length > 0 && !attendance?.clock_in && (
             <div style={bx}>
               <div style={{ fontSize:13, fontWeight:700, color:'#E84393', marginBottom:12,
@@ -566,12 +481,10 @@ export default function AttendancePage() {
                   setCheckedNotices(next)
                 }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
                   borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
-                  <div style={{
-                    width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
+                  <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
                     border: `2px solid ${checkedNotices.has(n.id) ? '#FF6B35' : '#ddd'}`,
                     background: checkedNotices.has(n.id) ? '#FF6B35' : '#fff',
-                    display:'flex', alignItems:'center', justifyContent:'center'
-                  }}>
+                    display:'flex', alignItems:'center', justifyContent:'center' }}>
                     {checkedNotices.has(n.id) && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
                   </div>
                   <div>
@@ -580,9 +493,7 @@ export default function AttendancePage() {
                       textDecoration: checkedNotices.has(n.id) ? 'line-through' : 'none' }}>
                       {n.content || n.title}
                     </div>
-                    {n.author_nm && (
-                      <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {n.author_nm}</div>
-                    )}
+                    {n.author_nm && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {n.author_nm}</div>}
                   </div>
                 </div>
               ))}
@@ -598,12 +509,10 @@ export default function AttendancePage() {
           {/* 출퇴근 카드 */}
           <div style={bx}>
             <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14 }}>🕐 출퇴근</div>
-
-            {/* 상태 배너 */}
             <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px',
               background:'#F8F9FB', borderRadius:12, marginBottom:16 }}>
-              <div style={{ width:10, height:10, borderRadius:'50%', background:
-                attendance?.clock_out ? '#636e72' : attendance?.clock_in ? '#00B894' : '#aaa' }} />
+              <div style={{ width:10, height:10, borderRadius:'50%',
+                background: attendance?.clock_out ? '#636e72' : attendance?.clock_in ? '#00B894' : '#aaa' }} />
               <span style={{ fontSize:13, fontWeight:600, color:'#888', flex:1 }}>
                 {attLoading ? '확인중...' :
                   attendance?.clock_out ? '퇴근 완료' :
@@ -618,7 +527,6 @@ export default function AttendancePage() {
               )}
             </div>
 
-            {/* 출근/퇴근 버튼 */}
             {!attendance?.clock_out && (
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
                 <button onClick={clockIn} disabled={!canClockIn}
@@ -640,7 +548,6 @@ export default function AttendancePage() {
               </div>
             )}
 
-            {/* 퇴근 완료 요약 */}
             {attendance?.clock_out && (
               <div style={{ padding:'14px', background:'rgba(0,184,148,0.06)',
                 border:'1px solid rgba(0,184,148,0.2)', borderRadius:12, marginBottom:10, textAlign:'center' }}>
@@ -654,7 +561,6 @@ export default function AttendancePage() {
               </div>
             )}
 
-            {/* 수정 요청 버튼 */}
             <button onClick={() => setShowRequest(true)}
               style={{ width:'100%', padding:13, borderRadius:12,
                 border:'1px dashed rgba(108,92,231,0.4)', background:'rgba(108,92,231,0.05)',
@@ -663,13 +569,11 @@ export default function AttendancePage() {
             </button>
           </div>
 
-          {/* 대표 전용 - IP 설정 */}
+          {/* 대표 IP 설정 */}
           {isOwner && (
             <div style={bx}>
               <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>📶 매장 IP 설정</div>
-              <div style={{ fontSize:12, color:'#aaa', marginBottom:12 }}>
-                매장 와이파이에 연결된 상태에서 등록하세요
-              </div>
+              <div style={{ fontSize:12, color:'#aaa', marginBottom:12 }}>매장 와이파이에 연결된 상태에서 등록하세요</div>
               <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:10 }}>
                 <div style={{ flex:1, padding:'10px 14px', background:'#F8F9FB', borderRadius:10,
                   border:'1px solid #E8ECF0', fontSize:13, fontWeight:600, color:'#1a1a2e' }}>
@@ -691,7 +595,7 @@ export default function AttendancePage() {
             </div>
           )}
 
-          {/* 오늘 출퇴근 현황판 */}
+          {/* 오늘 현황판 */}
           <div style={bx}>
             <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14,
               display:'flex', alignItems:'center' }}>
@@ -701,9 +605,7 @@ export default function AttendancePage() {
               </span>
             </div>
             {boardList.length === 0 ? (
-              <div style={{ textAlign:'center', padding:'28px 0', color:'#bbb', fontSize:13 }}>
-                오늘 스케줄이 없습니다
-              </div>
+              <div style={{ textAlign:'center', padding:'28px 0', color:'#bbb', fontSize:13 }}>오늘 스케줄이 없습니다</div>
             ) : boardList.map(item => {
               const st = STATUS_MAP[item.status] || STATUS_MAP.pending
               return (
@@ -736,7 +638,7 @@ export default function AttendancePage() {
       {/* ════ 기록 조회 탭 ════ */}
       {tab === 'history' && (
         <>
-          {/* 직원 선택 (대표/관리자만) */}
+          {/* 직원 선택 */}
           {canSeeAll && staffList.length > 0 && (
             <div style={bx}>
               <div style={{ fontSize:11, color:'#aaa', fontWeight:600, marginBottom:8 }}>직원 선택</div>
@@ -744,9 +646,7 @@ export default function AttendancePage() {
                 style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid #E8ECF0',
                   background:'#F8F9FB', fontSize:14, color:'#1a1a2e', outline:'none' }}>
                 {staffList.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.nm}{s.id === profileId ? ' (나)' : ''}
-                  </option>
+                  <option key={s.id} value={s.id}>{s.nm}{s.id===profileId ? ' (나)' : ''}</option>
                 ))}
               </select>
             </div>
@@ -768,62 +668,174 @@ export default function AttendancePage() {
           </div>
 
           {/* 월 요약 */}
-          {histData.length > 0 && (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:12 }}>
-              {[
-                { l:'출근',   v:`${histSummary.attend}일`, c:'#00B894' },
-                { l:'지각',   v:`${histSummary.late}일`,   c:'#E84393' },
-                { l:'조퇴',   v:`${histSummary.early}일`,  c:'#6C5CE7' },
-                { l:'결근',   v:`${histSummary.absent}일`, c:'#E84393' },
-              ].map(s => (
-                <div key={s.l} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0',
-                  padding:'12px 6px', textAlign:'center' }}>
-                  <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{s.l}</div>
-                  <div style={{ fontSize:16, fontWeight:800, color:s.c }}>{s.v}</div>
-                </div>
-              ))}
-            </div>
-          )}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:16 }}>
+            {[
+              {l:'출근', v:`${histSummary.attend}일`, c:'#00B894'},
+              {l:'지각', v:`${histSummary.late}일`,   c:'#FF6B35'},
+              {l:'조퇴', v:`${histSummary.early}일`,  c:'#6C5CE7'},
+              {l:'결근', v:`${histSummary.absent}일`, c:'#E84393'},
+            ].map(s => (
+              <div key={s.l} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0',
+                padding:'12px 6px', textAlign:'center' }}>
+                <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{s.l}</div>
+                <div style={{ fontSize:16, fontWeight:800, color:s.c }}>{s.v}</div>
+              </div>
+            ))}
+          </div>
 
-          {/* 기록 목록 */}
+          {/* 캘린더 + 상세 (반응형) */}
+          <div className="att-history-layout" style={{ display:'block' }}>
+
+            {/* 캘린더 */}
+            <div style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0',
+              padding:16, marginBottom:12, boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', marginBottom:8 }}>
+                {DOW.map((d, i) => (
+                  <div key={d} style={{ textAlign:'center', fontSize:11, fontWeight:700, paddingBottom:6,
+                    color: i===0 ? '#E84393' : i===6 ? '#2DC6D6' : '#aaa' }}>{d}</div>
+                ))}
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2 }}>
+                {calDays.map((day, idx) => {
+                  if (!day) return <div key={`e-${idx}`} />
+                  const dateStr = `${histYear}-${pad(histMonth+1)}-${pad(day)}`
+                  const dot = getDotColor(dateStr)
+                  const isToday = dateStr === today
+                  const isSel   = dateStr === selectedDate
+                  const dow = new Date(dateStr + 'T00:00:00').getDay()
+                  return (
+                    <div key={dateStr} onClick={() => setSelectedDate(dateStr)}
+                      style={{ textAlign:'center', padding:'6px 2px', borderRadius:10, cursor:'pointer',
+                        background: isSel ? 'linear-gradient(135deg,#FF6B35,#E84393)' :
+                                    isToday ? 'rgba(255,107,53,0.08)' : 'transparent',
+                        border: isToday && !isSel ? '1px solid rgba(255,107,53,0.3)' : '1px solid transparent',
+                        transition:'background 0.15s' }}>
+                      <div style={{ fontSize:13, fontWeight: isToday || isSel ? 800 : 400,
+                        color: isSel ? '#fff' : isToday ? '#FF6B35' :
+                               dow===0 ? '#E84393' : dow===6 ? '#2DC6D6' : '#1a1a2e' }}>
+                        {day}
+                      </div>
+                      <div style={{ height:6, display:'flex', justifyContent:'center', alignItems:'center', marginTop:1 }}>
+                        {dot && (
+                          <div style={{ width:5, height:5, borderRadius:'50%',
+                            background: isSel ? 'rgba(255,255,255,0.7)' : dot }} />
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              {/* 범례 */}
+              <div style={{ display:'flex', gap:14, marginTop:12, justifyContent:'center' }}>
+                {[{c:'#00B894',l:'정상'},{c:'#FF6B35',l:'지각'},{c:'#E84393',l:'결근'}].map(item => (
+                  <div key={item.l} style={{ display:'flex', alignItems:'center', gap:4 }}>
+                    <div style={{ width:7, height:7, borderRadius:'50%', background:item.c }} />
+                    <span style={{ fontSize:10, color:'#aaa' }}>{item.l}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 선택 날짜 상세 */}
+            <div style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0',
+              padding:18, marginBottom:12, boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:15, fontWeight:800, color:'#1a1a2e' }}>
+                  {(() => { const d = new Date(selectedDate + 'T00:00:00'); return `${d.getDate()}일 (${DOW_FULL[d.getDay()]})` })()}
+                </div>
+                <div style={{ fontSize:11, color:'#aaa', marginTop:2 }}>{histYear}년 {histMonth+1}월</div>
+              </div>
+
+              {!selectedRec ? (
+                <div style={{ textAlign:'center', padding:'32px 0', color:'#bbb' }}>
+                  <div style={{ fontSize:32, marginBottom:8 }}>📋</div>
+                  <div style={{ fontSize:13 }}>기록 없음</div>
+                </div>
+              ) : (
+                <>
+                  {(() => {
+                    const st = STATUS_MAP[selectedRec.status] || STATUS_MAP.pending
+                    return (
+                      <div style={{ display:'inline-flex', alignItems:'center', gap:6,
+                        padding:'4px 12px', borderRadius:20, marginBottom:14,
+                        background:st.bg, color:st.color, fontSize:12, fontWeight:700 }}>
+                        {st.icon} {st.label}
+                      </div>
+                    )
+                  })()}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+                    <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px' }}>
+                      <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>출근</div>
+                      <div style={{ fontSize:18, fontWeight:800, color:'#00B894' }}>
+                        {selectedRec.clock_in ? fmtTime(selectedRec.clock_in) : '-'}
+                      </div>
+                    </div>
+                    <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px' }}>
+                      <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>퇴근</div>
+                      <div style={{ fontSize:18, fontWeight:800, color:'#636e72' }}>
+                        {selectedRec.clock_out ? fmtTime(selectedRec.clock_out) : '-'}
+                      </div>
+                    </div>
+                  </div>
+                  {selectedRec.clock_in && selectedRec.clock_out && (
+                    <div style={{ background:'rgba(0,184,148,0.06)', border:'1px solid rgba(0,184,148,0.2)',
+                      borderRadius:12, padding:'12px 14px', textAlign:'center' }}>
+                      <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>실근무시간</div>
+                      <div style={{ fontSize:20, fontWeight:800, color:'#00B894' }}>
+                        {fmtDuration(selectedRec.clock_in, selectedRec.clock_out)}
+                      </div>
+                    </div>
+                  )}
+                  {selectedRec.is_late && selectedRec.late_minutes > 0 && (
+                    <div style={{ marginTop:10, padding:'8px 12px', borderRadius:8,
+                      background:'rgba(232,67,147,0.06)', fontSize:12, color:'#E84393', fontWeight:600 }}>
+                      ⏰ 지각 {selectedRec.late_minutes}분
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* 월 전체 목록 */}
           <div style={bx}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14 }}>
+              📋 {histMonth+1}월 전체 기록
+            </div>
             {histData.length === 0 ? (
               <div style={{ textAlign:'center', padding:'36px 0', color:'#bbb' }}>
                 <div style={{ fontSize:24, marginBottom:8 }}>📋</div>
                 <div style={{ fontSize:13 }}>출퇴근 기록이 없어요</div>
               </div>
             ) : histData.map(r => {
-              const st  = STATUS_MAP[r.status] || STATUS_MAP.pending
+              const st = STATUS_MAP[r.status] || STATUS_MAP.pending
               const d   = new Date(r.work_date + 'T00:00:00')
               const dow = DOW[d.getDay()]
+              const isSel = r.work_date === selectedDate
               return (
-                <div key={r.id} style={{ display:'flex', alignItems:'center', gap:12,
-                  padding:'12px 0', borderBottom:'1px solid #F8F9FB' }}>
-                  {/* 날짜 */}
+                <div key={r.id} onClick={() => setSelectedDate(r.work_date)}
+                  style={{ display:'flex', alignItems:'center', gap:12,
+                    padding:'12px 10px', borderRadius:10, marginBottom:2, cursor:'pointer',
+                    background: isSel ? 'rgba(255,107,53,0.05)' : 'transparent',
+                    border: isSel ? '1px solid rgba(255,107,53,0.2)' : '1px solid transparent' }}>
                   <div style={{ width:40, textAlign:'center', flexShrink:0 }}>
-                    <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>{d.getDate()}</div>
+                    <div style={{ fontSize:14, fontWeight:700,
+                      color: d.getDay()===0 ? '#E84393' : d.getDay()===6 ? '#2DC6D6' : '#1a1a2e' }}>
+                      {d.getDate()}
+                    </div>
                     <div style={{ fontSize:10, color:'#aaa' }}>{dow}</div>
                   </div>
-                  {/* 상세 */}
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:12, color:'#555' }}>
                       {r.clock_in ? `${fmtTime(r.clock_in)} 출근` : '출근 기록 없음'}
-                      {r.clock_out
-                        ? ` → ${fmtTime(r.clock_out)} 퇴근`
-                        : r.clock_in ? ' (퇴근 미기록)' : ''}
+                      {r.clock_out ? ` → ${fmtTime(r.clock_out)} 퇴근` : r.clock_in ? ' (퇴근 미기록)' : ''}
                     </div>
                     {r.clock_in && r.clock_out && (
                       <div style={{ fontSize:11, color:'#aaa', marginTop:2 }}>
                         실근무 {fmtDuration(r.clock_in, r.clock_out)}
                       </div>
                     )}
-                    {r.is_late && r.late_minutes > 0 && (
-                      <div style={{ fontSize:10, color:'#E84393', marginTop:1 }}>
-                        지각 {r.late_minutes}분
-                      </div>
-                    )}
                   </div>
-                  {/* 상태 태그 */}
                   <div style={{ fontSize:10, padding:'2px 8px', borderRadius:20,
                     fontWeight:700, background:st.bg, color:st.color, flexShrink:0 }}>
                     {st.icon} {st.label}
@@ -835,7 +847,6 @@ export default function AttendancePage() {
         </>
       )}
 
-      {/* 모달 */}
       {showRequest && (
         <RequestModal today={today} onClose={() => setShowRequest(false)} onSubmit={submitRequest} />
       )}
