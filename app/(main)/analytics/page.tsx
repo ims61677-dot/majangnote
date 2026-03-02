@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
@@ -899,7 +899,7 @@ export default function AnalyticsPage() {
 
   // ── PC 풀스크린 ──
   if (isPC) return (
-    <div style={{position:'fixed',inset:0,background:'#F4F6F9',zIndex:200,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+    <div style={{display:'flex',flexDirection:'column'}}>
       <header style={{background:'#fff',borderBottom:'1px solid #E8ECF0',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
         display:'flex',alignItems:'center',padding:'0 28px',height:54,flexShrink:0,gap:20}}>
         <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
