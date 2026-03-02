@@ -897,61 +897,11 @@ export default function AnalyticsPage() {
     </div>
   )
 
-  // ── PC 풀스크린 ──
   if (isPC) return (
-    <div style={{display:'flex',flexDirection:'column'}}>
-      <header style={{background:'#fff',borderBottom:'1px solid #E8ECF0',boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
-        display:'flex',alignItems:'center',padding:'0 28px',height:54,flexShrink:0,gap:20}}>
-        <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
-          <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg,#FF6B35,#E84393)',
-            display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:800,color:'#fff'}}>M</div>
-          <div>
-            <div style={{fontSize:14,fontWeight:700,color:'#1a1a2e',lineHeight:1.2}}>매장노트</div>
-            <div style={{fontSize:10,color:'#FF6B35',fontWeight:600}}>📊 분석</div>
-          </div>
-        </div>
-        {/* 네비 탭 */}
-        <nav style={{display:'flex',gap:2,flex:1,justifyContent:'center'}}>
-          {[
-            {href:'/dash',ic:'📊',l:'대시'},
-            {href:'/closing',ic:'📋',l:'마감'},
-            {href:'/analytics',ic:'📈',l:'분석'},
-            {href:'/notice',ic:'📢',l:'공지'},
-            {href:'/inventory',ic:'📦',l:'재고'},
-            {href:'/recipe',ic:'🍳',l:'레시피'},
-            {href:'/staff',ic:'👥',l:'직원관리'},
-            {href:'/goal',ic:'🎯',l:'목표매출'},
-            {href:'/mypage',ic:'📋',l:'마이페이지'},
-          ].map(t=>{
-            const active=t.href==='/analytics'
-            return (
-              <a key={t.href} href={t.href} style={{textDecoration:'none'}}>
-                <div style={{display:'flex',alignItems:'center',gap:4,padding:'6px 10px',borderRadius:8,cursor:'pointer',
-                  background:active?'rgba(255,107,53,0.08)':'transparent',
-                  borderBottom:active?'2px solid #FF6B35':'2px solid transparent'}}>
-                  <span style={{fontSize:13}}>{t.ic}</span>
-                  <span style={{fontSize:12,fontWeight:active?700:500,color:active?'#FF6B35':'#888',whiteSpace:'nowrap'}}>{t.l}</span>
-                </div>
-              </a>
-            )
-          })}
-        </nav>
-        <div style={{flexShrink:0}}>
-          <MonthNav year={year} month={month} onChange={(y,m)=>{setYear(y);setMonth(m)}} compact />
-        </div>
-      </header>
-      <div style={{flex:1,overflow:'auto',padding:'20px 28px'}}>
-        {mainContent}
-      </div>
+    <div style={{padding:"20px 28px"}}>
+      {mainContent}
     </div>
   )
-
-  // ── 모바일 ──
-  return (
-    <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-        <span style={{fontSize:17,fontWeight:700,color:'#1a1a2e'}}>📊 분석</span>
-      </div>
       <div style={{marginBottom:16}}>
         <MonthNav year={year} month={month} onChange={(y,m)=>{setYear(y);setMonth(m)}} />
       </div>
