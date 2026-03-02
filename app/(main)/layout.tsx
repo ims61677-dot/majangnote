@@ -18,7 +18,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     const s = localStorage.getItem('mj_store')
     const expire = localStorage.getItem('mj_user_expire')
 
-    // 세션 만료 체크
     if (!u || !s) { router.push('/login'); return }
     if (expire && Date.now() > Number(expire)) {
       localStorage.removeItem('mj_user')
@@ -28,7 +27,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       return
     }
 
-    // 만료일이 없는 구버전 세션 → 30일로 자동 연장
     if (!expire) {
       const newExpire = Date.now() + 30 * 24 * 60 * 60 * 1000
       localStorage.setItem('mj_user_expire', String(newExpire))
@@ -59,13 +57,30 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   const isOwner = user?.role === 'owner'
 
+  // 출퇴근 페이지에서는 PC 풀스크린
+  const isAttendance = pathname === '/attendance'
+
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh',
-      display: 'flex', flexDirection: 'column', background: '#F4F6F9' }}>
-      <header style={{ background: '#ffffff', padding: '14px 20px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        borderBottom: '1px solid #E8ECF0', boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-        position: 'sticky', top: 0, zIndex: 50 }}>
+    <div style={{
+      maxWidth: isAttendance ? '100%' : 480,
+      margin: '0 auto',
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      background: '#F4F6F9'
+    }}>
+      <header style={{
+        background: '#ffffff',
+        padding: '14px 20px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderBottom: '1px solid #E8ECF0',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50
+      }}>
         <div style={{ position: 'relative' }}>
           <div onClick={() => setShowDropdown(p => !p)}
             style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
@@ -141,9 +156,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           로그아웃
         </button>
       </header>
-      <main style={{ flex: 1, padding: '16px 16px 100px' }}>
+
+      <main style={{ flex: 1, padding: isAttendance ? '0' : '16px 16px 100px' }}>
         {children}
       </main>
+
       <BottomNav current={pathname} />
     </div>
   )
