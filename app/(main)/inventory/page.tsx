@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
@@ -698,10 +698,16 @@ export default function InventoryPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <button onClick={() => updateQty(item.id, subTab, q - 1)}
                       style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                    <div style={{ minWidth: 36, textAlign: 'center' }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: tot <= item.min_qty ? '#E84393' : tot <= wq ? '#B8860B' : '#1a1a2e' }}>{q < 0 ? 0 : q}</div>
-                      <div style={{ fontSize: 9, color: '#bbb' }}>{item.unit}</div>
-                    </div>
+                    <input
+                      type="number"
+                      value={q < 0 ? 0 : q}
+                      onChange={e => updateQty(item.id, subTab, Number(e.target.value))}
+                      style={{ width: 52, textAlign: 'center', fontSize: 16, fontWeight: 700,
+                        color: tot <= item.min_qty ? '#E84393' : tot <= wq ? '#B8860B' : '#1a1a2e',
+                        border: '1px solid #E8ECF0', borderRadius: 7, padding: '4px 2px',
+                        background: '#fff', outline: 'none' }}
+                      onFocus={e => e.target.select()}
+                    />
                     <button onClick={() => updateQty(item.id, subTab, q + 1)}
                       style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
                   </div>
