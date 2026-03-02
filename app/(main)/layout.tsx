@@ -157,7 +157,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         </button>
       </header>
 
-      <main style={{ flex: 1, padding: isAttendance ? '0' : '16px 16px 100px' }}>
+      <main style={{ flex: 1, padding: '16px 16px 100px' }}>
         {children}
       </main>
 
@@ -165,3 +165,4 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     </div>
   )
 }
+
