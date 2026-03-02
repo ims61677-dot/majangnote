@@ -58,11 +58,15 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const isOwner = user?.role === 'owner'
 
   // 출퇴근/스케줄 페이지에서는 PC 풀스크린
-  const isFullWidth = pathname === '/attendance' || pathname === '/schedule'
+  // window.location으로도 체크해서 pathname 지연 문제 방지
+  const currentPath = typeof window !== 'undefined' ? window.location.pathname : pathname
+  const isFullWidth = currentPath === '/attendance' || currentPath === '/schedule'
+    || pathname === '/attendance' || pathname === '/schedule'
 
   return (
     <div style={{
       maxWidth: isFullWidth ? '100%' : 480,
+      width: '100%',
       margin: '0 auto',
       minHeight: '100vh',
       display: 'flex',
