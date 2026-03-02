@@ -11,13 +11,14 @@ const TABS = [
 ]
 
 const MORE_ITEMS = [
-  { href: '/analytics', ic: '📈', l: '분석' },
-  { href: '/inventory', ic: '📦', l: '재고' },
-  { href: '/recipe',    ic: '🍳', l: '레시피' },
-  { href: '/staff',     ic: '👥', l: '직원관리' },
-  { href: '/goal',      ic: '🎯', l: '목표매출' },
-  { href: '/mypage',    ic: '📋', l: '마이페이지' },
-  { href: '/export',    ic: '📥', l: '내보내기' },
+  { href: '/analytics',  ic: '📈', l: '분석' },
+  { href: '/inventory',  ic: '📦', l: '재고' },
+  { href: '/recipe',     ic: '🍳', l: '레시피' },
+  { href: '/staff',      ic: '👥', l: '직원관리' },
+  { href: '/goal',       ic: '🎯', l: '목표매출' },
+  { href: '/attendance', ic: '🕐', l: '출퇴근' },
+  { href: '/mypage',     ic: '📋', l: '마이페이지' },
+  { href: '/export',     ic: '📥', l: '내보내기' },
 ]
 
 const MORE_PATHS = MORE_ITEMS.map(m => m.href)
