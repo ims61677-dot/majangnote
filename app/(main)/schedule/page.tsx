@@ -324,7 +324,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
       </div>
 
       <div style={{ overflowX:'auto', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 1px 6px rgba(0,0,0,0.05)' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed', minWidth: 600 }}>
           <colgroup><col style={{ width:72 }} />{visibleStaff.map((_,i) => <col key={i} />)}<col style={{ width:52 }} /></colgroup>
           <thead>
             <tr>
