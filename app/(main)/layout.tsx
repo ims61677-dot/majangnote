@@ -58,11 +58,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const isOwner = user?.role === 'owner'
 
   // 출퇴근 페이지에서는 PC 풀스크린
-  const isAttendance = pathname === '/attendance'
+  const isFullWidth = pathname === '/attendance' || pathname === '/schedule'
 
   return (
     <div style={{
-      maxWidth: isAttendance ? '100%' : 480,
+      maxWidth: isFullWidth ? '100%' : 480,
       margin: '0 auto',
       minHeight: '100vh',
       display: 'flex',
