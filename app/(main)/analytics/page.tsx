@@ -902,10 +902,11 @@ export default function AnalyticsPage() {
       {mainContent}
     </div>
   )
-      <div style={{marginBottom:16}}>
-        <MonthNav year={year} month={month} onChange={(y,m)=>{setYear(y);setMonth(m)}} />
-      </div>
-      {mainContent}
+
+  return (
+    <div style={{marginBottom:16}}>
+      <MonthNav year={year} month={month} onChange={(y,m)=>{setYear(y);setMonth(m)}} />
     </div>
+    <div>{mainContent}</div>
   )
 }
