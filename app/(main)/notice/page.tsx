@@ -97,18 +97,18 @@ function TodoItem({ todo, checks, onToggle, canCheck, myName }: {
   )
 }
 
-function OverdueTodoItem({ todo, checks, onToggle, onMove, myName, dayCount, isManager }: {
-  todo: any; checks: any[]; onToggle: () => void; onMove: () => void; myName: string; dayCount: number; isManager: boolean
+function OverdueTodoItem({ todo, checks, onToggle, onMove, onDelete, myName, dayCount, isManager }: {
+  todo: any; checks: any[]; onToggle: () => void; onMove: () => void; onDelete: () => void; myName: string; dayCount: number; isManager: boolean
 }) {
   const myChecked = checks.find((c: any) => c.checked_by === myName)
   const urgentColor = dayCount >= 3 ? '#E84393' : dayCount >= 2 ? '#FF6B35' : '#FDC400'
   return (
     <div style={{ borderRadius:10, border:`1px solid ${urgentColor}40`, background:myChecked?'rgba(0,184,148,0.04)':`${urgentColor}08`, marginBottom:6, overflow:'hidden' }}>
       <button onClick={onToggle} style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'none', border:'none', cursor:'pointer', textAlign:'left' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, flex:1, minWidth:0 }}>
           <span style={{ fontSize:17, color:myChecked?'#00B894':'#ddd', lineHeight:1, flexShrink:0 }}>{myChecked?'✓':'○'}</span>
-          <div>
-            <div style={{ fontSize:13, color:myChecked?'#00B894':'#1a1a2e', textDecoration:myChecked?'line-through':'none' }}>{todo.content}</div>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontSize:13, color:myChecked?'#00B894':'#1a1a2e', textDecoration:myChecked?'line-through':'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</div>
             <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
               <span style={{ fontSize:10, color:'#bbb' }}>원래: {todo.origin_date?.replace(/-/g,'.')}</span>
               <span style={{ fontSize:10, fontWeight:700, color: urgentColor, background:`${urgentColor}15`, padding:'1px 6px', borderRadius:6 }}>
@@ -117,10 +117,17 @@ function OverdueTodoItem({ todo, checks, onToggle, onMove, myName, dayCount, isM
             </div>
           </div>
         </div>
-        {!myChecked && isManager && (
-          <button onClick={e => { e.stopPropagation(); onMove() }} style={{ fontSize:10, padding:'4px 8px', borderRadius:7, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontWeight:700, cursor:'pointer', flexShrink:0, whiteSpace:'nowrap' }}>
-            오늘로 이동
-          </button>
+        {isManager && (
+          <div style={{ display:'flex', gap:6, flexShrink:0, marginLeft:8 }}>
+            {!myChecked && (
+              <button onClick={e => { e.stopPropagation(); onMove() }} style={{ fontSize:10, padding:'4px 8px', borderRadius:7, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+                이동
+              </button>
+            )}
+            <button onClick={e => { e.stopPropagation(); onDelete() }} style={{ fontSize:10, padding:'4px 8px', borderRadius:7, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.25)', color:'#E84393', fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+              삭제
+            </button>
+          </div>
         )}
       </button>
       {checks.length > 0 && (
@@ -357,6 +364,12 @@ export default function NoticePage() {
     }
   }
 
+  async function deleteOverdueTodo(todo: any) {
+    if (!confirm(`"${todo.content}"을 삭제할까요?`)) return
+    await supabase.from('notice_todos').delete().eq('id', todo.id)
+    loadOverdueTodos(storeId)
+  }
+
   async function moveTodoToToday(todo: any) {
     if (!confirm(`"${todo.content}"을 오늘 날짜로 이동할까요?`)) return
     let noticeId: string
@@ -480,10 +493,8 @@ export default function NoticePage() {
         </button>
       </div>
 
-      {/* 공지 탭 */}
       {subTab === 'notice' && (
         <>
-          {/* 미완료 할일 요약 카드 */}
           {overdueCount > 0 && (
             <div style={{ ...bx, border:'1px solid rgba(232,67,147,0.3)', background:'rgba(232,67,147,0.02)', marginBottom:14 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
@@ -561,7 +572,6 @@ export default function NoticePage() {
         </>
       )}
 
-      {/* 할일 탭 */}
       {subTab === 'todo' && (
         <>
           {overdueTodos.length > 0 && (
@@ -577,6 +587,7 @@ export default function NoticePage() {
                   checks={overdueChecks[todo.id]||[]}
                   onToggle={() => toggleOverdueTodo(todo.id)}
                   onMove={() => moveTodoToToday(todo)}
+                  onDelete={() => deleteOverdueTodo(todo)}
                   myName={userName}
                   dayCount={todo.day_count}
                   isManager={isManager}
