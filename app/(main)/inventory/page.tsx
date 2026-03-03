@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
@@ -556,10 +556,8 @@ export default function InventoryPage() {
     return order[getStatus(totalQty(a.id), a.min_qty, a.warn_qty ?? 3)] - order[getStatus(totalQty(b.id), b.min_qty, b.warn_qty ?? 3)]
   }), [totalQty])
 
-  // ── 전체 목록: 모든 그룹/장소의 아이템을 합산해서 표시 ──
-  const allItems = sortByStatus(filteredBySearch(items.filter(item =>
-    placeNames.some(pl => hasStock(item.id, pl))
-  )))
+  // ── 전체 목록: 장소 미배치 품목 포함 전체 표시 ──
+  const allItems = sortByStatus(filteredBySearch(items))
 
   const currentItems = sortItemsByPlace(filteredBySearch(items.filter(item => hasStock(item.id, subTab))), subTab)
 
