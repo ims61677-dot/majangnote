@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const allPlaces: any[] = []
+    const seenNames = new Set<string>()
 
     for (let start = 1; start <= 100; start += 5) {
       const url = `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(keyword)}&display=5&start=${start}&sort=comment`
@@ -35,7 +36,15 @@ export async function GET(request: NextRequest) {
       const items = data?.items || []
       if (items.length === 0) break
 
-      allPlaces.push(...items)
+      for (const item of items) {
+        const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '')
+        const name = stripHtml(item.title || '').trim()
+        if (!seenNames.has(name)) {
+          seenNames.add(name)
+          allPlaces.push(item)
+        }
+      }
+
       if (items.length < 5) break
     }
 
