@@ -9,60 +9,68 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: '키워드와 업체명을 입력해주세요' }, { status: 400 })
   }
 
+  const clientId = process.env.NAVER_CLIENT_ID
+  const clientSecret = process.env.NAVER_CLIENT_SECRET
+
+  if (!clientId || !clientSecret) {
+    return NextResponse.json({ error: 'API 키가 설정되지 않았어요' }, { status: 500 })
+  }
+
   try {
-    // 네이버 지도 검색 API 호출 (서버사이드 → CORS 없음)
-    const url = `https://map.naver.com/p/api/search/allSearch?query=${encodeURIComponent(keyword)}&type=all&searchCoord=&boundary=`
+    const allPlaces: any[] = []
 
-    const res = await fetch(url, {
-      headers: {
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'ko-KR,ko;q=0.9',
-        'Referer': 'https://map.naver.com/',
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-      },
-      next: { revalidate: 0 } // 캐시 없이 항상 최신 결과
-    })
+    for (let start = 1; start <= 100; start += 5) {
+      const url = `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(keyword)}&display=5&start=${start}&sort=comment`
 
-    if (!res.ok) {
-      throw new Error(`네이버 서버 오류: ${res.status}`)
+      const res = await fetch(url, {
+        headers: {
+          'X-Naver-Client-Id': clientId,
+          'X-Naver-Client-Secret': clientSecret,
+        },
+      })
+
+      if (!res.ok) break
+
+      const data = await res.json()
+      const items = data?.items || []
+      if (items.length === 0) break
+
+      allPlaces.push(...items)
+      if (items.length < 5) break
     }
 
-    const data = await res.json()
-    const places: any[] = data?.result?.place?.list || []
-
-    if (places.length === 0) {
+    if (allPlaces.length === 0) {
       return NextResponse.json({ rank: -1, total: 0, places: [] })
     }
 
-    // 업체명 매칭 (공백 제거 후 포함 여부 확인)
-    const normalize = (s: string) => s.replace(/\s/g, '').toLowerCase()
+    const stripHtml = (s: string) => s.replace(/<[^>]*>/g, '')
+    const normalize = (s: string) => stripHtml(s).replace(/\s/g, '').toLowerCase()
     const storeNorm = normalize(storeName)
 
     let foundRank = -1
-    places.forEach((p: any, idx: number) => {
-      const nameNorm = normalize(p.name || '')
+    allPlaces.forEach((p: any, idx: number) => {
+      const nameNorm = normalize(p.title || '')
       if (foundRank === -1 && (nameNorm.includes(storeNorm) || storeNorm.includes(nameNorm))) {
         foundRank = idx + 1
       }
     })
 
-    // 상위 15개 업체 정보 반환
-    const placeList = places.slice(0, 15).map((p: any, idx: number) => {
-      const nameNorm = normalize(p.name || '')
+    const placeList = allPlaces.slice(0, 15).map((p: any, idx: number) => {
+      const nameNorm = normalize(p.title || '')
       return {
         rank: idx + 1,
-        name: p.name || '',
+        name: stripHtml(p.title || ''),
         category: p.category || '',
         address: p.roadAddress || p.address || '',
-        reviewCount: p.reviewCount || 0,
-        saveCount: p.saveCount || 0,
+        reviewCount: 0,
+        saveCount: 0,
         isMine: nameNorm.includes(storeNorm) || storeNorm.includes(nameNorm),
       }
     })
 
     return NextResponse.json({
       rank: foundRank,
-      total: places.length,
+      total: allPlaces.length,
       places: placeList,
       checkedAt: new Date().toISOString(),
     })
