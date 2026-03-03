@@ -25,7 +25,6 @@ function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onCh
   }
   if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week) }
   const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
-
   return (
     <div style={{ ...bx, padding: '14px 12px' }}>
       <div style={{ marginBottom: 10 }}>
@@ -72,8 +71,7 @@ function TodoItem({ todo, checks, onToggle, canCheck, myName }: {
   const myChecked = checks.find((c: any) => c.checked_by === myName)
   return (
     <div style={{ borderRadius:10, border:myChecked?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0', background:myChecked?'rgba(0,184,148,0.04)':'#F8F9FB', marginBottom:6, overflow:'hidden' }}>
-      <button onClick={onToggle}
-        style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'none', border:'none', cursor:canCheck?'pointer':'not-allowed', textAlign:'left' }}>
+      <button onClick={onToggle} style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'none', border:'none', cursor:canCheck?'pointer':'not-allowed', textAlign:'left' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <span style={{ fontSize:17, color:myChecked?'#00B894':'#ddd', lineHeight:1, flexShrink:0 }}>{myChecked?'✓':'○'}</span>
           <div>
@@ -99,18 +97,56 @@ function TodoItem({ todo, checks, onToggle, canCheck, myName }: {
   )
 }
 
+// 미완료 이월 할일 아이템
+function OverdueTodoItem({ todo, checks, onToggle, onMove, myName, dayCount }: {
+  todo: any; checks: any[]; onToggle: () => void; onMove: () => void; myName: string; dayCount: number
+}) {
+  const myChecked = checks.find((c: any) => c.checked_by === myName)
+  const urgentColor = dayCount >= 3 ? '#E84393' : dayCount >= 2 ? '#FF6B35' : '#FDC400'
+  return (
+    <div style={{ borderRadius:10, border:`1px solid ${urgentColor}40`, background:myChecked?'rgba(0,184,148,0.04)':`${urgentColor}08`, marginBottom:6, overflow:'hidden' }}>
+      <button onClick={onToggle} style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'none', border:'none', cursor:'pointer', textAlign:'left' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:17, color:myChecked?'#00B894':'#ddd', lineHeight:1, flexShrink:0 }}>{myChecked?'✓':'○'}</span>
+          <div>
+            <div style={{ fontSize:13, color:myChecked?'#00B894':'#1a1a2e', textDecoration:myChecked?'line-through':'none' }}>{todo.content}</div>
+            <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
+              <span style={{ fontSize:10, color:'#bbb' }}>원래: {todo.origin_date?.replace(/-/g,'.')}</span>
+              <span style={{ fontSize:10, fontWeight:700, color: urgentColor, background:`${urgentColor}15`, padding:'1px 6px', borderRadius:6 }}>
+                {dayCount}일째 미완료
+              </span>
+            </div>
+          </div>
+        </div>
+        {!myChecked && (
+          <button onClick={e => { e.stopPropagation(); onMove() }} style={{ fontSize:10, padding:'4px 8px', borderRadius:7, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontWeight:700, cursor:'pointer', flexShrink:0, whiteSpace:'nowrap' }}>
+            오늘로 이동
+          </button>
+        )}
+      </button>
+      {checks.length > 0 && (
+        <div style={{ padding:'6px 14px 10px', borderTop:'1px solid rgba(0,184,148,0.1)', background:'rgba(0,184,148,0.02)' }}>
+          <div style={{ fontSize:9, color:'#00B894', fontWeight:700, marginBottom:3 }}>✓ 완료한 사람</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+            {checks.map((c: any) => (
+              <span key={c.id} style={{ fontSize:10, color:'#00B894', background:'rgba(0,184,148,0.1)', padding:'1px 7px', borderRadius:10 }}>
+                {c.checked_by} · {new Date(c.checked_at).toLocaleTimeString('ko',{hour:'2-digit',minute:'2-digit',hour12:false})}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete }: {
   notice: any; reads: any[]; myName: string; isManager: boolean
   onRead: (id: string) => void; onEdit: (n: any) => void; onDelete: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const myRead = reads.find((r: any) => r.read_by === myName)
-
-  function handleExpand() {
-    setExpanded(p => !p)
-    if (!myRead) onRead(notice.id)
-  }
-
+  function handleExpand() { setExpanded(p => !p); if (!myRead) onRead(notice.id) }
   return (
     <div style={{ ...bx, border: notice.is_pinned?'1px solid rgba(108,92,231,0.25)':'1px solid #E8ECF0', background: notice.is_pinned?'rgba(108,92,231,0.02)':'#fff' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
@@ -153,8 +189,7 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
             ) : <div style={{ fontSize:11, color:'#bbb' }}>아직 아무도 읽지 않았어요</div>}
           </div>
           {!myRead && (
-            <button onClick={() => onRead(notice.id)}
-              style={{ width:'100%', marginTop:10, padding:'10px 0', borderRadius:10, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+            <button onClick={() => onRead(notice.id)} style={{ width:'100%', marginTop:10, padding:'10px 0', borderRadius:10, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:13, fontWeight:700, cursor:'pointer' }}>
               ✓ 확인했습니다
             </button>
           )}
@@ -202,6 +237,10 @@ export default function NoticePage() {
   const [closingChecks, setClosingChecks] = useState<Record<string, any[]>>({})
   const [closingDateLabel, setClosingDateLabel] = useState('')
 
+  // 미완료 이월 할일
+  const [overdueTodos, setOverdueTodos] = useState<any[]>([])
+  const [overdueChecks, setOverdueChecks] = useState<Record<string, any[]>>({})
+
   const isManager = userRole === 'owner' || userRole === 'manager'
   const isOwner = userRole === 'owner'
 
@@ -215,7 +254,10 @@ export default function NoticePage() {
 
   useEffect(() => {
     if (!storeId) return
-    loadDayTodos(storeId, selectedDate); loadClosingTodos(storeId, selectedDate)
+    loadDayTodos(storeId, selectedDate)
+    loadClosingTodos(storeId, selectedDate)
+    if (selectedDate === today) loadOverdueTodos(storeId)
+    else setOverdueTodos([])
   }, [selectedDate, storeId])
 
   async function loadNotices(sid: string) {
@@ -249,6 +291,43 @@ export default function NoticePage() {
     } else { setNoticeTodoChecks({}) }
   }
 
+  // 미완료 이월 할일 로드 (오늘 기준 최근 7일)
+  async function loadOverdueTodos(sid: string) {
+    const results: any[] = []
+    for (let i = 1; i <= 7; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i)
+      const dateStr = toDateStr(d)
+      const { data } = await supabase.from('notices').select('*, notice_todos(*)').eq('store_id', sid).eq('notice_date', dateStr).eq('is_from_closing', false)
+      if (!data) continue
+      const allIds = data.flatMap((n: any) => (n.notice_todos||[]).map((t: any) => t.id))
+      if (allIds.length === 0) continue
+      const { data: chks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', allIds)
+      const checkMap: Record<string, any[]> = {}
+      if (chks) chks.forEach((c: any) => { if (!checkMap[c.todo_id]) checkMap[c.todo_id] = []; checkMap[c.todo_id].push(c) })
+      for (const notice of data) {
+        for (const todo of (notice.notice_todos || [])) {
+          const todoChecks = checkMap[todo.id] || []
+          // 아무도 체크 안 한 할일만
+          if (todoChecks.length === 0) {
+            results.push({ ...todo, origin_date: dateStr, day_count: i, notice_title: notice.title })
+          }
+        }
+      }
+    }
+    // day_count 내림차순 (오래된 것 먼저)
+    results.sort((a, b) => b.day_count - a.day_count)
+    setOverdueTodos(results)
+
+    // 오늘 체크 현황도 로드
+    const todayIds = results.map(t => t.id)
+    if (todayIds.length > 0) {
+      const { data: todayChks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', todayIds)
+      const tm: Record<string, any[]> = {}
+      if (todayChks) todayChks.forEach((c: any) => { if (!tm[c.todo_id]) tm[c.todo_id] = []; tm[c.todo_id].push(c) })
+      setOverdueChecks(tm)
+    }
+  }
+
   async function loadClosingTodos(sid: string, date: string) {
     const prev = new Date(date); prev.setDate(prev.getDate() - 1)
     const prevStr = toDateStr(prev)
@@ -275,6 +354,36 @@ export default function NoticePage() {
   function canCheckDate(date: string) {
     if (isOwner) return true
     return date === today
+  }
+
+  async function toggleOverdueTodo(todoId: string) {
+    const myCheck = (overdueChecks[todoId]||[]).find((c: any) => c.checked_by === userName)
+    if (myCheck) {
+      await supabase.from('notice_todo_checks').delete().eq('id', myCheck.id)
+      setOverdueChecks(p => ({ ...p, [todoId]: (p[todoId]||[]).filter((c: any) => c.id !== myCheck.id) }))
+    } else {
+      const { data } = await supabase.from('notice_todo_checks').insert({ todo_id: todoId, checked_by: userName, checked_at: new Date().toISOString() }).select().single()
+      if (data) setOverdueChecks(p => ({ ...p, [todoId]: [...(p[todoId]||[]), data] }))
+    }
+  }
+
+  // 오늘 날짜로 이동 (복사 후 원본 유지)
+  async function moveTodoToToday(todo: any) {
+    if (!confirm(`"${todo.content}"을 오늘 날짜로 이동할까요?`)) return
+    // 오늘 날짜에 같은 이름 그룹이 있는지 확인
+    let noticeId: string
+    const { data: existing } = await supabase.from('notices').select('id').eq('store_id', storeId).eq('notice_date', today).eq('title', `[이월] ${todo.notice_title}`).maybeSingle()
+    if (existing) {
+      noticeId = existing.id
+    } else {
+      const { data: newNotice } = await supabase.from('notices').insert({ store_id: storeId, title: `[이월] ${todo.notice_title}`, content: null, notice_date: today, created_by: userName, is_from_closing: false, is_pinned: false }).select().single()
+      noticeId = newNotice.id
+    }
+    await supabase.from('notice_todos').insert({ notice_id: noticeId, content: todo.content, created_by: todo.created_by })
+    loadDayTodos(storeId, today)
+    loadTodoDates(storeId)
+    loadOverdueTodos(storeId)
+    alert('오늘 날짜로 이동됐어요!')
   }
 
   async function saveNotice() {
@@ -351,6 +460,7 @@ export default function NoticePage() {
   })
 
   const unreadCount = notices.filter(n => !(noticeReads[n.id]||[]).find((r: any) => r.read_by === userName)).length
+  const overdueCount = overdueTodos.filter(t => (overdueChecks[t.id]||[]).length === 0).length
 
   return (
     <div>
@@ -377,7 +487,9 @@ export default function NoticePage() {
 
       <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:14 }}>
         <button style={tabBtn(subTab==='notice')} onClick={() => setSubTab('notice')}>📢 공지 {unreadCount > 0 ? `(${unreadCount})` : ''}</button>
-        <button style={tabBtn(subTab==='todo')} onClick={() => setSubTab('todo')}>✅ 할일</button>
+        <button style={tabBtn(subTab==='todo')} onClick={() => setSubTab('todo')}>
+          ✅ 할일 {overdueCount > 0 ? <span style={{ color:'#E84393' }}>({overdueCount} 미완료)</span> : ''}
+        </button>
       </div>
 
       {subTab === 'notice' && (
@@ -385,15 +497,13 @@ export default function NoticePage() {
           {showNoticeForm && (
             <div style={{ ...bx, border:'1px solid rgba(108,92,231,0.3)', background:'rgba(108,92,231,0.02)', marginBottom:12 }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#6C5CE7', marginBottom:12 }}>{editingNotice ? '✏️ 공지 수정' : '✏️ 공지 작성'}</div>
-              <button onClick={() => setFormPinned(p=>!p)}
-                style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, padding:'7px 12px', borderRadius:8, border:formPinned?'1px solid rgba(108,92,231,0.4)':'1px solid #E8ECF0', background:formPinned?'rgba(108,92,231,0.1)':'#F8F9FB', cursor:'pointer', width:'100%' }}>
+              <button onClick={() => setFormPinned(p=>!p)} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, padding:'7px 12px', borderRadius:8, border:formPinned?'1px solid rgba(108,92,231,0.4)':'1px solid #E8ECF0', background:formPinned?'rgba(108,92,231,0.1)':'#F8F9FB', cursor:'pointer', width:'100%' }}>
                 <span style={{ fontSize:13 }}>{formPinned ? '📌' : '📋'}</span>
                 <span style={{ fontSize:12, color:formPinned?'#6C5CE7':'#888', fontWeight:formPinned?700:400 }}>{formPinned ? '고정 공지 — 항상 최상단 표시' : '일반 공지 — 날짜순 표시'}</span>
               </button>
               <input value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="공지 제목" style={{ ...inp, marginBottom:8 }} />
               <textarea value={formContent} onChange={e => setFormContent(e.target.value)} placeholder="공지 내용 (선택사항)" rows={4} style={{ ...inp, resize:'none' as const, lineHeight:1.7, marginBottom:10 }} />
-              <button onClick={saveNotice} disabled={isSaving}
-                style={{ width:'100%', padding:'12px 0', borderRadius:12, background:isSaving?'#ddd':'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:14, fontWeight:700, cursor:isSaving?'not-allowed':'pointer' }}>
+              <button onClick={saveNotice} disabled={isSaving} style={{ width:'100%', padding:'12px 0', borderRadius:12, background:isSaving?'#ddd':'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:14, fontWeight:700, cursor:isSaving?'not-allowed':'pointer' }}>
                 {isSaving ? '저장 중...' : editingNotice ? '수정 저장' : '공지 등록'}
               </button>
             </div>
@@ -433,6 +543,27 @@ export default function NoticePage() {
 
       {subTab === 'todo' && (
         <>
+          {/* 미완료 이월 섹션 - 오늘만 표시 */}
+          {selectedDate === today && overdueTodos.length > 0 && (
+            <div style={{ ...bx, border:'1px solid rgba(232,67,147,0.3)', background:'rgba(232,67,147,0.02)', marginBottom:14 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                <span style={{ fontSize:13, fontWeight:700, color:'#E84393' }}>⚠️ 미완료 이월</span>
+                <span style={{ fontSize:10, padding:'2px 7px', borderRadius:8, background:'rgba(232,67,147,0.12)', color:'#E84393', fontWeight:700 }}>{overdueCount}개 미완료</span>
+              </div>
+              {overdueTodos.map(todo => (
+                <OverdueTodoItem
+                  key={`${todo.id}-${todo.origin_date}`}
+                  todo={todo}
+                  checks={overdueChecks[todo.id]||[]}
+                  onToggle={() => toggleOverdueTodo(todo.id)}
+                  onMove={() => moveTodoToToday(todo)}
+                  myName={userName}
+                  dayCount={todo.day_count}
+                />
+              ))}
+            </div>
+          )}
+
           <div style={{ ...bx, border:closingTodos.length>0?'1px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0', background:closingTodos.length>0?'rgba(255,107,53,0.02)':'#fff' }}>
             <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:closingTodos.length>0?12:0 }}>
               <span style={{ fontSize:13, fontWeight:700, color:'#FF6B35' }}>📢 마감 전달사항</span>
