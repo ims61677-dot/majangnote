@@ -58,7 +58,6 @@ export default function MyPage() {
   const [notifSaving, setNotifSaving] = useState(false)
   const [notifSaved, setNotifSaved] = useState(false)
 
-  // 매장 위치 상태
   const [storeAddress, setStoreAddress] = useState('')
   const [storeLat, setStoreLat] = useState<number | null>(null)
   const [storeLng, setStoreLng] = useState<number | null>(null)
@@ -102,20 +101,21 @@ export default function MyPage() {
     new window.daum.Postcode({
       oncomplete: async (data: any) => {
         const fullAddress = data.roadAddress || data.jibunAddress
+        setStoreAddress(fullAddress)
         try {
+          const query = encodeURIComponent(fullAddress)
           const res = await fetch(
-            `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(fullAddress)}`,
-            { headers: { Authorization: `KakaoAK ${process.env.NEXT_PUBLIC_KAKAO_REST_API_KEY}` } }
+            'https://nominatim.openstreetmap.org/search?q=' + query + '&format=json&limit=1',
+            { headers: { 'Accept-Language': 'ko' } }
           )
           const json = await res.json()
-          if (json.documents && json.documents.length > 0) {
-            const doc = json.documents[0]
-            const x = doc.address?.x || doc.road_address?.x
-            const y = doc.address?.y || doc.road_address?.y
-            if (x && y) { setStoreLat(parseFloat(y)); setStoreLng(parseFloat(x)) }
+          if (json && json.length > 0) {
+            setStoreLat(parseFloat(json[0].lat))
+            setStoreLng(parseFloat(json[0].lon))
           }
-        } catch (e) { console.error('좌표 변환 실패:', e) }
-        setStoreAddress(fullAddress)
+        } catch (e) {
+          console.error('좌표 변환 실패:', e)
+        }
       }
     }).open()
   }
