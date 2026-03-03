@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
@@ -11,7 +11,7 @@ function getStatus(tot: number, minQty: number, warnQty: number) {
   return 'ok'
 }
 
-// ─── 장소 그룹 섹션 (훅을 map 밖으로 분리) ───
+// ─── 장소 그룹 섹션 ───
 function PlaceGroupSection({ grp, gPlaces, editingId, editName, editGroup, setEditName, setEditGroup, setEditingId, handleUpdate, handleDelete, handleDrop, PRESET_GROUPS }: {
   grp: string; gPlaces: any[]
   editingId: string | null; editName: string; editGroup: string
@@ -80,8 +80,11 @@ function PlaceGroupSection({ grp, gPlaces, editingId, editName, editGroup, setEd
   )
 }
 
-// ─── PlaceManager ───
-function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose: () => void; onSaved: () => void }) {
+// ─── PlaceManager (큰 카테고리 순서 변경 추가) ───
+function PlaceManager({ storeId, onClose, onSaved, groupOrder, onGroupReorder }: {
+  storeId: string; onClose: () => void; onSaved: () => void
+  groupOrder: string[]; onGroupReorder: (newOrder: string[]) => void
+}) {
   const supabase = createSupabaseBrowserClient()
   const [places, setPlaces] = useState<any[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -91,9 +94,15 @@ function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose:
   const [newGroup, setNewGroup] = useState('홀')
   const [customGroup, setCustomGroup] = useState('')
   const [isAdding, setIsAdding] = useState(false)
+  const [activeTab, setActiveTab] = useState<'places' | 'groups'>('places')
+  // 큰 카테고리 순서 드래그
+  const [localGroupOrder, setLocalGroupOrder] = useState<string[]>(groupOrder)
+  const groupDragItem = useRef<number | null>(null)
+  const groupDragOver = useRef<number | null>(null)
   const PRESET_GROUPS = ['홀', '주방', '창고']
 
   useEffect(() => { loadPlaces() }, [])
+  useEffect(() => { setLocalGroupOrder(groupOrder) }, [JSON.stringify(groupOrder)])
 
   async function loadPlaces() {
     const { data } = await supabase.from('inventory_places').select('*').eq('store_id', storeId).order('sort_order').order('group_name')
@@ -128,12 +137,31 @@ function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose:
     loadPlaces(); onSaved()
   }
 
+  // 큰 카테고리 드래그
+  function onGroupDragStart(e: React.DragEvent, idx: number) {
+    groupDragItem.current = idx
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  function onGroupDragEnter(idx: number) { groupDragOver.current = idx }
+  function onGroupDragEnd() {
+    if (groupDragItem.current === null || groupDragOver.current === null) return
+    const newList = [...localGroupOrder]
+    const dragged = newList.splice(groupDragItem.current, 1)[0]
+    newList.splice(groupDragOver.current, 0, dragged)
+    groupDragItem.current = null; groupDragOver.current = null
+    setLocalGroupOrder(newList)
+    onGroupReorder(newList)
+  }
+
   const grouped = places.reduce((acc: Record<string, any[]>, p) => {
     const k = p.group_name || '기타'
     if (!acc[k]) acc[k] = []
     acc[k].push(p)
     return acc
   }, {})
+
+  // groupOrder 순서로 정렬
+  const orderedGroups = [...localGroupOrder.filter(g => grouped[g]), ...Object.keys(grouped).filter(g => !localGroupOrder.includes(g))]
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
@@ -142,53 +170,89 @@ function PlaceManager({ storeId, onClose, onSaved }: { storeId: string; onClose:
           <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>📍 장소 관리</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
         </div>
-        <div style={{ fontSize: 11, color: '#aaa', marginBottom: 12, paddingLeft: 2 }}>☰ 드래그로 순서를 변경할 수 있어요</div>
 
-        {Object.entries(grouped).map(([grp, gPlaces]) => (
-          <PlaceGroupSection
-            key={grp}
-            grp={grp}
-            gPlaces={gPlaces}
-            editingId={editingId}
-            editName={editName}
-            editGroup={editGroup}
-            setEditName={setEditName}
-            setEditGroup={setEditGroup}
-            setEditingId={setEditingId}
-            handleUpdate={handleUpdate}
-            handleDelete={handleDelete}
-            handleDrop={handleDrop}
-            PRESET_GROUPS={PRESET_GROUPS}
-          />
-        ))}
+        {/* 탭: 장소 관리 / 카테고리 순서 */}
+        <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 16 }}>
+          <button onClick={() => setActiveTab('places')} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: activeTab === 'places' ? 700 : 400, background: activeTab === 'places' ? '#fff' : 'transparent', color: activeTab === 'places' ? '#1a1a2e' : '#aaa', boxShadow: activeTab === 'places' ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>장소 관리</button>
+          <button onClick={() => setActiveTab('groups')} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: activeTab === 'groups' ? 700 : 400, background: activeTab === 'groups' ? '#fff' : 'transparent', color: activeTab === 'groups' ? '#FF6B35' : '#aaa', boxShadow: activeTab === 'groups' ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>카테고리 순서</button>
+        </div>
 
-        {isAdding ? (
-          <div style={{ border: '2px dashed rgba(255,107,53,0.3)', borderRadius: 14, padding: 14, marginTop: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#FF6B35', marginBottom: 10 }}>새 장소 추가</div>
-            <select value={newGroup} onChange={e => setNewGroup(e.target.value)} style={{ ...inp, appearance: 'auto' as any, marginBottom: 8 }}>
-              {PRESET_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
-              <option value="__custom__">직접입력</option>
-            </select>
-            {newGroup === '__custom__' && <input value={customGroup} onChange={e => setCustomGroup(e.target.value)} placeholder="카테고리명 입력" style={{ ...inp, marginBottom: 8 }} />}
-            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="예: 주방 냉동고" style={{ ...inp, marginBottom: 10 }} />
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={handleAdd} style={{ flex: 1, padding: '9px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>추가</button>
-              <button onClick={() => setIsAdding(false)} style={{ padding: '9px 16px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        {activeTab === 'groups' && (
+          <div>
+            <div style={{ fontSize: 11, color: '#aaa', marginBottom: 12, paddingLeft: 2 }}>☰ 드래그로 큰 카테고리(홀/주방/창고) 순서를 변경하세요</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+              {localGroupOrder.map((grp, idx) => (
+                <div key={grp}
+                  draggable
+                  onDragStart={e => onGroupDragStart(e, idx)}
+                  onDragEnter={() => onGroupDragEnter(idx)}
+                  onDragEnd={onGroupDragEnd}
+                  onDragOver={e => e.preventDefault()}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, background: '#F8F9FB', border: '1px solid #E8ECF0', cursor: 'grab', userSelect: 'none' }}>
+                  <span style={{ fontSize: 16, color: '#ccc' }}>☰</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>{grp}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#bbb' }}>{idx + 1}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: '#aaa', padding: '8px 12px', borderRadius: 8, background: 'rgba(108,92,231,0.05)', border: '1px solid rgba(108,92,231,0.1)' }}>
+              ✅ 순서는 자동 저장됩니다
             </div>
           </div>
-        ) : (
-          <button onClick={() => setIsAdding(true)} style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: '2px dashed #E8ECF0', background: 'transparent', color: '#bbb', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
-            + 장소 추가
-          </button>
+        )}
+
+        {activeTab === 'places' && (
+          <>
+            <div style={{ fontSize: 11, color: '#aaa', marginBottom: 12, paddingLeft: 2 }}>☰ 드래그로 장소 순서를 변경할 수 있어요</div>
+            {orderedGroups.map(grp => (
+              <PlaceGroupSection
+                key={grp}
+                grp={grp}
+                gPlaces={grouped[grp] || []}
+                editingId={editingId}
+                editName={editName}
+                editGroup={editGroup}
+                setEditName={setEditName}
+                setEditGroup={setEditGroup}
+                setEditingId={setEditingId}
+                handleUpdate={handleUpdate}
+                handleDelete={handleDelete}
+                handleDrop={handleDrop}
+                PRESET_GROUPS={PRESET_GROUPS}
+              />
+            ))}
+
+            {isAdding ? (
+              <div style={{ border: '2px dashed rgba(255,107,53,0.3)', borderRadius: 14, padding: 14, marginTop: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#FF6B35', marginBottom: 10 }}>새 장소 추가</div>
+                <select value={newGroup} onChange={e => setNewGroup(e.target.value)} style={{ ...inp, appearance: 'auto' as any, marginBottom: 8 }}>
+                  {PRESET_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+                  <option value="__custom__">직접입력</option>
+                </select>
+                {newGroup === '__custom__' && <input value={customGroup} onChange={e => setCustomGroup(e.target.value)} placeholder="카테고리명 입력" style={{ ...inp, marginBottom: 8 }} />}
+                <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="예: 주방 냉동고" style={{ ...inp, marginBottom: 10 }} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={handleAdd} style={{ flex: 1, padding: '9px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>추가</button>
+                  <button onClick={() => setIsAdding(false)} style={{ padding: '9px 16px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setIsAdding(true)} style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: '2px dashed #E8ECF0', background: 'transparent', color: '#bbb', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
+                + 장소 추가
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>
   )
 }
 
-// ─── 전역 검색 패널 ───
-function GlobalSearchPanel({ query, items, places, stock, onClose }: {
-  query: string; items: any[]; places: any[]; stock: Record<string, any>; onClose: () => void
+// ─── 전역 검색 패널 (클릭 시 탭 이동 추가) ───
+function GlobalSearchPanel({ query, items, places, stock, onClose, onNavigate }: {
+  query: string; items: any[]; places: any[]; stock: Record<string, any>
+  onClose: () => void
+  onNavigate: (group: string, placeName: string) => void
 }) {
   const getQty = (itemId: string, placeName: string) => stock[itemId + '-' + placeName]?.quantity ?? -1
   const hasStockFn = (itemId: string, placeName: string) => (itemId + '-' + placeName) in stock
@@ -206,11 +270,12 @@ function GlobalSearchPanel({ query, items, places, stock, onClose }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 150, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
-      <div style={{ background: '#fff', width: '100%', maxWidth: 480, borderRadius: '20px 20px 0 0', padding: 20, maxHeight: '75vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <div style={{ background: '#fff', width: '100%', maxWidth: 540, borderRadius: '20px 20px 0 0', padding: 20, maxHeight: '75vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>🔍 "{query}" 검색 결과</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, color: '#aaa', cursor: 'pointer' }}>✕</button>
         </div>
+        <div style={{ fontSize: 11, color: '#aaa', marginBottom: 14 }}>위치 태그를 누르면 해당 장소로 이동해요</div>
         {results.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 32, color: '#bbb', fontSize: 13 }}>검색 결과가 없습니다</div>
         ) : results.map(item => {
@@ -229,9 +294,19 @@ function GlobalSearchPanel({ query, items, places, stock, onClose }: {
               {item.locations.length > 0 ? (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {item.locations.map((loc: any) => (
-                    <span key={loc.name} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, background: '#F4F6F9', color: '#666', border: '1px solid #E8ECF0' }}>
-                      {loc.group && `${loc.group} › `}{loc.name} <strong>{loc.qty}{item.unit}</strong>
-                    </span>
+                    <button
+                      key={loc.name}
+                      onClick={() => { onNavigate(loc.group, loc.name); onClose() }}
+                      style={{
+                        fontSize: 10, padding: '3px 10px', borderRadius: 20,
+                        background: 'rgba(108,92,231,0.08)', color: '#6C5CE7',
+                        border: '1px solid rgba(108,92,231,0.2)',
+                        cursor: 'pointer', fontWeight: 600,
+                        display: 'flex', alignItems: 'center', gap: 4
+                      }}>
+                      📍 {loc.group && `${loc.group} › `}{loc.name} <strong>{loc.qty}{item.unit}</strong>
+                      <span style={{ fontSize: 9, opacity: 0.7 }}>→ 이동</span>
+                    </button>
                   ))}
                 </div>
               ) : <div style={{ fontSize: 11, color: '#E84393' }}>재고 없음</div>}
@@ -300,10 +375,27 @@ export default function InventoryPage() {
   const [alertOpen, setAlertOpen] = useState(false)
   const [showPlaceMgr, setShowPlaceMgr] = useState(false)
   const [itemOrders, setItemOrders] = useState<Record<string, Record<string, number>>>({})
+  // 큰 카테고리 순서 (localStorage에 저장)
+  const [groupOrder, setGroupOrder] = useState<string[]>([])
+  const [isPC, setIsPC] = useState(false)
   const dragItem = useRef<string | null>(null)
   const dragOver = useRef<string | null>(null)
   const initializedRef = useRef(false)
-  const groups = useMemo(() => [...new Set(places.map(p => p.group_name).filter(Boolean))], [places])
+
+  // PC/모바일 감지
+  useEffect(() => {
+    const check = () => setIsPC(window.innerWidth >= 768)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  // groups: groupOrder 순서로 정렬
+  const groups = useMemo(() => {
+    const all = [...new Set(places.map(p => p.group_name).filter(Boolean))]
+    if (groupOrder.length === 0) return all
+    return [...groupOrder.filter(g => all.includes(g)), ...all.filter(g => !groupOrder.includes(g))]
+  }, [places, groupOrder])
 
   useEffect(() => {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
@@ -312,6 +404,9 @@ export default function InventoryPage() {
     setStoreId(store.id)
     setUserName(user.nm)
     setIsEdit(user.role === 'owner' || user.role === 'manager')
+    // 카테고리 순서 localStorage에서 복원
+    const savedGroupOrder = JSON.parse(localStorage.getItem(`inv_group_order_${store.id}`) || '[]')
+    if (savedGroupOrder.length > 0) setGroupOrder(savedGroupOrder)
     loadAll(store.id)
   }, [])
 
@@ -353,6 +448,25 @@ export default function InventoryPage() {
       om[o.place_name][o.item_id as string] = o.sort_order
     })
     setItemOrders(om)
+  }
+
+  // 카테고리 순서 변경 → localStorage 저장
+  function handleGroupReorder(newOrder: string[]) {
+    setGroupOrder(newOrder)
+    if (storeId) localStorage.setItem(`inv_group_order_${storeId}`, JSON.stringify(newOrder))
+    // 현재 선택된 그룹이 새 순서의 첫 번째와 다르면 첫 번째로 이동
+    if (newOrder.length > 0 && !newOrder.includes(group)) {
+      setGroup(newOrder[0])
+    }
+  }
+
+  // 검색 결과 클릭 → 해당 그룹+장소로 이동
+  function handleNavigate(targetGroup: string, targetPlace: string) {
+    setGroup(targetGroup)
+    setSubTab(targetPlace)
+    setShowAll(false)
+    setSearchQ('')
+    setShowSearchPanel(false)
   }
 
   const getQty = useCallback((itemId: string, place: string) => stock[itemId + '-' + place]?.quantity ?? -1, [stock])
@@ -442,7 +556,11 @@ export default function InventoryPage() {
     return order[getStatus(totalQty(a.id), a.min_qty, a.warn_qty ?? 3)] - order[getStatus(totalQty(b.id), b.min_qty, b.warn_qty ?? 3)]
   }), [totalQty])
 
-  const allGroupItems = sortByStatus(filteredBySearch(items.filter(item => places.filter(p => p.group_name === group).some(pl => hasStock(item.id, pl.name)))))
+  // ── 전체 목록: 모든 그룹/장소의 아이템을 합산해서 표시 ──
+  const allItems = sortByStatus(filteredBySearch(items.filter(item =>
+    placeNames.some(pl => hasStock(item.id, pl))
+  )))
+
   const currentItems = sortItemsByPlace(filteredBySearch(items.filter(item => hasStock(item.id, subTab))), subTab)
 
   const statusBadge = (tot: number, minQ: number, warnQ: number) => {
@@ -471,14 +589,267 @@ export default function InventoryPage() {
     </div>
   )
 
+  // ── PC 레이아웃 ──
+  if (isPC) {
+    return (
+      <div style={{ padding: '20px 28px' }}>
+        {showPlaceMgr && (
+          <PlaceManager
+            storeId={storeId}
+            onClose={() => setShowPlaceMgr(false)}
+            onSaved={() => { initializedRef.current = false; loadAll(storeId) }}
+            groupOrder={groups}
+            onGroupReorder={handleGroupReorder}
+          />
+        )}
+        {showSearchPanel && (
+          <GlobalSearchPanel
+            query={searchQ}
+            items={items}
+            places={places}
+            stock={stock}
+            onClose={() => setShowSearchPanel(false)}
+            onNavigate={handleNavigate}
+          />
+        )}
+        {editItem && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 14 }}>품목 수정</div>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>품목명</div>
+              <input value={editItem.name} onChange={e => setEditItem({ ...editItem, name: e.target.value })} style={{ ...inp, marginBottom: 10 }} />
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
+              <select value={editItem.unit} onChange={e => setEditItem({ ...editItem, unit: e.target.value })} style={{ ...inp, appearance: 'auto' as any, marginBottom: 10 }}>
+                <option value="ea">ea</option><option value="box">box</option><option value="kg">kg</option><option value="L">L</option><option value="병">병</option>
+              </select>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <div style={{ flex: 1 }}><div style={{ fontSize: 11, color: '#E84393', marginBottom: 4 }}>🔴 최소수량</div><input type="number" value={editItem.min_qty} onChange={e => setEditItem({ ...editItem, min_qty: Math.max(0, Number(e.target.value)) })} style={inp} /></div>
+                <div style={{ flex: 1 }}><div style={{ fontSize: 11, color: '#B8860B', marginBottom: 4 }}>🟡 주의수량</div><input type="number" value={editItem.warn_qty ?? 3} onChange={e => setEditItem({ ...editItem, warn_qty: Math.max(0, Number(e.target.value)) })} style={inp} /></div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={saveEditItem} style={{ flex: 1, padding: '10px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>저장</button>
+                <button onClick={() => setEditItem(null)} style={{ padding: '10px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PC 헤더 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 20, fontWeight: 700, color: '#1a1a2e' }}>📦 재고관리</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setShowLog(true)} style={{ padding: '7px 14px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 12, cursor: 'pointer' }}>변경이력</button>
+            {isEdit && <>
+              <button onClick={() => setShowPlaceMgr(true)} style={{ padding: '7px 14px', borderRadius: 8, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', color: '#2DC6D6', fontSize: 12, cursor: 'pointer' }}>📍 장소관리</button>
+              <button onClick={() => setShowAdd(p => !p)} style={{ padding: '7px 14px', borderRadius: 8, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35', fontSize: 12, cursor: 'pointer' }}>+ 품목추가</button>
+            </>}
+          </div>
+        </div>
+
+        {/* 품목 추가 */}
+        {showAdd && (
+          <div style={{ ...bx, border: '1px solid rgba(255,107,53,0.3)', marginBottom: 16, maxWidth: 480 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input value={nm} onChange={e => setNm(e.target.value)} placeholder="품목명" style={{ ...inp, flex: 2, minWidth: 120 }} />
+              <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, flex: 1, appearance: 'auto' as any, minWidth: 70 }}>
+                <option value="ea">ea</option><option value="box">box</option><option value="kg">kg</option><option value="L">L</option><option value="병">병</option>
+              </select>
+              <input type="number" value={minQty} onChange={e => setMinQty(Number(e.target.value))} placeholder="최소" style={{ ...inp, flex: 1, minWidth: 60 }} />
+              <input type="number" value={warnQty} onChange={e => setWarnQty(Number(e.target.value))} placeholder="주의" style={{ ...inp, flex: 1, minWidth: 60 }} />
+              <button onClick={addItem} style={{ padding: '8px 16px', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>등록</button>
+              <button onClick={() => setShowAdd(false)} style={{ padding: '8px 12px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer', fontSize: 12 }}>취소</button>
+            </div>
+          </div>
+        )}
+
+        {/* 재고 알림 */}
+        {(lowItems.length > 0 || warnItems.length > 0) && (
+          <div style={{ borderRadius: 12, marginBottom: 16, overflow: 'hidden', border: '1px solid rgba(232,67,147,0.25)' }}>
+            <button onClick={() => setAlertOpen(p => !p)}
+              style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#FFF0F5', border: 'none', cursor: 'pointer' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#E84393' }}>🔴 재고 부족 {lowItems.length}건</span>
+                {warnItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: '#B8860B' }}>⚠️ 주의 {warnItems.length}건</span>}
+              </div>
+              <span style={{ fontSize: 11, color: '#aaa' }}>{alertOpen ? '▲ 접기' : '▼ 펼치기'}</span>
+            </button>
+            {alertOpen && (
+              <div style={{ display: 'flex', gap: 16, padding: '10px 14px', background: '#FFF8FB' }}>
+                {lowItems.length > 0 && (
+                  <div>{lowItems.map(item => <div key={item.id} style={{ fontSize: 11, color: '#E84393', padding: '2px 0' }}>{item.name} ({totalQty(item.id)}{item.unit} / 최소 {item.min_qty}{item.unit})</div>)}</div>
+                )}
+                {warnItems.length > 0 && (
+                  <div>{warnItems.map(item => <div key={item.id} style={{ fontSize: 11, color: '#B8860B', padding: '2px 0' }}>{item.name} ({totalQty(item.id)}{item.unit})</div>)}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PC 2컬럼 레이아웃 */}
+        <div style={{ display: 'flex', gap: 20 }}>
+          {/* 좌측: 그룹/탭 + 검색 */}
+          <div style={{ width: 220, flexShrink: 0 }}>
+            {/* 검색 */}
+            <div style={{ position: 'relative', marginBottom: 12 }}>
+              <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#bbb' }}>🔍</span>
+              <input value={searchQ} onChange={e => { setSearchQ(e.target.value); if (e.target.value.trim()) setShowSearchPanel(true) }}
+                onFocus={() => { if (searchQ.trim()) setShowSearchPanel(true) }}
+                placeholder="품목 검색..."
+                style={{ ...inp, paddingLeft: 30, paddingRight: searchQ ? 30 : 10 }} />
+              {searchQ && <button onClick={() => { setSearchQ(''); setShowSearchPanel(false) }} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>}
+            </div>
+            {/* 전체 목록 버튼 */}
+            <button onClick={() => { setShowAll(p => !p); setSearchQ('') }}
+              style={{ width: '100%', padding: '8px 0', borderRadius: 8, border: showAll ? '1px solid rgba(108,92,231,0.4)' : '1px solid #E8ECF0', background: showAll ? 'rgba(108,92,231,0.08)' : '#F4F6F9', color: showAll ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: showAll ? 700 : 400, cursor: 'pointer', marginBottom: 12 }}>
+              {showAll ? '▲ 전체 목록 닫기' : '▼ 전체 목록 보기'}
+            </button>
+            {/* 그룹 탭 */}
+            {groups.map(g => (
+              <div key={g}>
+                <button onClick={() => { setGroup(g); setShowAll(false) }}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: group === g && !showAll ? '1px solid rgba(255,107,53,0.4)' : '1px solid transparent', background: group === g && !showAll ? 'rgba(255,107,53,0.08)' : 'transparent', color: group === g && !showAll ? '#FF6B35' : '#888', fontSize: 13, fontWeight: group === g && !showAll ? 700 : 400, cursor: 'pointer', textAlign: 'left', marginBottom: 2 }}>
+                  {groupEmoji[g] || '📍'} {g}
+                </button>
+                {group === g && !showAll && subPlaces.map(pl => (
+                  <button key={pl.name} onClick={() => setSubTab(pl.name)}
+                    style={{ width: '100%', padding: '7px 12px 7px 28px', borderRadius: 8, border: subTab === pl.name ? '1px solid rgba(255,107,53,0.3)' : '1px solid transparent', background: subTab === pl.name ? 'rgba(255,107,53,0.06)' : 'transparent', color: subTab === pl.name ? '#FF6B35' : '#aaa', fontSize: 12, fontWeight: subTab === pl.name ? 700 : 400, cursor: 'pointer', textAlign: 'left', marginBottom: 1 }}>
+                    {pl.name.replace(g + ' ', '').replace(g, '') || pl.name}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* 우측: 아이템 목록 */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {/* 전체 목록 */}
+            {showAll && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+                {allItems.map(item => {
+                  const tot = totalQty(item.id)
+                  const wq = item.warn_qty ?? 3
+                  const assignedPlaces = placeNames.filter(pl => hasStock(item.id, pl))
+                  return (
+                    <div key={item.id} style={{ ...bx, border: borderColor(tot, item.min_qty, wq), margin: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                          {statusBadge(tot, item.min_qty, wq)}
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: tot <= item.min_qty ? '#E84393' : tot <= wq ? '#B8860B' : '#1a1a2e' }}>{tot}</div>
+                          <div style={{ fontSize: 9, color: '#bbb' }}>최소{item.min_qty} / 주의{wq}{item.unit}</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 10, color: '#999', marginBottom: 8 }}>{assignedPlaces.map(pl => `${pl} ${getQty(item.id, pl)}`).join(' · ')} {item.unit}</div>
+                      {isEdit && (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <button onClick={() => setEditItem({ ...item, warn_qty: item.warn_qty ?? 3 })} style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>수정</button>
+                          <button onClick={() => setShowMoveItem(showMoveItem === item.id ? null : item.id)} style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.2)', color: '#2DC6D6', fontSize: 10, cursor: 'pointer' }}>장소배치</button>
+                          <button onClick={() => deleteItem(item.id, item.name)} style={{ padding: '3px 8px', borderRadius: 6, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#bbb', fontSize: 10, cursor: 'pointer' }}>삭제</button>
+                        </div>
+                      )}
+                      {showMoveItem === item.id && (
+                        <div style={{ marginTop: 8, padding: 8, borderRadius: 8, background: 'rgba(45,198,214,0.05)', border: '1px solid rgba(45,198,214,0.15)' }}>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {placeNames.map(pl => {
+                              const has = hasStock(item.id, pl)
+                              return (
+                                <button key={pl} onClick={() => has ? removeFromPlace(item.id, pl) : addToPlace(item.id, pl)}
+                                  style={{ padding: '3px 8px', borderRadius: 6, background: has ? 'rgba(255,107,53,0.1)' : '#F4F6F9', border: has ? '1px solid rgba(255,107,53,0.3)' : '1px solid #E8ECF0', color: has ? '#FF6B35' : '#888', fontSize: 10, cursor: 'pointer' }}>
+                                  {has ? '✓ ' : ''}{pl}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* 장소별 품목 */}
+            {!showAll && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+                {currentItems.length === 0 ? (
+                  <div style={{ ...bx, textAlign: 'center', padding: 32, gridColumn: '1/-1' }}>
+                    <div style={{ fontSize: 24, marginBottom: 8 }}>📦</div>
+                    <div style={{ fontSize: 13, color: '#bbb' }}>이 장소에 배치된 품목이 없습니다</div>
+                  </div>
+                ) : currentItems.map(item => {
+                  const q = getQty(item.id, subTab)
+                  const tot = totalQty(item.id)
+                  const wq = item.warn_qty ?? 3
+                  const logEntry = stock[item.id + '-' + subTab]
+                  return (
+                    <div key={item.id}
+                      draggable={isEdit}
+                      onDragStart={e => isEdit && onItemDragStart(e, item.id)}
+                      onDragEnter={() => isEdit && onItemDragEnter(item.id)}
+                      onDragEnd={() => isEdit && onItemDragEnd(currentItems, subTab)}
+                      onDragOver={e => e.preventDefault()}
+                      style={{ ...bx, border: borderColor(tot, item.min_qty, wq), cursor: isEdit ? 'grab' : 'default', margin: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {isEdit && <span style={{ fontSize: 14, color: '#ddd', flexShrink: 0 }}>☰</span>}
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                              {statusBadge(tot, item.min_qty, wq)}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>전체 {tot}{item.unit}</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <button onClick={() => updateQty(item.id, subTab, q - 1)}
+                            style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                          <input type="number" value={q < 0 ? 0 : q} onChange={e => updateQty(item.id, subTab, Number(e.target.value))}
+                            style={{ width: 52, textAlign: 'center', fontSize: 16, fontWeight: 700, color: tot <= item.min_qty ? '#E84393' : tot <= wq ? '#B8860B' : '#1a1a2e', border: '1px solid #E8ECF0', borderRadius: 7, padding: '4px 2px', background: '#fff', outline: 'none' }}
+                            onFocus={e => e.target.select()} />
+                          <button onClick={() => updateQty(item.id, subTab, q + 1)}
+                            style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                        </div>
+                      </div>
+                      {logEntry?.updated_by && (
+                        <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
+                          ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── 모바일 레이아웃 (기존 유지) ──
   return (
     <div>
       {showPlaceMgr && (
-        <PlaceManager storeId={storeId} onClose={() => setShowPlaceMgr(false)}
-          onSaved={() => { initializedRef.current = false; loadAll(storeId) }} />
+        <PlaceManager
+          storeId={storeId}
+          onClose={() => setShowPlaceMgr(false)}
+          onSaved={() => { initializedRef.current = false; loadAll(storeId) }}
+          groupOrder={groups}
+          onGroupReorder={handleGroupReorder}
+        />
       )}
       {showSearchPanel && (
-        <GlobalSearchPanel query={searchQ} items={items} places={places} stock={stock} onClose={() => setShowSearchPanel(false)} />
+        <GlobalSearchPanel
+          query={searchQ}
+          items={items}
+          places={places}
+          stock={stock}
+          onClose={() => setShowSearchPanel(false)}
+          onNavigate={handleNavigate}
+        />
       )}
 
       {/* 품목 수정 모달 */}
@@ -493,14 +864,8 @@ export default function InventoryPage() {
               <option value="ea">ea</option><option value="box">box</option><option value="kg">kg</option><option value="L">L</option><option value="병">병</option>
             </select>
             <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 11, color: '#E84393', marginBottom: 4 }}>🔴 최소수량</div>
-                <input type="number" value={editItem.min_qty} onChange={e => setEditItem({ ...editItem, min_qty: Math.max(0, Number(e.target.value)) })} style={inp} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 11, color: '#B8860B', marginBottom: 4 }}>🟡 주의수량</div>
-                <input type="number" value={editItem.warn_qty ?? 3} onChange={e => setEditItem({ ...editItem, warn_qty: Math.max(0, Number(e.target.value)) })} style={inp} />
-              </div>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 11, color: '#E84393', marginBottom: 4 }}>🔴 최소수량</div><input type="number" value={editItem.min_qty} onChange={e => setEditItem({ ...editItem, min_qty: Math.max(0, Number(e.target.value)) })} style={inp} /></div>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 11, color: '#B8860B', marginBottom: 4 }}>🟡 주의수량</div><input type="number" value={editItem.warn_qty ?? 3} onChange={e => setEditItem({ ...editItem, warn_qty: Math.max(0, Number(e.target.value)) })} style={inp} /></div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={saveEditItem} style={{ flex: 1, padding: '10px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>저장</button>
@@ -532,14 +897,8 @@ export default function InventoryPage() {
             <option value="ea">ea</option><option value="box">box</option><option value="kg">kg</option><option value="L">L</option><option value="병">병</option>
           </select>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 10, color: '#E84393', marginBottom: 3 }}>🔴 최소수량</div>
-              <input type="number" value={minQty} onChange={e => setMinQty(Number(e.target.value))} style={inp} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 10, color: '#B8860B', marginBottom: 3 }}>🟡 주의수량</div>
-              <input type="number" value={warnQty} onChange={e => setWarnQty(Number(e.target.value))} style={inp} />
-            </div>
+            <div style={{ flex: 1 }}><div style={{ fontSize: 10, color: '#E84393', marginBottom: 3 }}>🔴 최소수량</div><input type="number" value={minQty} onChange={e => setMinQty(Number(e.target.value))} style={inp} /></div>
+            <div style={{ flex: 1 }}><div style={{ fontSize: 10, color: '#B8860B', marginBottom: 3 }}>🟡 주의수량</div><input type="number" value={warnQty} onChange={e => setWarnQty(Number(e.target.value))} style={inp} /></div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={addItem} style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>등록</button>
@@ -587,7 +946,7 @@ export default function InventoryPage() {
         ))}
       </div>
 
-      {/* 전체 보기 */}
+      {/* 전체 보기 버튼 */}
       <button onClick={() => { setShowAll(p => !p); setSearchQ('') }}
         style={{ width: '100%', padding: '6px 0', borderRadius: 8, border: showAll ? '1px solid rgba(108,92,231,0.4)' : '1px solid #E8ECF0', background: showAll ? 'rgba(108,92,231,0.08)' : '#F4F6F9', color: showAll ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: showAll ? 700 : 400, cursor: 'pointer', marginBottom: 10 }}>
         {showAll ? '▲ 전체 목록 닫기' : '▼ 전체 목록 보기 (합산 · 품목수정 · 장소배치)'}
@@ -615,8 +974,8 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* 전체 목록 */}
-      {showAll && allGroupItems.map(item => {
+      {/* 전체 목록 (모든 장소 합산) */}
+      {showAll && allItems.map(item => {
         const tot = totalQty(item.id)
         const wq = item.warn_qty ?? 3
         const assignedPlaces = placeNames.filter(pl => hasStock(item.id, pl))
