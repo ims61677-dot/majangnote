@@ -57,8 +57,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   const isOwner = user?.role === 'owner'
 
-  // 출퇴근 페이지에서는 PC 풀스크린
-  const isFullWidth = pathname === '/attendance' || pathname === '/schedule'
+  // 풀스크린 페이지 목록 (PC에서 maxWidth 제한 없이 전체 너비 사용)
+  const isFullWidth = pathname === '/attendance' || pathname === '/schedule' || pathname === '/analytics'
 
   return (
     <div style={{
@@ -165,4 +165,3 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     </div>
   )
 }
-
