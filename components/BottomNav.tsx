@@ -17,6 +17,7 @@ const MORE_ITEMS = [
   { href: '/staff',      ic: '👥', l: '직원관리' },
   { href: '/goal',       ic: '🎯', l: '목표매출' },
   { href: '/attendance', ic: '🕐', l: '출퇴근' },
+  { href: '/placerank',  ic: '📍', l: '순위' },
   { href: '/mypage',     ic: '📋', l: '마이페이지' },
   { href: '/export',     ic: '📥', l: '내보내기' },
 ]
