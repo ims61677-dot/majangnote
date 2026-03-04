@@ -140,9 +140,27 @@ export default function ClosingPage() {
   const [editingReviewPlatform, setEditingReviewPlatform] = useState<any>(null)
   const [editReviewPlatformName, setEditReviewPlatformName] = useState('')
 
+  // 수정 이력 관련 상태
+  const [editLogs, setEditLogs] = useState<any[]>([])
+  const [showEditLogs, setShowEditLogs] = useState(false)
+  const [unreadEditCount, setUnreadEditCount] = useState(0)
+  const [unreadLogCount, setUnreadLogCount] = useState(0)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle'|'saving'|'saved'>('idle')
+  const prevClosingSnapshot = useRef<any>(null)
+  const autoSaveTimer = useRef<any>(null)
+  const autoSaveTimerRef = useRef<any>(null)
+
   const isManager = userRole === 'owner' || userRole === 'manager'
   const isOwner = userRole === 'owner'
   const isSaved = !!closingRef.current
+
+  // 수정 이력 관련 상태
+  const [editLogs, setEditLogs] = useState<any[]>([])
+  const [showEditLogs, setShowEditLogs] = useState(false)
+  const [unreadLogCount, setUnreadLogCount] = useState(0)
+  const prevValuesRef = useRef<Record<string, any>>({})
+  const autoSaveTimerRef = useRef<any>(null)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle'|'saving'|'saved'>('idle')
 
   useEffect(() => {
     const check = () => setIsPC(window.innerWidth >= 768)
@@ -155,7 +173,25 @@ export default function ClosingPage() {
     if (!store.id) return
     setStoreId(store.id); setUserName(user.nm || ''); setUserRole(user.role || '')
     loadBase(store.id); loadSalesMap(store.id)
+    if (user.role === 'owner') loadUnreadEditCount(store.id, user.nm || '')
   }, [])
+
+  async function loadUnreadEditCount(sid: string, uname: string) {
+    const lastSeen = localStorage.getItem(`mj_edit_log_seen_${sid}`) || '1970-01-01'
+    const { count } = await supabase.from('closing_edit_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('store_id', sid)
+      .neq('edited_by', uname)
+      .gt('edited_at', lastSeen)
+    setUnreadEditCount(count || 0)
+  }
+
+  async function loadEditLogs(closingId: string) {
+    const { data } = await supabase.from('closing_edit_logs')
+      .select('*').eq('closing_id', closingId)
+      .order('edited_at', { ascending: false }).limit(50)
+    setEditLogs(data || [])
+  }
 
   useEffect(() => { if (storeId) loadClosing(storeId, selectedDate) }, [selectedDate, storeId])
   useEffect(() => { closingRef.current = closing }, [closing])
@@ -243,8 +279,18 @@ export default function ClosingPage() {
       const rvm: Record<string, { review_count: number; reply_count: number }> = {}
       if (rv) rv.forEach((r:any) => { rvm[r.platform] = { review_count: r.review_count || 0, reply_count: r.reply_count || 0 } })
       setReviews(rvm)
-
       setShowForm(true)
+
+      // 스냅샷 저장
+      prevClosingSnapshot.current = {
+        writer: cl.writer || cl.created_by || '', closeStaff: cl.close_staff || '',
+        cancelCount: cl.cancel_count || 0, cashAmount: cl.cash_amount || 0,
+        note: cl.note || '', memo: cl.memo || '', discountAmount: cl.discount_amount || 0,
+        staffCount: cl.staff_count || 0, openTime: cl.open_time || '', closeTime: cl.close_time || '',
+        sales: sm, counts: cm, cancelCounts: ccm, reviews: rvm
+      }
+      // 수정이력 로드 (대표만)
+      if (userRole === 'owner') loadEditLogs(cl.id)
     } else {
       setClosing(null); closingRef.current = null
       setWriter(''); setCloseStaff(''); setCancelCount(0)
@@ -261,6 +307,109 @@ export default function ClosingPage() {
     setSelectedDate(d)
     const [y, m] = d.split('-').map(Number)
     setCalYear(y); setCalMonth(m-1)
+  }
+
+  // 수정 이력 기록 함수
+  async function logEdit(closingId: string, fieldName: string, oldValue: string, newValue: string) {
+    if (oldValue === newValue) return
+    await supabase.from('closing_edit_logs').insert({
+      closing_id: closingId,
+      store_id: storeId,
+      edited_by: userName,
+      field_name: fieldName,
+      old_value: String(oldValue),
+      new_value: String(newValue),
+    })
+  }
+
+  // 대표용 수정이력 로드
+  async function loadEditLogs(closingId: string) {
+    const { data } = await supabase.from('closing_edit_logs')
+      .select('*').eq('closing_id', closingId)
+      .order('edited_at', { ascending: false })
+    setEditLogs(data || [])
+    // 미확인 이력 카운트 (내가 수정한 것 제외)
+    const unread = (data || []).filter((l: any) => l.edited_by !== userName).length
+    setUnreadLogCount(unread)
+  }
+
+  // 당일 자동저장
+  async function autoSave(changedField?: string, oldVal?: string, newVal?: string) {
+    if (!storeId) return
+    const isToday = selectedDate === toDateStr(new Date())
+    if (!isToday) return // 당일만 자동저장
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    autoSaveTimerRef.current = setTimeout(async () => {
+      setAutoSaveStatus('saving')
+      try {
+        let weatherData: any = {}
+        const { data: storeData } = await supabase.from('stores').select('lat, lng').eq('id', storeId).maybeSingle()
+        if (storeData?.lat && storeData?.lng && !closingRef.current) {
+          try {
+            const res = await fetch(
+              'https://api.open-meteo.com/v1/forecast?latitude=' + storeData.lat +
+              '&longitude=' + storeData.lng +
+              '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode' +
+              '&timezone=Asia/Seoul&start_date=' + selectedDate + '&end_date=' + selectedDate
+            )
+            const wJson = await res.json()
+            if (wJson.daily) {
+              weatherData = {
+                weather_code: wJson.daily.weathercode?.[0] ?? null,
+                temp_max: wJson.daily.temperature_2m_max?.[0] ?? null,
+                temp_min: wJson.daily.temperature_2m_min?.[0] ?? null,
+              }
+            }
+          } catch (e) {}
+        }
+
+        const current = closingRef.current
+        let closingId: string
+        if (current?.id) {
+          closingId = current.id
+          await supabase.from('closings').update({
+            writer, close_staff: closeStaff, cancel_count: cancelCount,
+            cash_amount: cashAmount, note, memo, discount_amount: discountAmount,
+            staff_count: staffCount, open_time: openTime, close_time: closeTime,
+          }).eq('id', closingId)
+          // 수정이력 기록 (당일 외 수정시에만 - 당일은 일상적이라 생략하거나 기록)
+          if (changedField && oldVal !== undefined && newVal !== undefined && oldVal !== newVal) {
+            await logEdit(closingId, changedField, oldVal, newVal)
+          }
+        } else {
+          const { data, error } = await supabase.from('closings').insert({
+            store_id: storeId, closing_date: selectedDate, writer, close_staff: closeStaff,
+            cancel_count: cancelCount, cash_amount: cashAmount, note, memo,
+            discount_amount: discountAmount, created_by: userName,
+            staff_count: staffCount, open_time: openTime, close_time: closeTime,
+            ...weatherData
+          }).select().single()
+          if (error) throw error
+          closingId = data.id; setClosing(data); closingRef.current = data
+        }
+
+        // 매출/리뷰 저장
+        await supabase.from('closing_sales').delete().eq('closing_id', closingId)
+        const rows = platforms.map(p => ({
+          closing_id: closingId, platform: p.name,
+          amount: sales[p.name] || 0, count: counts[p.name] || 0,
+          cancel_count: cancelCounts[p.name] || 0, sort_order: p.sort_order
+        }))
+        if (rows.length > 0) await supabase.from('closing_sales').insert(rows)
+
+        await supabase.from('closing_reviews').delete().eq('closing_id', closingId)
+        const reviewRows = reviewPlatforms
+          .filter(p => reviews[p.name]?.review_count || reviews[p.name]?.reply_count)
+          .map(p => ({ closing_id: closingId, platform: p.name, review_count: reviews[p.name]?.review_count || 0, reply_count: reviews[p.name]?.reply_count || 0 }))
+        if (reviewRows.length > 0) await supabase.from('closing_reviews').insert(reviewRows)
+
+        const newTotal = platforms.reduce((s, p) => s + (sales[p.name]||0), 0)
+        setSalesMap(prev => ({ ...prev, [selectedDate]: newTotal }))
+        setShowForm(true)
+        setAutoSaveStatus('saved')
+        setTimeout(() => setAutoSaveStatus('idle'), 2000)
+      } catch (e) { setAutoSaveStatus('idle') }
+    }, 800)
   }
 
   async function getOrCreateClosingId(): Promise<string> {
@@ -316,6 +465,36 @@ export default function ClosingPage() {
           staff_count: staffCount, open_time: openTime, close_time: closeTime,
           ...weatherData
         }).eq('id', closingId)
+
+        // 수정이력 기록 (과거 날짜 수정시)
+        if (selectedDate !== todayStr && prevClosingSnapshot.current) {
+          const prev = prevClosingSnapshot.current
+          const fieldChecks = [
+            { label: '작성자', old: prev.writer, new: writer },
+            { label: '마감담당자', old: prev.closeStaff, new: closeStaff },
+            { label: '특이사항', old: prev.memo, new: memo },
+            { label: '클레임/특이사항', old: prev.note, new: note },
+            { label: '할인금액', old: String(prev.discountAmount||0), new: String(discountAmount) },
+            { label: '시재', old: String(prev.cashAmount||0), new: String(cashAmount) },
+            { label: '직원수', old: String(prev.staffCount||0), new: String(staffCount) },
+            { label: '오픈시간', old: prev.openTime||'', new: openTime },
+            { label: '마감시간', old: prev.closeTime||'', new: closeTime },
+          ]
+          for (const f of fieldChecks) {
+            if (f.old !== f.new) await logEdit(closingId, f.label, f.old, f.new)
+          }
+          for (const p of platforms) {
+            const prevSale = String(prev.sales?.[p.name] || 0)
+            const newSale = String(sales[p.name] || 0)
+            if (prevSale !== newSale) await logEdit(closingId, `매출-${p.name}`, `${Number(prevSale).toLocaleString()}원`, `${Number(newSale).toLocaleString()}원`)
+            const prevCount = String(prev.counts?.[p.name] || 0)
+            const newCount = String(counts[p.name] || 0)
+            if (prevCount !== newCount) await logEdit(closingId, `건수-${p.name}`, `${prevCount}건`, `${newCount}건`)
+          }
+          // 스냅샷 갱신
+          prevClosingSnapshot.current = { writer, closeStaff, memo, note, discountAmount, cashAmount, staffCount, openTime, closeTime, sales: {...sales}, counts: {...counts}, cancelCounts: {...cancelCounts}, reviews: {...reviews} }
+          await loadEditLogs(closingId)
+        }
       } else {
         const { data, error } = await supabase.from('closings').insert({
           store_id: storeId, closing_date: selectedDate, writer, close_staff: closeStaff,
@@ -459,7 +638,8 @@ export default function ClosingPage() {
   const avgPerOrder = totalCount > 0 ? Math.round(totalSales / totalCount) : 0
   const checkedCount = Object.keys(checks).length
   const todayStr = toDateStr(new Date())
-  const disabled = isSaved && !isManager && selectedDate !== todayStr
+  const isToday = selectedDate === todayStr
+  const disabled = isSaved && !isManager && !isToday
 
   const totalReviews = useMemo(() => reviewPlatforms.reduce((sum, p) => sum + (reviews[p.name]?.review_count || 0), 0), [reviewPlatforms, reviews])
   const totalReplies = useMemo(() => reviewPlatforms.reduce((sum, p) => sum + (reviews[p.name]?.reply_count || 0), 0), [reviewPlatforms, reviews])
@@ -467,7 +647,7 @@ export default function ClosingPage() {
   // ── 폼 콘텐츠 (PC/모바일 공용) ──
   const formContent = (
     <>
-      {isSaved && !isManager && (
+      {isSaved && !isManager && !isToday && (
         <div style={{ background:'rgba(253,196,0,0.1)', border:'1px solid rgba(253,196,0,0.4)', borderRadius:12, padding:'10px 14px', marginBottom:12, fontSize:12, color:'#B8860B' }}>
           🔒 저장된 마감일지는 매니저/대표만 수정 가능합니다. 체크리스트는 누구나 가능해요.
         </div>
@@ -475,16 +655,23 @@ export default function ClosingPage() {
 
       {/* 작성자 */}
       <div style={bx}>
-        <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>👤 작성자 / 영업 정보</div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+          <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>👤 작성자 / 영업 정보</span>
+          {isOwner && isSaved && (
+            <button onClick={() => setShowEditLogs(true)} style={{ position:'relative', fontSize:11, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', borderRadius:8, padding:'3px 10px', cursor:'pointer' }}>
+              📋 수정이력 {unreadLogCount > 0 && <span style={{ marginLeft:4, background:'#E84393', color:'#fff', borderRadius:10, fontSize:10, padding:'0 5px' }}>{unreadLogCount}</span>}
+            </button>
+          )}
+        </div>
         <div style={{ display:'grid', gridTemplateColumns: isPC ? '1fr 1fr 1fr 80px 80px' : '1fr 1fr', gap:8 }}>
           <div>
             <span style={lbl}>작성자</span>
-            <input value={writer} onChange={e => setWriter(e.target.value)} placeholder="작성자" disabled={disabled}
+            <input value={writer} onChange={e => setWriter(e.target.value)} onBlur={() => isToday && autoSave('작성자', prevValuesRef.current.writer, writer)} placeholder="작성자" disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
           <div>
             <span style={lbl}>마감 담당자</span>
-            <input value={closeStaff} onChange={e => setCloseStaff(e.target.value)} placeholder="마감 담당자" disabled={disabled}
+            <input value={closeStaff} onChange={e => setCloseStaff(e.target.value)} onBlur={() => isToday && autoSave()} placeholder="마감 담당자" disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
           <div>
@@ -525,12 +712,15 @@ export default function ClosingPage() {
             <span style={{ fontSize:12, color:'#555', fontWeight:600 }}>{p.name}</span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
               <input type="number" value={sales[p.name]||''} onChange={e => setSales(prev => ({ ...prev, [p.name]: Number(e.target.value) }))}
+                onBlur={() => isToday && autoSave()}
                 placeholder="0" disabled={disabled} style={{ ...inp, textAlign:'right', padding:'6px 8px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:10, color:'#aaa', flexShrink:0 }}>원</span>
             </div>
             <input type="number" value={counts[p.name]||''} onChange={e => setCounts(prev => ({ ...prev, [p.name]: Number(e.target.value) }))}
+              onBlur={() => isToday && autoSave()}
               placeholder="0" disabled={disabled} style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
             <input type="number" value={cancelCounts[p.name]||''} onChange={e => setCancelCounts(prev => ({ ...prev, [p.name]: Number(e.target.value) }))}
+              onBlur={() => isToday && autoSave()}
               placeholder="0" disabled={disabled} style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'rgba(232,67,147,0.04)', border:'1px solid rgba(232,67,147,0.2)' }} />
           </div>
         ))}
@@ -563,7 +753,7 @@ export default function ClosingPage() {
           <div style={{ flex:1 }}>
             <span style={lbl}>할인/프로모션 금액</span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <input type="number" value={discountAmount||''} onChange={e => setDiscountAmount(Number(e.target.value))} placeholder="0" disabled={disabled}
+              <input type="number" value={discountAmount||''} onChange={e => setDiscountAmount(Number(e.target.value))} onBlur={() => isToday && autoSave()} placeholder="0" disabled={disabled}
                 style={{ ...inp, textAlign:'right', background: disabled?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
             </div>
@@ -575,7 +765,7 @@ export default function ClosingPage() {
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>💵 시재</div>
         <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-          <input type="number" value={cashAmount||''} onChange={e => setCashAmount(Number(e.target.value))} placeholder="마감 시재 금액 입력" disabled={disabled}
+          <input type="number" value={cashAmount||''} onChange={e => setCashAmount(Number(e.target.value))} onBlur={() => isToday && autoSave()} placeholder="마감 시재 금액 입력" disabled={disabled}
             style={{ ...inp, textAlign:'right', background: disabled?'#F4F6F9':'#F8F9FB' }} />
           <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
         </div>
@@ -602,12 +792,14 @@ export default function ClosingPage() {
                   <span style={{ fontSize:9, color:'#aaa', display:'block', marginBottom:3 }}>리뷰 수</span>
                   <input type="number" value={reviews[p.name]?.review_count||''} disabled={disabled}
                     onChange={e => setReviews(prev => ({ ...prev, [p.name]: { ...prev[p.name], review_count: Number(e.target.value), reply_count: prev[p.name]?.reply_count||0 } }))}
+                    onBlur={() => isToday && autoSave()}
                     placeholder="0" style={{ ...inp, textAlign:'center', padding:'5px 4px', fontSize:13, fontWeight:700, background: disabled?'#F4F6F9':'#fff', color:'#FF6B35' }} />
                 </div>
                 <div style={{ flex:1 }}>
                   <span style={{ fontSize:9, color:'#aaa', display:'block', marginBottom:3 }}>답글 수</span>
                   <input type="number" value={reviews[p.name]?.reply_count||''} disabled={disabled}
                     onChange={e => setReviews(prev => ({ ...prev, [p.name]: { review_count: prev[p.name]?.review_count||0, reply_count: Number(e.target.value) } }))}
+                    onBlur={() => isToday && autoSave()}
                     placeholder="0" style={{ ...inp, textAlign:'center', padding:'5px 4px', fontSize:13, fontWeight:700, background: disabled?'#F4F6F9':'#fff', color:'#00B894' }} />
                 </div>
               </div>
@@ -620,7 +812,7 @@ export default function ClosingPage() {
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📌 특이사항 메모</div>
         <div style={{ fontSize:10, color:'#aaa', marginBottom:8 }}>이벤트, 행사, 날씨, 특이 상황 등 — 분석탭에서 매출과 연결됩니다</div>
-        <textarea value={memo} onChange={e => setMemo(e.target.value)} placeholder="오늘의 특이사항을 기록하세요 (이벤트, 날씨, 행사 등)" disabled={disabled}
+        <textarea value={memo} onChange={e => setMemo(e.target.value)} onBlur={() => isToday && autoSave()} placeholder="오늘의 특이사항을 기록하세요 (이벤트, 날씨, 행사 등)" disabled={disabled}
           style={{ ...inp, minHeight:70, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
       </div>
 
@@ -690,7 +882,7 @@ export default function ClosingPage() {
       {/* 클레임/특이사항 */}
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📝 클레임/특이사항</div>
-        <textarea value={note} onChange={e => setNote(e.target.value)} placeholder={disabled?'':'오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={disabled}
+        <textarea value={note} onChange={e => setNote(e.target.value)} onBlur={() => isToday && autoSave()} placeholder={disabled?'':'오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={disabled}
           style={{ ...inp, minHeight:80, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
       </div>
 
@@ -735,14 +927,70 @@ export default function ClosingPage() {
         </div>
       </div>
 
-      {(!isSaved || isManager) ? (
-        <button onClick={saveClosing} disabled={isSaving}
-          style={{ width:'100%', padding:'15px 0', borderRadius:14, background: isSaving?'#ddd':'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor: isSaving?'not-allowed':'pointer', marginBottom:24 }}>
-          {isSaving ? '저장 중...' : isSaved ? '✏️ 마감일지 수정 저장' : '💾 마감일지 저장'}
-        </button>
+      {isToday ? (
+        // 당일: 자동저장 표시 + 대표는 수정이력 버튼
+        <div style={{ marginBottom:24 }}>
+          <div style={{ width:'100%', padding:'14px 16px', borderRadius:14, background: autoSaveStatus==='saved'?'rgba(0,184,148,0.08)':autoSaveStatus==='saving'?'rgba(255,107,53,0.06)':'#F8F9FB', border:`1px solid ${autoSaveStatus==='saved'?'rgba(0,184,148,0.3)':autoSaveStatus==='saving'?'rgba(255,107,53,0.2)':'#E8ECF0'}`, color: autoSaveStatus==='saved'?'#00B894':autoSaveStatus==='saving'?'#FF6B35':'#bbb', fontSize:13, fontWeight:600, textAlign:'center' }}>
+            {autoSaveStatus==='saving'?'💾 자동 저장 중...':autoSaveStatus==='saved'?'✅ 자동 저장됨':isSaved?'✅ 저장됨 · 입력하면 자동 저장':'✏️ 입력하면 자동으로 저장돼요'}
+          </div>
+          {isSaved && isOwner && (
+            <button onClick={() => { setShowEditLogs(true); if(closingRef.current) loadEditLogs(closingRef.current.id); localStorage.setItem(`mj_edit_log_seen_${storeId}`, new Date().toISOString()); setUnreadLogCount(0); setUnreadEditCount(0) }}
+              style={{ width:'100%', marginTop:8, padding:'10px 0', borderRadius:12, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.25)', color:'#6C5CE7', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+              📋 수정 이력 보기
+              {unreadLogCount > 0 && <span style={{ background:'#E84393', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10, fontWeight:700 }}>새 이력 {unreadLogCount}건</span>}
+            </button>
+          )}
+        </div>
+      ) : (!isSaved || isManager) ? (
+        <div style={{ marginBottom:24 }}>
+          <button onClick={saveClosing} disabled={isSaving}
+            style={{ width:'100%', padding:'15px 0', borderRadius:14, background: isSaving?'#ddd':'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor: isSaving?'not-allowed':'pointer' }}>
+            {isSaving ? '저장 중...' : isSaved ? '✏️ 마감일지 수정 저장' : '💾 마감일지 저장'}
+          </button>
+          {isSaved && isOwner && (
+            <button onClick={() => { setShowEditLogs(true); if(closingRef.current) loadEditLogs(closingRef.current.id); localStorage.setItem(`mj_edit_log_seen_${storeId}`, new Date().toISOString()); setUnreadLogCount(0); setUnreadEditCount(0) }}
+              style={{ width:'100%', marginTop:8, padding:'10px 0', borderRadius:12, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.25)', color:'#6C5CE7', fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+              📋 수정 이력 보기
+              {unreadLogCount > 0 && <span style={{ background:'#E84393', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10, fontWeight:700 }}>새 이력 {unreadLogCount}건</span>}
+            </button>
+          )}
+        </div>
       ) : (
         <div style={{ width:'100%', padding:'15px 0', borderRadius:14, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#bbb', fontSize:14, fontWeight:600, textAlign:'center', marginBottom:24 }}>
           🔒 저장된 일지 수정은 매니저/대표만 가능합니다
+        </div>
+      )}
+
+      {/* 수정이력 모달 (대표만) */}
+      {showEditLogs && isOwner && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+          <div style={{ background:'#fff', width:'100%', maxWidth:520, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'80vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <div>
+                <span style={{ fontSize:15, fontWeight:700 }}>📋 수정 이력</span>
+                <span style={{ fontSize:11, color:'#aaa', marginLeft:8 }}>{selectedDate}</span>
+              </div>
+              <button onClick={() => setShowEditLogs(false)} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
+            </div>
+            {editLogs.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'40px 0', color:'#ccc', fontSize:13 }}>수정 이력이 없어요</div>
+            ) : editLogs.map((log: any) => (
+              <div key={log.id} style={{ borderRadius:12, border:'1px solid #E8ECF0', padding:'12px 14px', marginBottom:8, background:'#FAFBFC' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{log.edited_by}</span>
+                  <span style={{ fontSize:10, color:'#aaa' }}>{new Date(log.edited_at).toLocaleString('ko', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false })}</span>
+                </div>
+                <div style={{ fontSize:12, color:'#555', marginBottom:4 }}>
+                  <span style={{ fontWeight:600, color:'#6C5CE7' }}>{log.field_name}</span> 변경
+                </div>
+                <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                  <span style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.07)', padding:'3px 9px', borderRadius:8, textDecoration:'line-through' }}>{log.old_value || '(없음)'}</span>
+                  <span style={{ fontSize:11, color:'#aaa' }}>→</span>
+                  <span style={{ fontSize:11, color:'#00B894', background:'rgba(0,184,148,0.07)', padding:'3px 9px', borderRadius:8 }}>{log.new_value || '(없음)'}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </>
@@ -835,6 +1083,12 @@ export default function ClosingPage() {
         <div style={{ padding:'0 8px' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
             <span style={{ fontSize:20, fontWeight:700, color:'#1a1a2e' }}>📋 마감일지</span>
+            {isOwner && unreadEditCount > 0 && (
+              <button onClick={() => { setShowEditLogs(true); if(closingRef.current) loadEditLogs(closingRef.current.id); localStorage.setItem(`mj_edit_log_seen_${storeId}`, new Date().toISOString()); setUnreadEditCount(0); setUnreadLogCount(0) }}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:10, background:'rgba(232,67,147,0.1)', border:'1px solid rgba(232,67,147,0.3)', color:'#E84393', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                🔔 수정 알림 <span style={{ background:'#E84393', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10 }}>{unreadEditCount}</span>
+              </button>
+            )}
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'340px 1fr', gap:20, alignItems:'start' }}>
             {/* 좌측: 달력 + 상태 */}
@@ -867,6 +1121,12 @@ export default function ClosingPage() {
         <div>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
             <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>📋 마감일지</span>
+            {isOwner && unreadEditCount > 0 && (
+              <button onClick={() => { setShowEditLogs(true); if(closingRef.current) loadEditLogs(closingRef.current.id); localStorage.setItem(`mj_edit_log_seen_${storeId}`, new Date().toISOString()); setUnreadEditCount(0); setUnreadLogCount(0) }}
+                style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 10px', borderRadius:9, background:'rgba(232,67,147,0.1)', border:'1px solid rgba(232,67,147,0.3)', color:'#E84393', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                🔔 <span style={{ background:'#E84393', color:'#fff', borderRadius:8, padding:'1px 6px', fontSize:10 }}>{unreadEditCount}</span>
+              </button>
+            )}
           </div>
           <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} weatherMap={weatherMap} selectedDate={selectedDate}
             onSelectDate={handleSelectDate} onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }} />
