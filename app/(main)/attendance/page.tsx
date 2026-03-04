@@ -446,7 +446,11 @@ export default function AttendancePage() {
     const noClockInMap:  Record<string, number> = {}
     ;(monthAtt || []).forEach((a: any) => {
       const pid = a.profile_id
-      if (a.status==='late'||a.status==='late_early') lateMap[pid] = (lateMap[pid]||0)+1
+      // ★ 기준시간 기반 실시간 재계산
+      const info = Object.values(nameToInfo).find((v: any) => v.id === pid) as any
+      const isLate = info?.expected_in && a.clock_in
+        ? tsToMinutes(a.clock_in) > timeToMinutes(info.expected_in) : false
+      if (isLate) lateMap[pid] = (lateMap[pid]||0)+1
       if (isPastDate(a.work_date, today) && a.clock_in && !a.clock_out && a.status!=='absent' && a.status!=='no_clockin')
         noClockOutMap[pid] = (noClockOutMap[pid]||0)+1
       if (a.status==='no_clockin'||a.status==='absent')
@@ -459,8 +463,11 @@ export default function AttendancePage() {
       const att  = attMap[pid] || null
       let status = 'pending'
       if (att) {
-        const isLate  = info.expected_in  ? tsToMinutes(att.clock_in) > timeToMinutes(info.expected_in)   : (att.is_late||false)
-        const isEarly = info.expected_out && att.clock_out ? tsToMinutes(att.clock_out) < timeToMinutes(info.expected_out) : false
+        // ★ 기준시간 기반 항상 실시간 재계산 (DB의 is_late 사용 안 함)
+        const isLate  = info.expected_in && att.clock_in
+          ? tsToMinutes(att.clock_in)  > timeToMinutes(info.expected_in)  : false
+        const isEarly = info.expected_out && att.clock_out
+          ? tsToMinutes(att.clock_out) < timeToMinutes(info.expected_out) : false
         if (att.clock_out) {
           if (isLate && isEarly) status='late_early'
           else if (isLate)  status='late'
@@ -589,21 +596,34 @@ export default function AttendancePage() {
     }).filter(x => x.rec)
   }
 
-  // ★ 월별 통계: 정상/지각/조기퇴근/결근/퇴근누락/출근누락
+  // ★ 월별 통계: 기준시간 기반 실시간 재계산
   const monthStats = useMemo(() => {
     const stats: Record<string, { normal:number; late:number; early:number; absent:number; late_early:number; no_clockout:number; no_clockin:number }> = {}
     visibleStaff.forEach(s => { stats[s.id]={ normal:0, late:0, early:0, absent:0, late_early:0, no_clockout:0, no_clockin:0 } })
+    // staffId → expected 시간 맵
+    const expMap: Record<string, { in:string; out:string }> = {}
+    visibleStaff.forEach(s => { expMap[s.id] = { in: s.expected_in||'', out: s.expected_out||'' } })
+
     allAttData.forEach(r => {
       if (!stats[r.profile_id]) return
-      const st = r.status||'normal'
-      if      (st==='normal')    stats[r.profile_id].normal++
-      else if (st==='late')      stats[r.profile_id].late++
-      else if (st==='early')     stats[r.profile_id].early++
-      else if (st==='absent')    { stats[r.profile_id].absent++; stats[r.profile_id].no_clockin++ }
-      else if (st==='late_early') stats[r.profile_id].late_early++
-      else if (st==='no_clockin') stats[r.profile_id].no_clockin++
+      const exp = expMap[r.profile_id] || { in:'', out:'' }
+      const st  = r.status || 'normal'
+
+      // 결근/출근누락은 DB status 그대로
+      if (st==='absent')     { stats[r.profile_id].absent++; stats[r.profile_id].no_clockin++; return }
+      if (st==='no_clockin') { stats[r.profile_id].no_clockin++; return }
+
+      // 기준시간 있으면 실시간 재계산, 없으면 정상 처리
+      const isLate  = exp.in  && r.clock_in  ? tsToMinutes(r.clock_in)  > timeToMinutes(exp.in)  : false
+      const isEarly = exp.out && r.clock_out ? tsToMinutes(r.clock_out) < timeToMinutes(exp.out) : false
+
+      if      (isLate && isEarly) stats[r.profile_id].late_early++
+      else if (isLate)            stats[r.profile_id].late++
+      else if (isEarly)           stats[r.profile_id].early++
+      else                        stats[r.profile_id].normal++
+
       // 당일 지난 기록 중 퇴근 없으면 퇴근누락
-      if (isPastDate(r.work_date, today) && r.clock_in && !r.clock_out && st!=='absent' && st!=='no_clockin')
+      if (isPastDate(r.work_date, today) && r.clock_in && !r.clock_out)
         stats[r.profile_id].no_clockout++
     })
     return stats
@@ -744,17 +764,22 @@ export default function AttendancePage() {
             {/* ★ 본인 이번달 근태 요약 카드 */}
             {(() => {
               if (myMonthData.length === 0) return null
+              const myInfo = staffList.find(s => s.id === profileId)
+              const expIn  = myInfo?.expected_in  || ''
+              const expOut = myInfo?.expected_out || ''
               const stat = { normal:0, late:0, early:0, late_early:0, no_clockout:0, no_clockin:0, absent:0 }
               myMonthData.forEach(r => {
                 const st = r.status || 'normal'
-                if      (st==='normal')     stat.normal++
-                else if (st==='late')       stat.late++
-                else if (st==='early')      stat.early++
-                else if (st==='late_early') stat.late_early++
-                else if (st==='absent')     { stat.absent++; stat.no_clockin++ }
-                else if (st==='no_clockin') stat.no_clockin++
-                if (isPastDate(r.work_date, today) && r.clock_in && !r.clock_out
-                    && st!=='absent' && st!=='no_clockin') stat.no_clockout++
+                if (st==='absent')     { stat.absent++; stat.no_clockin++; return }
+                if (st==='no_clockin') { stat.no_clockin++; return }
+                // ★ 기준시간 기반 실시간 재계산
+                const isLate  = expIn  && r.clock_in  ? tsToMinutes(r.clock_in)  > timeToMinutes(expIn)  : false
+                const isEarly = expOut && r.clock_out ? tsToMinutes(r.clock_out) < timeToMinutes(expOut) : false
+                if      (isLate && isEarly) stat.late_early++
+                else if (isLate)            stat.late++
+                else if (isEarly)           stat.early++
+                else                        stat.normal++
+                if (isPastDate(r.work_date, today) && r.clock_in && !r.clock_out) stat.no_clockout++
               })
               const totalLate  = stat.late + stat.late_early
               const totalEarly = stat.early + stat.late_early
