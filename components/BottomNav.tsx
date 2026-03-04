@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const TABS = [
   { href: '/dash',     ic: '📊', l: '대시' },
@@ -11,22 +12,44 @@ const TABS = [
 ]
 
 const MORE_ITEMS = [
-  { href: '/analytics',  ic: '📈', l: '분석' },
-  { href: '/inventory',  ic: '📦', l: '재고' },
-  { href: '/recipe',     ic: '🍳', l: '레시피' },
-  { href: '/staff',      ic: '👥', l: '직원관리' },
-  { href: '/goal',       ic: '🎯', l: '목표매출' },
-  { href: '/attendance', ic: '🕐', l: '출퇴근' },
-  { href: '/placerank',  ic: '📍', l: '순위' },
-  { href: '/mypage',     ic: '📋', l: '마이페이지' },
-  { href: '/export',     ic: '📥', l: '내보내기' },
+  { href: '/analytics',   ic: '📈', l: '분석' },
+  { href: '/inventory',   ic: '📦', l: '재고' },
+  { href: '/recipe',      ic: '🍳', l: '레시피' },
+  { href: '/staff',       ic: '👥', l: '직원관리' },
+  { href: '/goal',        ic: '🎯', l: '목표매출' },
+  { href: '/attendance',  ic: '🕐', l: '출퇴근' },
+  { href: '/placerank',   ic: '📍', l: '순위' },
+  { href: '/suggestions', ic: '💬', l: '건의&제보' },  // ← 추가
+  { href: '/mypage',      ic: '📋', l: '마이페이지' },
+  { href: '/export',      ic: '📥', l: '내보내기' },
 ]
 
 const MORE_PATHS = MORE_ITEMS.map(m => m.href)
 
 export default function BottomNav({ current }: { current: string }) {
   const [showMore, setShowMore] = useState(false)
+  const [badge, setBadge] = useState(0)
   const isMore = MORE_PATHS.some(p => current.startsWith(p))
+
+  useEffect(() => {
+    loadBadge()
+  }, [current])
+
+  async function loadBadge() {
+    try {
+      const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
+      const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
+      if (!store.id || !user.nm) return
+      const supabase = createSupabaseBrowserClient()
+      const { count } = await supabase
+        .from('suggestion_notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('store_id', store.id)
+        .eq('target_name', user.nm)
+        .eq('is_read', false)
+      setBadge(count || 0)
+    } catch {}
+  }
 
   return (
     <>
@@ -54,30 +77,49 @@ export default function BottomNav({ current }: { current: string }) {
           boxShadow: '0 -4px 24px rgba(0,0,0,0.12)',
           display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8,
         }}>
-          {MORE_ITEMS.map(item => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setShowMore(false)}
-              style={{ textDecoration: 'none' }}
-            >
-              <div style={{
-                textAlign: 'center', padding: '14px 8px', borderRadius: 14,
-                background: current.startsWith(item.href) ? '#FFF0EB' : '#F8F9FB',
-                border: `1px solid ${current.startsWith(item.href) ? '#FF6B35' : '#E8ECF0'}`,
-                cursor: 'pointer',
-              }}>
-                <div style={{ fontSize: 22 }}>{item.ic}</div>
+          {MORE_ITEMS.map(item => {
+            const isSuggestions = item.href === '/suggestions'
+            const isActive = current.startsWith(item.href)
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setShowMore(false)}
+                style={{ textDecoration: 'none' }}
+              >
                 <div style={{
-                  fontSize: 10, marginTop: 4,
-                  color: current.startsWith(item.href) ? '#FF6B35' : '#888',
-                  fontWeight: current.startsWith(item.href) ? 700 : 500,
+                  textAlign: 'center', padding: '14px 8px', borderRadius: 14,
+                  background: isActive ? '#FFF0EB' : '#F8F9FB',
+                  border: `1px solid ${isActive ? '#FF6B35' : '#E8ECF0'}`,
+                  cursor: 'pointer',
+                  position: 'relative',
                 }}>
-                  {item.l}
+                  <div style={{ fontSize: 22, position: 'relative', display: 'inline-block' }}>
+                    {item.ic}
+                    {/* 건의&제보 알림 뱃지 */}
+                    {isSuggestions && badge > 0 && (
+                      <span style={{
+                        position: 'absolute', top: -4, right: -8,
+                        minWidth: 16, height: 16, borderRadius: 8,
+                        background: '#FF6B35', color: '#fff',
+                        fontSize: 9, fontWeight: 700,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        padding: '0 3px',
+                        border: '1.5px solid #fff',
+                      }}>{badge > 9 ? '9+' : badge}</span>
+                    )}
+                  </div>
+                  <div style={{
+                    fontSize: 10, marginTop: 4,
+                    color: isActive ? '#FF6B35' : '#888',
+                    fontWeight: isActive ? 700 : 500,
+                  }}>
+                    {item.l}
+                  </div>
                 </div>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            )
+          })}
         </div>
       )}
 
@@ -98,9 +140,23 @@ export default function BottomNav({ current }: { current: string }) {
               <div
                 key="/more"
                 onClick={() => setShowMore(v => !v)}
-                style={{ textAlign: 'center', padding: '4px 8px', cursor: 'pointer', minWidth: 52 }}
+                style={{ textAlign: 'center', padding: '4px 8px', cursor: 'pointer', minWidth: 52, position: 'relative' }}
               >
-                <div style={{ fontSize: 18 }}>{t.ic}</div>
+                <div style={{ fontSize: 18, position: 'relative', display: 'inline-block' }}>
+                  {t.ic}
+                  {/* 더보기 버튼에도 뱃지 */}
+                  {badge > 0 && (
+                    <span style={{
+                      position: 'absolute', top: -4, right: -8,
+                      minWidth: 14, height: 14, borderRadius: 7,
+                      background: '#FF6B35', color: '#fff',
+                      fontSize: 8, fontWeight: 700,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: '0 2px',
+                      border: '1.5px solid #fff',
+                    }}>{badge > 9 ? '9+' : badge}</span>
+                  )}
+                </div>
                 <div style={{
                   fontSize: 10, marginTop: 2,
                   color: active ? '#FF6B35' : '#aaa',
