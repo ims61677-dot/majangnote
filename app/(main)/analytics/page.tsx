@@ -30,19 +30,40 @@ function weatherIcon(code: number): string {
 function MonthNav({ year, month, onChange }: { year:number; month:number; onChange:(y:number,m:number)=>void }) {
   function go(delta: number) {
     let m = month + delta, y = year
-    if (m < 0) { y--; m = 11 } else if (m > 11) { y++; m = 0 }
+    while (m < 0) { y--; m += 12 }
+    while (m > 11) { y++; m -= 12 }
     onChange(y, m)
   }
   const now = new Date()
   const isCurrent = year === now.getFullYear() && month === now.getMonth()
+  const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
+  const years = Array.from({length:6}, (_,i) => now.getFullYear()-2+i)
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-      <button onClick={() => onChange(year-1, month)} style={{ padding:'3px 7px', borderRadius:6, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:11, color:'#888', fontWeight:600 }}>‹‹ {year-1}</button>
-      <button onClick={() => go(-1)} style={{ width:30, height:30, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>‹</button>
-      <span style={{ fontSize:17, fontWeight:800, color:'#1a1a2e', minWidth:96, textAlign:'center' }}>{year}년 {month+1}월</span>
-      <button onClick={() => go(1)} style={{ width:30, height:30, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>›</button>
-      <button onClick={() => onChange(year+1, month)} style={{ padding:'3px 7px', borderRadius:6, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:11, color:'#888', fontWeight:600 }}>{year+1} ››</button>
-      {!isCurrent && <button onClick={() => onChange(now.getFullYear(), now.getMonth())} style={{ padding:'3px 9px', borderRadius:8, border:'1px solid rgba(255,107,53,0.4)', background:'rgba(255,107,53,0.08)', cursor:'pointer', fontSize:11, color:'#FF6B35', fontWeight:700 }}>이번달</button>}
+    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+        <button onClick={() => go(-3)} style={{ padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:12, color:'#888', fontWeight:700 }}>«3</button>
+        <button onClick={() => go(-1)} style={{ width:32, height:32, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>‹</button>
+        <span style={{ fontSize:17, fontWeight:800, color:'#1a1a2e', minWidth:100, textAlign:'center' }}>{year}년 {month+1}월</span>
+        <button onClick={() => go(1)} style={{ width:32, height:32, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>›</button>
+        <button onClick={() => go(3)} style={{ padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:12, color:'#888', fontWeight:700 }}>3»</button>
+        {!isCurrent && <button onClick={() => onChange(now.getFullYear(), now.getMonth())} style={{ padding:'5px 12px', borderRadius:8, border:'1px solid rgba(255,107,53,0.4)', background:'rgba(255,107,53,0.08)', cursor:'pointer', fontSize:12, color:'#FF6B35', fontWeight:700 }}>이번달</button>}
+      </div>
+      <div style={{ display:'flex', gap:4, flexWrap:'wrap', alignItems:'center' }}>
+        {years.map(y => (
+          <button key={y} onClick={() => onChange(y, month)}
+            style={{ padding:'4px 10px', borderRadius:8, border:'none',
+              background:y===year?'linear-gradient(135deg,#FF6B35,#E84393)':'#F0F2F5',
+              color:y===year?'#fff':'#888', fontSize:11, fontWeight:700, cursor:'pointer' }}>{y}</button>
+        ))}
+      </div>
+      <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+        {months.map((ml,mi) => (
+          <button key={mi} onClick={() => onChange(year, mi)}
+            style={{ padding:'4px 8px', borderRadius:8, border:'none',
+              background:mi===month?'linear-gradient(135deg,#FF6B35,#E84393)':'#F0F2F5',
+              color:mi===month?'#fff':'#888', fontSize:11, fontWeight:600, cursor:'pointer' }}>{ml}</button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -439,9 +460,22 @@ export default function AnalyticsPage() {
             {prevTotal > 0 && <div style={{ fontSize:11, marginTop:4, color:totalSales>=prevTotal?'#00B894':'#E84393', fontWeight:700 }}>{totalSales>=prevTotal?'▲':'▼'} {Math.abs(Math.round(((totalSales-prevTotal)/prevTotal)*100))}% 전월비</div>}
           </div>
           <div style={{ background:'#fff', borderRadius:14, padding:'16px', border:'1px solid rgba(108,92,231,0.2)' }}>
-            <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>객단가</div>
+            <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>종합 객단가</div>
             <div style={{ fontSize:24, fontWeight:900, color:'#6C5CE7' }}>{fmtW(avgUnit)}</div>
             <div style={{ fontSize:11, marginTop:4, color:'#aaa' }}>총 {totalCount}건</div>
+            {platforms.filter(p=>p.count>0).length>0 && (
+              <div style={{ marginTop:8, borderTop:'1px solid #F4F6F9', paddingTop:8 }}>
+                {platforms.filter(p=>p.count>0).map(p => (
+                  <div key={p.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                      <div style={{ width:6, height:6, borderRadius:2, background:p.color, flexShrink:0 }} />
+                      <span style={{ fontSize:10, color:'#888' }}>{p.name}</span>
+                    </div>
+                    <span style={{ fontSize:11, fontWeight:700, color:p.color }}>{fmtW(Math.round(p.amount/p.count))}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div style={{ display:'grid', gridTemplateColumns:isPC?'repeat(4,1fr)':'repeat(2,1fr)', gap:8 }}>
@@ -531,6 +565,89 @@ export default function AnalyticsPage() {
           </div>
         </div>
       )}
+
+      {/* 리뷰 × 매출 분석 */}
+      {(()=>{
+        const totalReviewsMonth = daily.reduce((s,d)=>s+d.totalReviews,0)
+        const totalRepliesMonth = daily.reduce((s,d)=>s+d.totalReplies,0)
+        if(totalReviewsMonth===0) return null
+        const reviewDays = daily.filter(d=>d.totalReviews>0)
+        const noReviewDays = daily.filter(d=>d.totalReviews===0&&d.amount>0)
+        const replyRate = Math.round((totalRepliesMonth/totalReviewsMonth)*100)
+        const reviewDayAvg = reviewDays.length>0?Math.round(reviewDays.reduce((s,d)=>s+d.amount,0)/reviewDays.length):0
+        const noReviewDayAvg = noReviewDays.length>0?Math.round(noReviewDays.reduce((s,d)=>s+d.amount,0)/noReviewDays.length):0
+        return (
+          <div style={bx}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:12 }}>⭐ 리뷰 × 매출 분석</div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:12 }}>
+              {[
+                {label:'이달 리뷰 수',value:`${totalReviewsMonth}건`,color:'#FF6B35'},
+                {label:'답글 수',value:`${totalRepliesMonth}건`,color:'#00B894'},
+                {label:'답글률',value:`${replyRate}%`,color:replyRate>=80?'#00B894':replyRate>=50?'#FDC400':'#E84393'},
+              ].map(s=>(
+                <div key={s.label} style={{ background:'#F8F9FB', borderRadius:10, padding:'10px 12px', border:'1px solid #E8ECF0' }}>
+                  <div style={{ fontSize:9, color:'#aaa', marginBottom:3 }}>{s.label}</div>
+                  <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+            {reviewDayAvg>0&&noReviewDayAvg>0&&(
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+                <div style={{ background:'rgba(0,184,148,0.07)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(0,184,148,0.2)' }}>
+                  <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>리뷰 있는 날 평균</div>
+                  <div style={{ fontSize:15, fontWeight:800, color:'#00B894' }}>{fmtW(reviewDayAvg)}</div>
+                </div>
+                <div style={{ background:'rgba(232,67,147,0.06)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(232,67,147,0.15)' }}>
+                  <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>리뷰 없는 날 평균</div>
+                  <div style={{ fontSize:15, fontWeight:800, color:'#E84393' }}>{fmtW(noReviewDayAvg)}</div>
+                </div>
+              </div>
+            )}
+            {replyRate<80&&(
+              <div style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.06)', borderRadius:8, padding:'7px 10px' }}>
+                ⚠️ 미답글 {Math.max(totalReviewsMonth-totalRepliesMonth,0)}건 — 답글률을 높이면 재방문율이 올라가요
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* 메모/컴플레인 × 매출 분석 */}
+      {(()=>{
+        const memoDays = daily.filter(d=>d.memo)
+        const noteDays = daily.filter(d=>d.note)
+        if(memoDays.length===0&&noteDays.length===0) return null
+        const normalDays = daily.filter(d=>!d.memo&&!d.note&&d.amount>0)
+        const memoAvg = memoDays.length>0?Math.round(memoDays.reduce((s,d)=>s+d.amount,0)/memoDays.length):0
+        const noteAvg = noteDays.length>0?Math.round(noteDays.reduce((s,d)=>s+d.amount,0)/noteDays.length):0
+        const normalAvg = normalDays.length>0?Math.round(normalDays.reduce((s,d)=>s+d.amount,0)/normalDays.length):0
+        const colCount = [normalAvg>0, memoAvg>0, noteAvg>0].filter(Boolean).length
+        return (
+          <div style={bx}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>📌 메모/컴플레인 × 매출 영향</div>
+            <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>특이사항이 있는 날과 없는 날의 매출을 비교해요</div>
+            <div style={{ display:'grid', gridTemplateColumns:`repeat(${colCount},1fr)`, gap:8, marginBottom:12 }}>
+              {normalAvg>0&&<div style={{ background:'#F8F9FB', borderRadius:10, padding:'10px 12px', border:'1px solid #E8ECF0' }}>
+                <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>평상시 ({normalDays.length}일)</div>
+                <div style={{ fontSize:14, fontWeight:800, color:'#555' }}>{fmtW(normalAvg)}</div>
+              </div>}
+              {memoAvg>0&&<div style={{ background:'rgba(255,107,53,0.07)', borderRadius:10, padding:'10px 12px', border:'1px solid rgba(255,107,53,0.2)' }}>
+                <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>특이사항 ({memoDays.length}일)</div>
+                <div style={{ fontSize:14, fontWeight:800, color:'#FF6B35' }}>{fmtW(memoAvg)}</div>
+                {normalAvg>0&&<div style={{ fontSize:9, color:memoAvg>=normalAvg?'#00B894':'#E84393', marginTop:2 }}>{memoAvg>=normalAvg?'▲':'▼'} {Math.abs(Math.round(((memoAvg-normalAvg)/normalAvg)*100))}%</div>}
+              </div>}
+              {noteAvg>0&&<div style={{ background:'rgba(232,67,147,0.06)', borderRadius:10, padding:'10px 12px', border:'1px solid rgba(232,67,147,0.15)' }}>
+                <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>컴플레인 ({noteDays.length}일)</div>
+                <div style={{ fontSize:14, fontWeight:800, color:'#E84393' }}>{fmtW(noteAvg)}</div>
+                {normalAvg>0&&<div style={{ fontSize:9, color:noteAvg>=normalAvg?'#00B894':'#E84393', marginTop:2 }}>{noteAvg>=normalAvg?'▲':'▼'} {Math.abs(Math.round(((noteAvg-normalAvg)/normalAvg)*100))}%</div>}
+              </div>}
+            </div>
+            {noteDays.length>0&&<div style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.06)', borderRadius:8, padding:'7px 10px' }}>
+              📝 이달 컴플레인 {noteDays.length}건 — 메모탭에서 내용을 확인하세요
+            </div>}
+          </div>
+        )
+      })()}
 
       {/* 인사이트 미리보기 */}
       {insights.length > 0 && (
@@ -838,16 +955,16 @@ export default function AnalyticsPage() {
         {!loading && tab==='unit' && (
           <div>
             <div style={bx}>
-              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>💡 객단가 추이</div>
-              <div style={{ fontSize:11, color:'#aaa', marginBottom:14 }}>주문 1건당 평균 결제금액 — 높을수록 메뉴 구성이 좋고, 낮으면 객단가를 올릴 여지가 있어요</div>
+              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>💡 종합 객단가 추이</div>
+              <div style={{ fontSize:11, color:'#aaa', marginBottom:14 }}>주문 1건당 평균 결제금액 — 높을수록 메뉴 구성이 좋고, 낮으면 올릴 여지가 있어요</div>
               {daily.filter(d=>d.count>0).length>0 ? (
-                <LineChart data={daily.filter(d=>d.count>0).map(d=>({x:d.day,y:d.unitPrice,label:String(d.day)}))} prevData={prevDaily.filter(d=>d.count>0).map(d=>({x:d.day,y:d.unitPrice}))} color="#6C5CE7" height={isPC?220:160} />
+                <LineChart data={daily.filter(d=>d.count>0).map(d=>({x:d.day,y:d.unitPrice,label:String(d.day)}))} prevData={prevDaily.filter(d=>d.count>0).map(d=>({x:d.day,y:d.unitPrice}))} color="#6C5CE7" height={isPC?200:150} />
               ) : <div style={{ textAlign:'center', padding:'40px 0', color:'#ccc', fontSize:13 }}>건수를 입력하면 객단가가 계산돼요</div>}
             </div>
             {daily.filter(d=>d.count>0).length>0 && (
               <div style={{ display:'grid', gridTemplateColumns:isPC?'repeat(4,1fr)':'repeat(2,1fr)', gap:10, marginBottom:12 }}>
                 {[
-                  {label:'평균 객단가',value:fmtW(avgUnit),color:'#6C5CE7'},
+                  {label:'종합 객단가',value:fmtW(avgUnit),color:'#6C5CE7'},
                   {label:'최고 객단가',value:fmtW(Math.max(...daily.filter(d=>d.count>0).map(d=>d.unitPrice))),color:'#FF6B35'},
                   {label:'최저 객단가',value:fmtW(Math.min(...daily.filter(d=>d.count>0).map(d=>d.unitPrice))),color:'#E84393'},
                   {label:'객단가 수준',value:avgUnit>15000?'✅ 양호':avgUnit>10000?'⚠️ 보통':'❌ 낮음',color:avgUnit>15000?'#00B894':avgUnit>10000?'#FDC400':'#E84393'},
@@ -859,6 +976,41 @@ export default function AnalyticsPage() {
                 ))}
               </div>
             )}
+
+            {/* 플랫폼별 객단가 */}
+            {platforms.filter(p=>p.count>0).length>0 && (
+              <div style={bx}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>🥧 플랫폼별 객단가</div>
+                <div style={{ fontSize:11, color:'#aaa', marginBottom:14 }}>채널마다 고객이 얼마나 쓰는지 비교해요</div>
+                {(()=>{
+                  const sorted = [...platforms.filter(p=>p.count>0)].sort((a,b)=>Math.round(b.amount/b.count)-Math.round(a.amount/a.count))
+                  const maxU = Math.round(sorted[0].amount/sorted[0].count)
+                  return sorted.map(p => {
+                    const pu = Math.round(p.amount/p.count)
+                    return (
+                      <div key={p.name} style={{ marginBottom:16 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                            <div style={{ width:8, height:8, borderRadius:2, background:p.color }} />
+                            <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{p.name}</span>
+                          </div>
+                          <div style={{ textAlign:'right' }}>
+                            <span style={{ fontSize:16, fontWeight:800, color:p.color }}>{fmtW(pu)}</span>
+                            <span style={{ fontSize:10, color:'#aaa', marginLeft:6 }}>{p.count}건</span>
+                          </div>
+                        </div>
+                        <ProgressBar value={pu} max={maxU} color={p.color} height={8} />
+                        <div style={{ display:'flex', justifyContent:'space-between', marginTop:4, fontSize:10, color:'#aaa' }}>
+                          <span>총 {fmtW(p.amount)}</span>
+                          <span>{avgUnit>0?`종합 대비 ${pu>=avgUnit?'▲':'▼'} ${Math.abs(Math.round(((pu-avgUnit)/avgUnit)*100))}%`:''}</span>
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            )}
+
             {totalCancel>0 && (
               <div style={{ ...bx, border:'1px solid rgba(232,67,147,0.25)' }}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#E84393', marginBottom:12 }}>🚨 취소/환불 분석</div>
