@@ -328,8 +328,13 @@ export default function AttendancePage() {
 
   const [notices,        setNotices]        = useState<any[]>([])
   const [checkedNotices, setCheckedNotices] = useState<Set<string>>(new Set())
-  // ★ 전달사항 전체 체크해야 출근 가능
-  const allChecked = notices.length === 0 || notices.every(n => checkedNotices.has(n.id))
+  const [closingTodos,   setClosingTodos]   = useState<any[]>([])  // ★ 마감 전달사항
+  const [checkedClosing, setCheckedClosing] = useState<Set<string>>(new Set())
+
+  // ★ 전달사항(공지) + 마감 전달사항 합산해서 모두 체크해야 출근 가능
+  const totalNoticeCount = notices.length + closingTodos.length
+  const allChecked = totalNoticeCount === 0
+    || (notices.every(n => checkedNotices.has(n.id)) && closingTodos.every(t => checkedClosing.has(t.id)))
 
   const [todaySchedule, setTodaySchedule]   = useState<any>(null)
   const [attendance,    setAttendance]       = useState<any>(null)
@@ -362,6 +367,7 @@ export default function AttendancePage() {
     fetchCurrentIp()
     loadAllowedIp(s.id)
     loadTodayNotices(s.id)
+    loadClosingTodos(s.id)
     loadMyAttendance(u.id, s.id)
     loadTodaySchedule(u.nm, s.id)
     loadBoard(s.id)
@@ -384,9 +390,22 @@ export default function AttendancePage() {
     setAllowedIp(data?.allowed_ip || '')
   }
   async function loadTodayNotices(sid: string) {
-    const { data } = await supabase.from('notices').select('id, title, content, author_nm')
-      .eq('store_id', sid).order('created_at', { ascending: false }).limit(5)
+    const { data } = await supabase.from('notices').select('id, title, content, created_by')
+      .eq('store_id', sid).eq('is_from_closing', false)
+      .order('created_at', { ascending: false }).limit(10)
     setNotices(data || [])
+  }
+
+  // ★ 전날 마감 전달사항 로드
+  async function loadClosingTodos(sid: string) {
+    const prev = new Date(); prev.setDate(prev.getDate() - 1)
+    const prevStr = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}-${String(prev.getDate()).padStart(2,'0')}`
+    const { data: closing } = await supabase.from('closings').select('id')
+      .eq('store_id', sid).eq('closing_date', prevStr).maybeSingle()
+    if (!closing) { setClosingTodos([]); return }
+    const { data: todos } = await supabase.from('closing_next_todos').select('*')
+      .eq('closing_id', closing.id).order('created_at')
+    setClosingTodos(todos || [])
   }
   async function loadMyAttendance(pid: string, sid: string) {
     const { data } = await supabase.from('attendance').select('*')
@@ -714,39 +733,83 @@ export default function AttendancePage() {
               </span>
             </div>
 
-            {/* ★ 전달사항: 공지가 있고 아직 출근 전이면 표시. 출근 후엔 숨김 */}
-            {notices.length>0 && !attendance?.clock_in && (
+            {/* ★ 전달사항: 공지 + 마감 전달사항, 출근 전에만 표시 */}
+            {totalNoticeCount > 0 && !attendance?.clock_in && (
               <div style={bx}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#E84393', marginBottom:12,
                   display:'flex', alignItems:'center', gap:6 }}>
                   📢 출근 전 전달사항 확인 필수
                   <span style={{ fontSize:10, color:'#aaa', fontWeight:500, marginLeft:'auto' }}>
-                    {checkedNotices.size}/{notices.length} 확인
+                    {checkedNotices.size + checkedClosing.size}/{totalNoticeCount} 확인
                   </span>
                 </div>
-                {notices.map(n => (
-                  <div key={n.id} onClick={() => {
-                    const next = new Set(checkedNotices)
-                    next.has(n.id) ? next.delete(n.id) : next.add(n.id)
-                    setCheckedNotices(next)
-                  }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
-                    borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
-                    <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
-                      border:`2px solid ${checkedNotices.has(n.id)?'#FF6B35':'#ddd'}`,
-                      background:checkedNotices.has(n.id)?'#FF6B35':'#fff',
-                      display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      {checkedNotices.has(n.id) && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
+
+                {/* 마감 전달사항 */}
+                {closingTodos.length > 0 && (
+                  <>
+                    <div style={{ fontSize:10, fontWeight:700, color:'#FF6B35', marginBottom:6, paddingLeft:2 }}>
+                      📋 전날 마감 전달사항
                     </div>
-                    <div>
-                      <div style={{ fontSize:13, lineHeight:1.5,
-                        color:checkedNotices.has(n.id)?'#bbb':'#555',
-                        textDecoration:checkedNotices.has(n.id)?'line-through':'none' }}>
-                        {n.content||n.title}
+                    {closingTodos.map(t => (
+                      <div key={t.id} onClick={() => {
+                        const next = new Set(checkedClosing)
+                        next.has(t.id) ? next.delete(t.id) : next.add(t.id)
+                        setCheckedClosing(next)
+                      }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
+                        borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
+                        <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
+                          border:`2px solid ${checkedClosing.has(t.id)?'#FF6B35':'#ddd'}`,
+                          background:checkedClosing.has(t.id)?'#FF6B35':'#fff',
+                          display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {checkedClosing.has(t.id) && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
+                        </div>
+                        <div>
+                          <div style={{ fontSize:13, lineHeight:1.5,
+                            color:checkedClosing.has(t.id)?'#bbb':'#555',
+                            textDecoration:checkedClosing.has(t.id)?'line-through':'none' }}>
+                            {t.content}
+                          </div>
+                          {t.created_by && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {t.created_by}</div>}
+                        </div>
                       </div>
-                      {n.author_nm && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {n.author_nm}</div>}
-                    </div>
-                  </div>
-                ))}
+                    ))}
+                  </>
+                )}
+
+                {/* 공지 전달사항 */}
+                {notices.length > 0 && (
+                  <>
+                    {closingTodos.length > 0 && (
+                      <div style={{ fontSize:10, fontWeight:700, color:'#6C5CE7', margin:'10px 0 6px', paddingLeft:2 }}>
+                        📢 공지 전달사항
+                      </div>
+                    )}
+                    {notices.map(n => (
+                      <div key={n.id} onClick={() => {
+                        const next = new Set(checkedNotices)
+                        next.has(n.id) ? next.delete(n.id) : next.add(n.id)
+                        setCheckedNotices(next)
+                      }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
+                        borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
+                        <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
+                          border:`2px solid ${checkedNotices.has(n.id)?'#FF6B35':'#ddd'}`,
+                          background:checkedNotices.has(n.id)?'#FF6B35':'#fff',
+                          display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {checkedNotices.has(n.id) && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
+                        </div>
+                        <div>
+                          <div style={{ fontSize:13, lineHeight:1.5,
+                            color:checkedNotices.has(n.id)?'#bbb':'#555',
+                            textDecoration:checkedNotices.has(n.id)?'line-through':'none' }}>
+                            {n.content || n.title}
+                          </div>
+                          {n.created_by && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {n.created_by}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+
                 {!allChecked ? (
                   <div style={{ marginTop:10, padding:'10px 12px', borderRadius:8,
                     background:'rgba(232,67,147,0.06)', fontSize:12, color:'#E84393', fontWeight:600 }}>
