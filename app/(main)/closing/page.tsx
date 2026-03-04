@@ -431,7 +431,8 @@ export default function ClosingPage() {
   const totalCancelCount = useMemo(() => platforms.reduce((sum, p) => sum + (cancelCounts[p.name]||0), 0), [platforms, cancelCounts])
   const avgPerOrder = totalCount > 0 ? Math.round(totalSales / totalCount) : 0
   const checkedCount = Object.keys(checks).length
-  const disabled = isSaved && !isManager
+  const todayStr = toDateStr(new Date())
+  const disabled = isSaved && !isManager && selectedDate !== todayStr
 
   const totalReviews = useMemo(() => reviewPlatforms.reduce((sum, p) => sum + (reviews[p.name]?.review_count || 0), 0), [reviewPlatforms, reviews])
   const totalReplies = useMemo(() => reviewPlatforms.reduce((sum, p) => sum + (reviews[p.name]?.reply_count || 0), 0), [reviewPlatforms, reviews])
