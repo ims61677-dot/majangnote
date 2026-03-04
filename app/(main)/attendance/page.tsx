@@ -237,10 +237,20 @@ function OwnerRequestPanel({ storeId, onClose, onApproved }: {
   const [loading,  setLoading]  = useState(true)
   useEffect(() => { loadRequests() }, [])
   async function loadRequests() {
-    const { data } = await supabase.from('attendance_requests')
-      .select('*, profiles(nm)').eq('store_id', storeId).eq('status', 'pending')
+    // FK 관계 없어도 동작하도록 profile_id로 직접 조회
+    const { data: reqs } = await supabase.from('attendance_requests')
+      .select('*').eq('store_id', storeId).eq('status', 'pending')
       .order('created_at', { ascending: false })
-    setRequests(data || []); setLoading(false)
+    if (!reqs || reqs.length === 0) { setRequests([]); setLoading(false); return }
+
+    // profile_id 목록으로 이름 한번에 조회
+    const pids = [...new Set(reqs.map((r: any) => r.profile_id))]
+    const { data: profs } = await supabase.from('profiles').select('id, nm').in('id', pids)
+    const profMap: Record<string, string> = {}
+    ;(profs || []).forEach((p: any) => { profMap[p.id] = p.nm })
+
+    setRequests(reqs.map((r: any) => ({ ...r, profiles: { nm: profMap[r.profile_id] || '(이름없음)' } })))
+    setLoading(false)
   }
   async function approve(req: any) {
     const { data: existing } = await supabase.from('attendance')
@@ -405,12 +415,19 @@ export default function AttendancePage() {
       .eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half'])
 
     const { data: members } = await supabase.from('store_members')
-      .select('profile_id, profiles(nm), expected_clock_in, expected_clock_out')
+      .select('profile_id, expected_clock_in, expected_clock_out')
       .eq('store_id', sid).eq('active', true)
 
+    // profiles 이름 별도 조회
+    const memberPids = (members||[]).map((m: any) => m.profile_id)
+    const { data: memberProfs } = await supabase.from('profiles').select('id, nm').in('id', memberPids)
+    const profNameMap: Record<string, string> = {}
+    ;(memberProfs||[]).forEach((p: any) => { profNameMap[p.id] = p.nm })
+
     const nameToInfo: Record<string, { id:string; expected_in?:string; expected_out?:string }> = {}
-    ;(members || []).forEach((m: any) => {
-      nameToInfo[m.profiles?.nm] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out }
+    ;(members||[]).forEach((m: any) => {
+      const nm = profNameMap[m.profile_id]
+      if (nm) nameToInfo[nm] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out }
     })
 
     const { data: attRecords } = await supabase.from('attendance')
@@ -466,21 +483,37 @@ export default function AttendancePage() {
   }
 
   async function loadStaffList(sid: string) {
-    const { data } = await supabase.from('store_members')
-      .select('profile_id, profiles(nm), expected_clock_in, expected_clock_out')
+    const { data: members } = await supabase.from('store_members')
+      .select('profile_id, expected_clock_in, expected_clock_out')
       .eq('store_id', sid).eq('active', true)
-    setStaffList((data||[]).map((m: any) => ({
-      id:m.profile_id, nm:m.profiles?.nm||'',
-      expected_in:m.expected_clock_in||'', expected_out:m.expected_clock_out||'',
+    if (!members || members.length === 0) { setStaffList([]); return }
+
+    const pids = members.map((m: any) => m.profile_id)
+    const { data: profs } = await supabase.from('profiles').select('id, nm').in('id', pids)
+    const profMap: Record<string, string> = {}
+    ;(profs||[]).forEach((p: any) => { profMap[p.id] = p.nm })
+
+    setStaffList(members.map((m: any) => ({
+      id:           m.profile_id,
+      nm:           profMap[m.profile_id] || '',
+      expected_in:  m.expected_clock_in  || '',
+      expected_out: m.expected_clock_out || '',
     })))
   }
 
   async function loadAllAttendance(sid: string, y: number, m: number) {
     const from = `${y}-${pad(m+1)}-01`
     const to   = `${y}-${pad(m+1)}-${pad(new Date(y,m+1,0).getDate())}`
-    const { data } = await supabase.from('attendance')
-      .select('*, profiles(nm)').eq('store_id', sid).gte('work_date', from).lte('work_date', to)
-    setAllAttData(data||[])
+    const { data: attData } = await supabase.from('attendance')
+      .select('*').eq('store_id', sid).gte('work_date', from).lte('work_date', to)
+    if (!attData || attData.length === 0) { setAllAttData([]); return }
+
+    const pids = [...new Set(attData.map((a: any) => a.profile_id))]
+    const { data: profs } = await supabase.from('profiles').select('id, nm').in('id', pids as string[])
+    const profMap: Record<string, string> = {}
+    ;(profs||[]).forEach((p: any) => { profMap[p.id] = p.nm })
+
+    setAllAttData(attData.map((a: any) => ({ ...a, profiles: { nm: profMap[a.profile_id] || '' } })))
   }
 
   async function clockIn() {
