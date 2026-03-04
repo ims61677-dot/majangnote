@@ -11,8 +11,8 @@ function getDaysInMonth(year: number, month: number) {
 }
 
 const STATUS_LABEL: Record<string, string> = { work: '근무', off: '휴일', half: '반차', absent: '결근', early: '조퇴' }
-const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35', absent: '#d63031', early: '#00B894' }
-const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)', absent: 'rgba(214,48,49,0.13)', early: 'rgba(0,184,148,0.13)' }
+const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35', absent: '#E67E22', early: '#00B894' }
+const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)', absent: 'rgba(230,126,34,0.13)', early: 'rgba(0,184,148,0.13)' }
 const POS_COLOR: Record<string, string> = { K: '#FF6B35', H: '#2DC6D6', KH: '#6C5CE7' }
 
 function getHolidays(year: number): Record<string, string> {
@@ -126,8 +126,8 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
 
                 {/* 결근 안내 */}
                 {status === 'absent' && (
-                  <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(214,48,49,0.06)', borderRadius:10, border:'1px solid rgba(214,48,49,0.2)' }}>
-                    <div style={{ fontSize:11, color:'#d63031', fontWeight:600 }}>❌ 결근 처리됩니다</div>
+                  <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(230,126,34,0.06)', borderRadius:10, border:'1px solid rgba(230,126,34,0.2)' }}>
+                    <div style={{ fontSize:11, color:'#E67E22', fontWeight:600 }}>❌ 결근 처리됩니다</div>
                   </div>
                 )}
               </>
@@ -151,8 +151,8 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
         )}
         {isManager && mode === 'absent_early' && (
           <>
-            <div style={{ background:'rgba(214,48,49,0.06)', borderRadius:12, padding:12, marginBottom:14, border:'1px solid rgba(214,48,49,0.15)' }}>
-              <div style={{ fontSize:11, color:'#d63031', fontWeight:600, marginBottom:4 }}>⚠️ 결근·조퇴 직접 저장</div>
+            <div style={{ background:'rgba(230,126,34,0.06)', borderRadius:12, padding:12, marginBottom:14, border:'1px solid rgba(230,126,34,0.15)' }}>
+              <div style={{ fontSize:11, color:'#E67E22', fontWeight:600, marginBottom:4 }}>⚠️ 결근·조퇴 직접 저장</div>
               <div style={{ fontSize:11, color:'#888' }}>대표 승인 없이 바로 반영됩니다</div>
             </div>
             <div style={{ fontSize:11, color:'#888', marginBottom:8 }}>상태</div>
@@ -169,14 +169,14 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
               </div>
             )}
             {status === 'absent' && (
-              <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(214,48,49,0.06)', borderRadius:10, border:'1px solid rgba(214,48,49,0.2)' }}>
-                <div style={{ fontSize:11, color:'#d63031', fontWeight:600 }}>❌ 결근 처리됩니다</div>
+              <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(230,126,34,0.06)', borderRadius:10, border:'1px solid rgba(230,126,34,0.2)' }}>
+                <div style={{ fontSize:11, color:'#E67E22', fontWeight:600 }}>❌ 결근 처리됩니다</div>
               </div>
             )}
             <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>메모</div>
             <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="사유 입력..." style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'#F8F9FB', border:'1px solid #E0E4E8', fontSize:13, outline:'none', boxSizing:'border-box' as const, marginBottom:16 }} />
             <button onClick={() => onSave(status, current?.position || '', buildNote())}
-              style={{ width:'100%', padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#d63031,#e17055)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
+              style={{ width:'100%', padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#E67E22,#e17055)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
           </>
         )}
         {isManager && mode === 'request' && (
@@ -483,7 +483,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                       <span style={{ fontSize:11, fontWeight:700, color:'#6C5CE7' }}>{t.work}일</span>
                       {t.half > 0 && <span style={{ fontSize:9, color:'#FF6B35' }}>반{t.half}</span>}
                       {t.early > 0 && <span style={{ fontSize:9, color:'#00B894' }}>조{t.early}</span>}
-                      {t.absent > 0 && <span style={{ fontSize:9, color:'#d63031' }}>결{t.absent}</span>}
+                      {t.absent > 0 && <span style={{ fontSize:9, color:'#E67E22' }}>결{t.absent}</span>}
                       <span style={{ fontSize:9, color:'#E84393' }}>휴{t.off}</span>
                       {/* 포지션 카운트 */}
                       {(t.K > 0 || t.H > 0 || t.KH > 0) && (
@@ -632,7 +632,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                   <span style={{ fontSize:11, color:'#6C5CE7', fontWeight:700 }}>근무 {s.work}</span>
                   {s.half > 0 && <span style={{ fontSize:11, color:'#FF6B35', fontWeight:700 }}>반차 {s.half}</span>}
                   {s.early > 0 && <span style={{ fontSize:11, color:'#00B894', fontWeight:700 }}>조퇴 {s.early}</span>}
-                  {s.absent > 0 && <span style={{ fontSize:11, color:'#d63031', fontWeight:700 }}>결근 {s.absent}</span>}
+                  {s.absent > 0 && <span style={{ fontSize:11, color:'#E67E22', fontWeight:700 }}>결근 {s.absent}</span>}
                   <span style={{ fontSize:11, color:'#E84393', fontWeight:700 }}>휴일 {s.off}</span>
                 </div>
               </div>
