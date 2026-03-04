@@ -15,8 +15,24 @@ function toDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
-function ClosingCalendar({ year, month, salesMap, selectedDate, onSelectDate, onChangeMonth }: {
+// 날씨 코드 → 아이콘 변환
+function weatherIcon(code: number): string {
+  if (code === 0) return '☀️'
+  if (code <= 2) return '🌤️'
+  if (code <= 3) return '☁️'
+  if (code <= 49) return '🌫️'
+  if (code <= 59) return '🌧️'
+  if (code <= 69) return '🌨️'
+  if (code <= 79) return '❄️'
+  if (code <= 82) return '🌧️'
+  if (code <= 86) return '🌨️'
+  if (code <= 99) return '⛈️'
+  return '🌡️'
+}
+
+function ClosingCalendar({ year, month, salesMap, weatherMap, selectedDate, onSelectDate, onChangeMonth }: {
   year: number; month: number; salesMap: Record<string, number>
+  weatherMap: Record<string, { code: number; tmax: number; tmin: number }>
   selectedDate: string; onSelectDate: (d: string) => void; onChangeMonth: (y: number, m: number) => void
 }) {
   const today = toDateStr(new Date())
@@ -50,18 +66,20 @@ function ClosingCalendar({ year, month, salesMap, selectedDate, onSelectDate, on
             const dateStr = `${monthStr}-${String(day).padStart(2,'0')}`
             const sales = salesMap[dateStr]
             const hasSales = sales !== undefined
+            const weather = weatherMap[dateStr]
             const isSelected = dateStr === selectedDate
             const isToday = dateStr === today
             return (
               <button key={di} onClick={() => onSelectDate(dateStr)} style={{
                 display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-                padding:'4px 2px', borderRadius:8, cursor:'pointer', minHeight:44,
+                padding:'4px 2px', borderRadius:8, cursor:'pointer', minHeight:52,
                 border: isSelected ? '2px solid #FF6B35' : isToday ? '1px solid rgba(255,107,53,0.3)' : '1px solid transparent',
                 background: isSelected ? 'rgba(255,107,53,0.1)' : hasSales ? 'rgba(0,184,148,0.06)' : 'transparent',
               }}>
                 <span style={{ fontSize:12, fontWeight: isSelected||isToday?700:400, color: isSelected?'#FF6B35':di===0?'#E84393':di===6?'#2DC6D6':'#1a1a2e' }}>{day}</span>
+                {weather && <span style={{ fontSize:11, lineHeight:1, marginTop:1 }}>{weatherIcon(weather.code)}</span>}
+                {weather && <span style={{ fontSize:7, color:'#2DC6D6', fontWeight:600, lineHeight:1, marginTop:1 }}>{Math.round(weather.tmax)}°</span>}
                 {hasSales && <span style={{ fontSize:8, color:'#00B894', fontWeight:600, marginTop:1, lineHeight:1 }}>{sales>=10000?`${Math.floor(sales/10000)}만`:sales.toLocaleString()}</span>}
-                {hasSales && <span style={{ width:4, height:4, borderRadius:'50%', background:'#00B894', marginTop:1 }} />}
               </button>
             )
           })}
@@ -84,6 +102,7 @@ export default function ClosingPage() {
   const [calYear, setCalYear] = useState(now.getFullYear())
   const [calMonth, setCalMonth] = useState(now.getMonth())
   const [salesMap, setSalesMap] = useState<Record<string, number>>({})
+  const [weatherMap, setWeatherMap] = useState<Record<string, { code: number; tmax: number; tmin: number }>>({})
   const closingRef = useRef<any>(null)
   const [isPC, setIsPC] = useState(false)
 
@@ -166,15 +185,20 @@ export default function ClosingPage() {
   }
 
   async function loadSalesMap(sid: string) {
-    const { data: cls } = await supabase.from('closings').select('id, closing_date').eq('store_id', sid)
+    const { data: cls } = await supabase.from('closings').select('id, closing_date, weather_code, temp_max, temp_min').eq('store_id', sid)
     if (!cls || cls.length === 0) return
     const { data: sv } = await supabase.from('closing_sales').select('closing_id, amount').in('closing_id', cls.map((c:any) => c.id))
     const map: Record<string, number> = {}
+    const wmap: Record<string, { code: number; tmax: number; tmin: number }> = {}
     cls.forEach((c:any) => {
       const total = sv ? sv.filter((s:any) => s.closing_id === c.id).reduce((sum:number, s:any) => sum + (s.amount||0), 0) : 0
       map[c.closing_date] = total
+      if (c.weather_code !== null && c.weather_code !== undefined) {
+        wmap[c.closing_date] = { code: c.weather_code, tmax: c.temp_max, tmin: c.temp_min }
+      }
     })
     setSalesMap(map)
+    setWeatherMap(wmap)
   }
 
   async function loadClosing(sid: string, date: string) {
@@ -325,6 +349,9 @@ export default function ClosingPage() {
 
       const newTotal = platforms.reduce((s, p) => s + (sales[p.name]||0), 0)
       setSalesMap(prev => ({ ...prev, [selectedDate]: newTotal }))
+      if (weatherData.weather_code !== null && weatherData.weather_code !== undefined) {
+        setWeatherMap(prev => ({ ...prev, [selectedDate]: { code: weatherData.weather_code, tmax: weatherData.temp_max, tmin: weatherData.temp_min } }))
+      }
       setShowForm(true); alert('저장되었습니다!')
     } catch (e: any) { alert('저장 실패: ' + (e?.message || '다시 시도해주세요')) }
     finally { setIsSaving(false) }
@@ -812,7 +839,7 @@ export default function ClosingPage() {
           <div style={{ display:'grid', gridTemplateColumns:'340px 1fr', gap:20, alignItems:'start' }}>
             {/* 좌측: 달력 + 상태 */}
             <div style={{ position:'sticky', top:80 }}>
-              <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} selectedDate={selectedDate}
+              <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} weatherMap={weatherMap} selectedDate={selectedDate}
                 onSelectDate={handleSelectDate} onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }} />
               <div style={{ ...bx, padding:'12px 16px', background: isSaved?'rgba(0,184,148,0.04)':'#fff', border: isSaved?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -841,7 +868,7 @@ export default function ClosingPage() {
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
             <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>📋 마감일지</span>
           </div>
-          <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} selectedDate={selectedDate}
+          <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} weatherMap={weatherMap} selectedDate={selectedDate}
             onSelectDate={handleSelectDate} onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }} />
           <div style={{ ...bx, padding:'12px 16px', background: isSaved?'rgba(0,184,148,0.04)':'#fff', border: isSaved?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
