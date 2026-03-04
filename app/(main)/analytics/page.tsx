@@ -270,7 +270,25 @@ export default function AnalyticsPage() {
   const avgUnit = totalCount>0?Math.round(totalSales/totalCount):0
   const prevTotal = useMemo(()=>prevDaily.reduce((s,d)=>s+d.amount,0),[prevDaily])
   const prevYearTotal = useMemo(()=>prevYearDaily.reduce((s,d)=>s+d.amount,0),[prevYearDaily])
-  const goalAmt = goal?.monthly_goal || goal?.weekday_goal || 0
+  const goalAmt = useMemo(() => {
+    if (!goal?.weekly_goals) return 0
+    const wg = goal.weekly_goals
+    let total = 0
+    const daysInMonth = new Date(year, month+1, 0).getDate()
+    for (let w = 1; w <= 6; w++) {
+      if (!wg[w]) continue
+      let weekdays = 0, redDays = 0
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dow = new Date(year, month, d).getDay()
+        const firstDow = new Date(year, month, 1).getDay()
+        const wn = Math.ceil((d + (firstDow === 0 ? 6 : firstDow - 1)) / 7)
+        if (wn !== w) continue
+        if (dow === 0 || dow === 6) redDays++; else weekdays++
+      }
+      total += (wg[w].weekday||0) * weekdays + (wg[w].weekend||0) * redDays
+    }
+    return total
+  }, [goal, year, month])
   const goalPct = goalAmt > 0 ? Math.min(Math.round((totalSales/goalAmt)*100),100) : 0
 
   const platforms = useMemo(()=>{
