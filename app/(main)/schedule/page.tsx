@@ -64,7 +64,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
     return current?.note || ''
   })
   const [requestNote, setRequestNote] = useState('')
-  const [mode, setMode] = useState<'edit'|'request'>('edit')
+  const [mode, setMode] = useState<'edit'|'absent_early'|'request'>('edit')
   const parts = dateStr.split('-')
   const dow = DOW_LABEL[new Date(dateStr).getDay()]
   const isOwner = role === 'owner'
@@ -87,9 +87,10 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
           <div style={{ fontSize:12, color:'#aaa', marginTop:2 }}>{parts[1]}월 {parts[2]}일 ({dow})</div>
         </div>
         {isManager && (
-          <div style={{ display:'flex', background:'#F4F6F9', borderRadius:10, padding:3, marginBottom:14 }}>
-            <button onClick={() => setMode('edit')} style={{ flex:1, padding:'6px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:12, fontWeight:mode==='edit'?700:400, background:mode==='edit'?'#fff':'transparent', color:mode==='edit'?'#1a1a2e':'#aaa', boxShadow:mode==='edit'?'0 1px 4px rgba(0,0,0,0.08)':'none' }}>포지션 편집</button>
-            <button onClick={() => setMode('request')} style={{ flex:1, padding:'6px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:12, fontWeight:mode==='request'?700:400, background:mode==='request'?'#fff':'transparent', color:mode==='request'?'#E84393':'#aaa', boxShadow:mode==='request'?'0 1px 4px rgba(0,0,0,0.08)':'none' }}>휴일 변경 요청</button>
+          <div style={{ display:'flex', background:'#F4F6F9', borderRadius:10, padding:3, marginBottom:14, gap:2 }}>
+            <button onClick={() => setMode('edit')} style={{ flex:1, padding:'6px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:11, fontWeight:mode==='edit'?700:400, background:mode==='edit'?'#fff':'transparent', color:mode==='edit'?'#1a1a2e':'#aaa', boxShadow:mode==='edit'?'0 1px 4px rgba(0,0,0,0.08)':'none' }}>포지션</button>
+            <button onClick={() => { setMode('absent_early'); setStatus('absent') }} style={{ flex:1, padding:'6px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:11, fontWeight:mode==='absent_early'?700:400, background:mode==='absent_early'?'#fff':'transparent', color:mode==='absent_early'?'#d63031':'#aaa', boxShadow:mode==='absent_early'?'0 1px 4px rgba(0,0,0,0.08)':'none' }}>결근·조퇴</button>
+            <button onClick={() => setMode('request')} style={{ flex:1, padding:'6px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:11, fontWeight:mode==='request'?700:400, background:mode==='request'?'#fff':'transparent', color:mode==='request'?'#E84393':'#aaa', boxShadow:mode==='request'?'0 1px 4px rgba(0,0,0,0.08)':'none' }}>휴일요청</button>
           </div>
         )}
         {(isOwner || (isManager && mode === 'edit')) && (
@@ -146,6 +147,36 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
               {current && isOwner && <button onClick={onDelete} style={{ padding:'10px 14px', borderRadius:10, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.25)', color:'#E84393', fontSize:12, cursor:'pointer', fontWeight:600 }}>삭제</button>}
               <button onClick={() => onSave(isOwner ? status : (current?.status || 'work'), position, buildNote())} style={{ flex:1, padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
             </div>
+          </>
+        )}
+        {isManager && mode === 'absent_early' && (
+          <>
+            <div style={{ background:'rgba(214,48,49,0.06)', borderRadius:12, padding:12, marginBottom:14, border:'1px solid rgba(214,48,49,0.15)' }}>
+              <div style={{ fontSize:11, color:'#d63031', fontWeight:600, marginBottom:4 }}>⚠️ 결근·조퇴 직접 저장</div>
+              <div style={{ fontSize:11, color:'#888' }}>대표 승인 없이 바로 반영됩니다</div>
+            </div>
+            <div style={{ fontSize:11, color:'#888', marginBottom:8 }}>상태</div>
+            <div style={{ display:'flex', gap:6, marginBottom:14 }}>
+              {(['absent','early'] as const).map(s => (
+                <button key={s} onClick={() => setStatus(s)} style={{ flex:1, padding:'9px 0', borderRadius:10, border: status===s ? `1.5px solid ${STATUS_COLOR[s]}` : '1px solid #E8ECF0', background: status===s ? STATUS_BG[s] : '#F4F6F9', color: status===s ? STATUS_COLOR[s] : '#aaa', fontSize:12, fontWeight:status===s?700:400, cursor:'pointer' }}>{STATUS_LABEL[s]}</button>
+              ))}
+            </div>
+            {status === 'early' && (
+              <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(0,184,148,0.06)', borderRadius:10, border:'1px solid rgba(0,184,148,0.2)' }}>
+                <div style={{ fontSize:11, color:'#00B894', fontWeight:600, marginBottom:8 }}>🌙 조퇴 시간</div>
+                <input type="time" value={earlyTime} onChange={e => setEarlyTime(e.target.value)}
+                  style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid rgba(0,184,148,0.3)', background:'#fff', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' as const }} />
+              </div>
+            )}
+            {status === 'absent' && (
+              <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(214,48,49,0.06)', borderRadius:10, border:'1px solid rgba(214,48,49,0.2)' }}>
+                <div style={{ fontSize:11, color:'#d63031', fontWeight:600 }}>❌ 결근 처리됩니다</div>
+              </div>
+            )}
+            <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>메모</div>
+            <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="사유 입력..." style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'#F8F9FB', border:'1px solid #E0E4E8', fontSize:13, outline:'none', boxSizing:'border-box' as const, marginBottom:16 }} />
+            <button onClick={() => onSave(status, current?.position || '', buildNote())}
+              style={{ width:'100%', padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#d63031,#e17055)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
           </>
         )}
         {isManager && mode === 'request' && (
