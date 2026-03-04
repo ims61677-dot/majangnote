@@ -1,5 +1,6 @@
 ﻿'use client'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
+import React from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const DOW = ['일','월','화','수','목','금','토']
@@ -28,6 +29,7 @@ function weatherIcon(code: number): string {
 }
 
 function MonthNav({ year, month, onChange }: { year:number; month:number; onChange:(y:number,m:number)=>void }) {
+  const [open, setOpen] = React.useState(false)
   function go(delta: number) {
     let m = month + delta, y = year
     while (m < 0) { y--; m += 12 }
@@ -39,31 +41,37 @@ function MonthNav({ year, month, onChange }: { year:number; month:number; onChan
   const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
   const years = Array.from({length:6}, (_,i) => now.getFullYear()-2+i)
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+    <div style={{ position:'relative' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
         <button onClick={() => go(-3)} style={{ padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:12, color:'#888', fontWeight:700 }}>«3</button>
         <button onClick={() => go(-1)} style={{ width:32, height:32, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>‹</button>
-        <span style={{ fontSize:17, fontWeight:800, color:'#1a1a2e', minWidth:100, textAlign:'center' }}>{year}년 {month+1}월</span>
+        <button onClick={() => setOpen(o=>!o)} style={{ fontSize:17, fontWeight:800, color:'#1a1a2e', minWidth:110, textAlign:'center', background:'none', border:'none', cursor:'pointer', padding:'4px 8px', borderRadius:8 }}>
+          {year}년 {month+1}월 {open?'▲':'▼'}
+        </button>
         <button onClick={() => go(1)} style={{ width:32, height:32, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>›</button>
         <button onClick={() => go(3)} style={{ padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:12, color:'#888', fontWeight:700 }}>3»</button>
-        {!isCurrent && <button onClick={() => onChange(now.getFullYear(), now.getMonth())} style={{ padding:'5px 12px', borderRadius:8, border:'1px solid rgba(255,107,53,0.4)', background:'rgba(255,107,53,0.08)', cursor:'pointer', fontSize:12, color:'#FF6B35', fontWeight:700 }}>이번달</button>}
+        {!isCurrent && <button onClick={() => { onChange(now.getFullYear(), now.getMonth()); setOpen(false) }} style={{ padding:'5px 12px', borderRadius:8, border:'1px solid rgba(255,107,53,0.4)', background:'rgba(255,107,53,0.08)', cursor:'pointer', fontSize:12, color:'#FF6B35', fontWeight:700 }}>이번달</button>}
       </div>
-      <div style={{ display:'flex', gap:4, flexWrap:'wrap', alignItems:'center' }}>
-        {years.map(y => (
-          <button key={y} onClick={() => onChange(y, month)}
-            style={{ padding:'4px 10px', borderRadius:8, border:'none',
-              background:y===year?'linear-gradient(135deg,#FF6B35,#E84393)':'#F0F2F5',
-              color:y===year?'#fff':'#888', fontSize:11, fontWeight:700, cursor:'pointer' }}>{y}</button>
-        ))}
-      </div>
-      <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-        {months.map((ml,mi) => (
-          <button key={mi} onClick={() => onChange(year, mi)}
-            style={{ padding:'4px 8px', borderRadius:8, border:'none',
-              background:mi===month?'linear-gradient(135deg,#FF6B35,#E84393)':'#F0F2F5',
-              color:mi===month?'#fff':'#888', fontSize:11, fontWeight:600, cursor:'pointer' }}>{ml}</button>
-        ))}
-      </div>
+      {open && (
+        <div style={{ position:'absolute', top:44, left:0, zIndex:100, background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 8px 24px rgba(0,0,0,0.12)', padding:'14px 16px', minWidth:280 }}>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:10 }}>
+            {years.map(y => (
+              <button key={y} onClick={() => { onChange(y, month); setOpen(false) }}
+                style={{ padding:'5px 11px', borderRadius:8, border:'none',
+                  background:y===year?'linear-gradient(135deg,#FF6B35,#E84393)':'#F0F2F5',
+                  color:y===year?'#fff':'#888', fontSize:12, fontWeight:700, cursor:'pointer' }}>{y}</button>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+            {months.map((ml,mi) => (
+              <button key={mi} onClick={() => { onChange(year, mi); setOpen(false) }}
+                style={{ padding:'5px 10px', borderRadius:8, border:'none',
+                  background:mi===month?'linear-gradient(135deg,#FF6B35,#E84393)':'#F0F2F5',
+                  color:mi===month?'#fff':'#888', fontSize:12, fontWeight:600, cursor:'pointer' }}>{ml}</button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
