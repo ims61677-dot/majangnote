@@ -336,8 +336,12 @@ export default function AttendancePage() {
   const [showStaffTimePanel,setShowStaffTimePanel] = useState(false)
   const [pendingCount,      setPendingCount]       = useState(0)
 
-  const canClockIn  = wifiOk && allChecked && !attendance?.clock_in
-  const canClockOut = wifiOk && !!attendance?.clock_in && !attendance?.clock_out
+  // ★ 직원 본인 이번달 통계 (오늘 탭용)
+  const [myMonthData, setMyMonthData] = useState<any[]>([])
+
+  // attLoading 끝날 때까지 출근 버튼 비활성 — 로딩 전에 눌리는 버그 방지
+  const canClockIn  = !attLoading && wifiOk && allChecked && !attendance?.clock_in
+  const canClockOut = !attLoading && wifiOk && !!attendance?.clock_in && !attendance?.clock_out
 
   useEffect(() => {
     const u = JSON.parse(localStorage.getItem('mj_user')  || '{}')
@@ -352,6 +356,7 @@ export default function AttendancePage() {
     loadTodaySchedule(u.nm, s.id)
     loadBoard(s.id)
     loadStaffList(s.id)
+    loadMyMonthData(u.id, s.id)
     if (u.role==='owner'||u.role==='manager') loadPendingCount(s.id)
   }, [])
 
@@ -382,6 +387,16 @@ export default function AttendancePage() {
     const { data } = await supabase.from('schedules').select('*')
       .eq('store_id', sid).eq('staff_name', nm).eq('schedule_date', today).maybeSingle()
     setTodaySchedule(data || null)
+  }
+
+  // ★ 직원 본인 이번달 출근 기록 (오늘 탭 통계용)
+  async function loadMyMonthData(pid: string, sid: string) {
+    const monthStart = `${today.slice(0,7)}-01`
+    const { data } = await supabase.from('attendance')
+      .select('status, clock_in, clock_out, work_date')
+      .eq('store_id', sid).eq('profile_id', pid)
+      .gte('work_date', monthStart).lte('work_date', today)
+    setMyMonthData(data || [])
   }
 
   async function loadBoard(sid: string) {
@@ -482,6 +497,7 @@ export default function AttendancePage() {
     else await supabase.from('attendance').insert(rec)
     await loadMyAttendance(profileId, storeId)
     await loadBoard(storeId)
+    await loadMyMonthData(profileId, storeId)
   }
 
   async function clockOut() {
@@ -497,6 +513,7 @@ export default function AttendancePage() {
     await supabase.from('attendance').update({ clock_out:nowTs, status:finalStatus, is_early:isEarly }).eq('id', attendance.id)
     await loadMyAttendance(profileId, storeId)
     await loadBoard(storeId)
+    await loadMyMonthData(profileId, storeId)
   }
 
   async function registerIp() {
@@ -644,7 +661,7 @@ export default function AttendancePage() {
               </span>
             </div>
 
-            {/* ★ 전달사항: 미출근 + 전달사항 있을 때만 표시, 전부 체크해야 출근 활성 */}
+            {/* ★ 전달사항: 공지가 있고 아직 출근 전이면 표시. 출근 후엔 숨김 */}
             {notices.length>0 && !attendance?.clock_in && (
               <div style={bx}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#E84393', marginBottom:12,
@@ -690,6 +707,69 @@ export default function AttendancePage() {
                 )}
               </div>
             )}
+
+            {/* ★ 본인 이번달 근태 요약 카드 */}
+            {(() => {
+              if (myMonthData.length === 0) return null
+              const stat = { normal:0, late:0, early:0, late_early:0, no_clockout:0, no_clockin:0, absent:0 }
+              myMonthData.forEach(r => {
+                const st = r.status || 'normal'
+                if      (st==='normal')     stat.normal++
+                else if (st==='late')       stat.late++
+                else if (st==='early')      stat.early++
+                else if (st==='late_early') stat.late_early++
+                else if (st==='absent')     { stat.absent++; stat.no_clockin++ }
+                else if (st==='no_clockin') stat.no_clockin++
+                if (isPastDate(r.work_date, today) && r.clock_in && !r.clock_out
+                    && st!=='absent' && st!=='no_clockin') stat.no_clockout++
+              })
+              const totalLate  = stat.late + stat.late_early
+              const totalEarly = stat.early + stat.late_early
+              return (
+                <div style={bx}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:12,
+                    display:'flex', alignItems:'center' }}>
+                    📊 이번달 내 근태
+                    <span style={{ fontSize:11, color:'#aaa', fontWeight:500, marginLeft:'auto' }}>
+                      {nowDate.getMonth()+1}월 기준
+                    </span>
+                  </div>
+                  <div style={{ display:'flex', gap:6, marginBottom:6 }}>
+                    {[
+                      { label:'정상',     value:stat.normal,  color:'#00B894', bg:'rgba(0,184,148,0.08)' },
+                      { label:'지각',     value:totalLate,    color:'#E84393', bg:'rgba(232,67,147,0.08)' },
+                      { label:'조기퇴근', value:totalEarly,   color:'#6C5CE7', bg:'rgba(108,92,231,0.08)' },
+                      { label:'결근',     value:stat.absent,  color:'#b2bec3', bg:'rgba(178,190,195,0.10)' },
+                    ].map(item => (
+                      <div key={item.label} style={{ flex:1, textAlign:'center', padding:'8px 4px',
+                        background:item.bg, borderRadius:10 }}>
+                        <div style={{ fontSize:17, fontWeight:800, color:item.color }}>{item.value}</div>
+                        <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>{item.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {(stat.no_clockout > 0 || stat.no_clockin > 0) && (
+                    <div style={{ display:'flex', gap:6 }}>
+                      {stat.no_clockout > 0 && (
+                        <div style={{ flex:1, textAlign:'center', padding:'7px 4px',
+                          background:'rgba(253,203,110,0.13)', borderRadius:10 }}>
+                          <div style={{ fontSize:17, fontWeight:800, color:'#b8860b' }}>{stat.no_clockout}</div>
+                          <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>퇴근누락</div>
+                        </div>
+                      )}
+                      {stat.no_clockin > 0 && (
+                        <div style={{ flex:1, textAlign:'center', padding:'7px 4px',
+                          background:'rgba(255,107,53,0.09)', borderRadius:10 }}>
+                          <div style={{ fontSize:17, fontWeight:800, color:'#FF6B35' }}>{stat.no_clockin}</div>
+                          <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>출근누락</div>
+                        </div>
+                      )}
+                      <div style={{ flex: stat.no_clockout>0 && stat.no_clockin>0 ? 2 : 3 }} />
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* 출퇴근 카드 */}
             <div style={bx}>
