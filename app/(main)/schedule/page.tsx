@@ -10,9 +10,9 @@ function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate()
 }
 
-const STATUS_LABEL: Record<string, string> = { work: '근무', off: '휴일', half: '반차' }
-const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35' }
-const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)' }
+const STATUS_LABEL: Record<string, string> = { work: '근무', off: '휴일', half: '반차', absent: '결근', early: '조퇴' }
+const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35', absent: '#d63031', early: '#00B894' }
+const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)', absent: 'rgba(214,48,49,0.13)', early: 'rgba(0,184,148,0.13)' }
 const POS_COLOR: Record<string, string> = { K: '#FF6B35', H: '#2DC6D6', KH: '#6C5CE7' }
 
 function getHolidays(year: number): Record<string, string> {
@@ -48,6 +48,21 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
   const [status, setStatus] = useState(current?.status || 'work')
   const [position, setPosition] = useState(current?.position || '')
   const [note, setNote] = useState(current?.note || '')
+  const [earlyTime, setEarlyTime] = useState(() => {
+    // note에서 조퇴시간 파싱: "[조퇴:14:30] 메모" 형태
+    if (current?.status === 'early' && current?.note) {
+      const m = current.note.match(/^\[조퇴:(\d{2}:\d{2})\](.*)$/)
+      if (m) return m[1]
+    }
+    return ''
+  })
+  const [noteText, setNoteText] = useState(() => {
+    if (current?.status === 'early' && current?.note) {
+      const m = current.note.match(/^\[조퇴:(\d{2}:\d{2})\](.*)$/)
+      if (m) return m[2].trim()
+    }
+    return current?.note || ''
+  })
   const [requestNote, setRequestNote] = useState('')
   const [mode, setMode] = useState<'edit'|'request'>('edit')
   const parts = dateStr.split('-')
@@ -55,10 +70,17 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
   const isOwner = role === 'owner'
   const isManager = role === 'manager'
 
+  function buildNote() {
+    if (status === 'early') {
+      return earlyTime ? `[조퇴:${earlyTime}]${noteText ? ' ' + noteText : ''}` : noteText
+    }
+    return noteText
+  }
+
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={onClose}>
-      <div style={{ background:'#fff', borderRadius:20, padding:20, width:'100%', maxWidth:320, boxShadow:'0 8px 32px rgba(0,0,0,0.18)' }}
+      <div style={{ background:'#fff', borderRadius:20, padding:20, width:'100%', maxWidth:340, boxShadow:'0 8px 32px rgba(0,0,0,0.18)', maxHeight:'90vh', overflowY:'auto' }}
         onClick={e => e.stopPropagation()}>
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{staffName}</div>
@@ -74,25 +96,55 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
           <>
             {isOwner && (
               <>
+                {/* 기본 상태 */}
                 <div style={{ fontSize:11, color:'#888', marginBottom:8 }}>상태</div>
-                <div style={{ display:'flex', gap:6, marginBottom:14 }}>
+                <div style={{ display:'flex', gap:5, marginBottom:8, flexWrap:'wrap' }}>
                   {(['work','off','half'] as const).map(s => (
+                    <button key={s} onClick={() => setStatus(s)} style={{ flex:1, minWidth:60, padding:'9px 0', borderRadius:10, border: status===s ? `1.5px solid ${STATUS_COLOR[s]}` : '1px solid #E8ECF0', background: status===s ? STATUS_BG[s] : '#F4F6F9', color: status===s ? STATUS_COLOR[s] : '#aaa', fontSize:12, fontWeight:status===s?700:400, cursor:'pointer' }}>{STATUS_LABEL[s]}</button>
+                  ))}
+                </div>
+                {/* 결근 / 조퇴 */}
+                <div style={{ display:'flex', gap:5, marginBottom:14 }}>
+                  {(['absent','early'] as const).map(s => (
                     <button key={s} onClick={() => setStatus(s)} style={{ flex:1, padding:'9px 0', borderRadius:10, border: status===s ? `1.5px solid ${STATUS_COLOR[s]}` : '1px solid #E8ECF0', background: status===s ? STATUS_BG[s] : '#F4F6F9', color: status===s ? STATUS_COLOR[s] : '#aaa', fontSize:12, fontWeight:status===s?700:400, cursor:'pointer' }}>{STATUS_LABEL[s]}</button>
                   ))}
                 </div>
+
+                {/* 조퇴 시간 입력 */}
+                {status === 'early' && (
+                  <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(0,184,148,0.06)', borderRadius:10, border:'1px solid rgba(0,184,148,0.2)' }}>
+                    <div style={{ fontSize:11, color:'#00B894', fontWeight:600, marginBottom:8 }}>🌙 조퇴 시간</div>
+                    <input
+                      type="time"
+                      value={earlyTime}
+                      onChange={e => setEarlyTime(e.target.value)}
+                      style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid rgba(0,184,148,0.3)', background:'#fff', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' as const }}
+                    />
+                  </div>
+                )}
+
+                {/* 결근 안내 */}
+                {status === 'absent' && (
+                  <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(214,48,49,0.06)', borderRadius:10, border:'1px solid rgba(214,48,49,0.2)' }}>
+                    <div style={{ fontSize:11, color:'#d63031', fontWeight:600 }}>❌ 결근 처리됩니다</div>
+                  </div>
+                )}
               </>
             )}
+
+            {/* 포지션 */}
             <div style={{ fontSize:11, color:'#888', marginBottom:8 }}>포지션</div>
             <div style={{ display:'flex', gap:6, marginBottom:14 }}>
               {(['','K','H','KH']).map(p => (
                 <button key={p} onClick={() => setPosition(p)} style={{ flex:1, padding:'7px 0', borderRadius:9, border: position===p ? `1.5px solid ${POS_COLOR[p]||'#999'}` : '1px solid #E8ECF0', background: position===p ? `${POS_COLOR[p]||'#888'}18` : '#F4F6F9', color: position===p ? (POS_COLOR[p]||'#555') : '#aaa', fontSize:12, fontWeight:position===p?700:400, cursor:'pointer' }}>{p||'없음'}</button>
               ))}
             </div>
+
             <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>메모</div>
-            <input value={note} onChange={e => setNote(e.target.value)} placeholder="병원, 생일, 야채샐러드..." style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'#F8F9FB', border:'1px solid #E0E4E8', fontSize:13, outline:'none', boxSizing:'border-box' as const, marginBottom:16 }} />
+            <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="병원, 생일, 야채샐러드..." style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'#F8F9FB', border:'1px solid #E0E4E8', fontSize:13, outline:'none', boxSizing:'border-box' as const, marginBottom:16 }} />
             <div style={{ display:'flex', gap:8 }}>
               {current && isOwner && <button onClick={onDelete} style={{ padding:'10px 14px', borderRadius:10, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.25)', color:'#E84393', fontSize:12, cursor:'pointer', fontWeight:600 }}>삭제</button>}
-              <button onClick={() => onSave(isOwner ? status : (current?.status || 'work'), position, note)} style={{ flex:1, padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
+              <button onClick={() => onSave(isOwner ? status : (current?.status || 'work'), position, buildNote())} style={{ flex:1, padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
             </div>
           </>
         )}
@@ -103,8 +155,13 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
               <div style={{ fontSize:11, color:'#888' }}>대표 승인 후 반영됩니다</div>
             </div>
             <div style={{ fontSize:11, color:'#888', marginBottom:8 }}>요청 상태</div>
-            <div style={{ display:'flex', gap:6, marginBottom:14 }}>
+            <div style={{ display:'flex', gap:5, marginBottom:8, flexWrap:'wrap' }}>
               {(['work','off','half'] as const).map(s => (
+                <button key={s} onClick={() => setStatus(s)} style={{ flex:1, padding:'9px 0', borderRadius:10, border: status===s ? `1.5px solid ${STATUS_COLOR[s]}` : '1px solid #E8ECF0', background: status===s ? STATUS_BG[s] : '#F4F6F9', color: status===s ? STATUS_COLOR[s] : '#aaa', fontSize:12, fontWeight:status===s?700:400, cursor:'pointer' }}>{STATUS_LABEL[s]}</button>
+              ))}
+            </div>
+            <div style={{ display:'flex', gap:5, marginBottom:14 }}>
+              {(['absent','early'] as const).map(s => (
                 <button key={s} onClick={() => setStatus(s)} style={{ flex:1, padding:'9px 0', borderRadius:10, border: status===s ? `1.5px solid ${STATUS_COLOR[s]}` : '1px solid #E8ECF0', background: status===s ? STATUS_BG[s] : '#F4F6F9', color: status===s ? STATUS_COLOR[s] : '#aaa', fontSize:12, fontWeight:status===s?700:400, cursor:'pointer' }}>{STATUS_LABEL[s]}</button>
               ))}
             </div>
@@ -200,17 +257,14 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
   function openOrderModal() { setDragOrder([...visibleStaff]); setShowOrderModal(true) }
 
-  // ★ DB에 sort_order 저장 (이름으로 profile_id 찾아서 업데이트)
   async function saveOrder() {
     setSaving(true)
     try {
-      // 한 번에 모든 멤버 조회
       const { data: members } = await supabase
         .from('store_members')
         .select('profile_id, profiles!inner(nm)')
         .eq('store_id', storeId)
         .eq('active', true)
-
       if (members) {
         for (let i = 0; i < dragOrder.length; i++) {
           const nm = dragOrder[i]
@@ -223,10 +277,8 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
           }
         }
       }
-      // localStorage에도 백업
       localStorage.setItem(`staff_order_${storeId}`, JSON.stringify(dragOrder))
     } catch (e) {
-      // DB 실패 시 localStorage만이라도 저장
       localStorage.setItem(`staff_order_${storeId}`, JSON.stringify(dragOrder))
     }
     setShowOrderModal(false)
@@ -269,10 +321,22 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
     setPopup(null); onSaved()
   }
 
+  // ★ 합계: 근무/휴일/반차/결근/조퇴 + 포지션 K/H/KH
   const staffTotals = useMemo(() => {
-    const t: Record<string, { work: number; off: number; half: number }> = {}
-    visibleStaff.forEach(s => { t[s] = { work:0, off:0, half:0 } })
-    schedules.forEach(s => { if (t[s.staff_name]) t[s.staff_name][s.status as 'work'|'off'|'half'] = (t[s.staff_name][s.status as 'work'|'off'|'half'] || 0) + 1 })
+    const t: Record<string, { work:number; off:number; half:number; absent:number; early:number; K:number; H:number; KH:number }> = {}
+    visibleStaff.forEach(s => { t[s] = { work:0, off:0, half:0, absent:0, early:0, K:0, H:0, KH:0 } })
+    schedules.forEach(s => {
+      if (!t[s.staff_name]) return
+      const st = s.status as string
+      if (st === 'work') t[s.staff_name].work++
+      else if (st === 'off') t[s.staff_name].off++
+      else if (st === 'half') t[s.staff_name].half++
+      else if (st === 'absent') t[s.staff_name].absent++
+      else if (st === 'early') t[s.staff_name].early++
+      if (s.position === 'K') t[s.staff_name].K++
+      else if (s.position === 'H') t[s.staff_name].H++
+      else if (s.position === 'KH') t[s.staff_name].KH++
+    })
     return t
   }, [schedules, visibleStaff])
 
@@ -281,7 +345,6 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
       {popup && <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} />}
       {showRequests && <RequestPanel storeId={storeId} myName={myName} onClose={() => setShowRequests(false)} onApproved={() => { onSaved(); setShowRequests(false) }} />}
 
-      {/* ★ 직원 순서 변경 모달 - DB 저장 안내 추가 */}
       {showOrderModal && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => setShowOrderModal(false)}>
           <div style={{ background:'#fff', borderRadius:20, padding:24, width:320, boxShadow:'0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
@@ -338,7 +401,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
               const dateStr = `${monthStr}-${String(day).padStart(2,'0')}`
               const dow = new Date(dateStr).getDay()
               const isToday = dateStr === today; const isSun = dow===0; const isSat = dow===6
-              const workCnt = visibleStaff.filter(s => { const sc = scheduleMap[`${s}-${dateStr}`]; return sc && (sc.status==='work'||sc.status==='half') }).length
+              const workCnt = visibleStaff.filter(s => { const sc = scheduleMap[`${s}-${dateStr}`]; return sc && (sc.status==='work'||sc.status==='half'||sc.status==='early') }).length
               return (
                 <tr key={day} style={{ background: isSun?'rgba(232,67,147,0.025)':isSat?'rgba(108,92,231,0.025)':isToday?'rgba(108,92,231,0.04)':'#fff', borderTop: dow===1&&day!==1?'2px solid #D0D4E8':undefined }}>
                   <td style={{ borderBottom:'1px solid #ECEEF2', borderRight:'2px solid #E8ECF0', padding:'0 8px', height:40, background: isSun||holidays[dateStr]?'rgba(232,67,147,0.06)':isSat?'rgba(108,92,231,0.05)':isToday?'rgba(108,92,231,0.07)':'#FAFBFC', position:'sticky', left:0, zIndex:1 }}>
@@ -351,13 +414,25 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                   </td>
                   {visibleStaff.map(staff => {
                     const sc = scheduleMap[`${staff}-${dateStr}`]; const clickable = canClick(staff, !!sc)
+                    // 조퇴시간 파싱
+                    let earlyTimeDisplay = ''
+                    if (sc?.status === 'early' && sc?.note) {
+                      const m = sc.note.match(/^\[조퇴:(\d{2}:\d{2})\]/)
+                      if (m) earlyTimeDisplay = m[1]
+                    }
                     return (
                       <td key={staff} onClick={() => clickable && setPopup({ staff, date: dateStr })}
                         style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:40, textAlign:'center', verticalAlign:'middle', cursor:clickable?'pointer':'default', transition:'background 0.1s', background:sc?STATUS_BG[sc.status]:undefined }}
                         onMouseEnter={e => { if(clickable&&!sc) (e.currentTarget as HTMLElement).style.background='rgba(108,92,231,0.04)' }}
                         onMouseLeave={e => { if(!sc) (e.currentTarget as HTMLElement).style.background='' }}>
-                        {sc ? (<div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, height:'100%', padding:'2px 3px' }}><span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR[sc.status] }}>{STATUS_LABEL[sc.status]}</span>{sc.position&&<span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[sc.position] }}>{sc.position}</span>}{sc.note&&<span title={sc.note} style={{ fontSize:8, color:'#FF6B35', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{sc.note}</span>}</div>)
-                          : clickable ? <span style={{ fontSize:18, color:'#e0e0e0', lineHeight:1 }}>+</span> : null}
+                        {sc ? (
+                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, height:'100%', padding:'2px 3px' }}>
+                            <span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR[sc.status] }}>{STATUS_LABEL[sc.status]}</span>
+                            {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
+                            {sc.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[sc.position] }}>{sc.position}</span>}
+                            {sc.note && !earlyTimeDisplay && <span title={sc.note} style={{ fontSize:8, color:'#FF6B35', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{sc.note}</span>}
+                          </div>
+                        ) : clickable ? <span style={{ fontSize:18, color:'#e0e0e0', lineHeight:1 }}>+</span> : null}
                       </td>
                     )
                   })}
@@ -369,7 +444,28 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
           <tfoot>
             <tr>
               <td style={{ background:'#F4F5F8', borderTop:'2px solid #E8ECF0', borderRight:'2px solid #E8ECF0', padding:'8px', fontSize:10, color:'#888', fontWeight:700, position:'sticky', left:0 }}>합계</td>
-              {visibleStaff.map(name => { const t = staffTotals[name]||{work:0,off:0,half:0}; return (<td key={name} style={{ background:'#F4F5F8', borderTop:'2px solid #E8ECF0', borderRight:'1px solid #ECEEF2', padding:'6px 4px', textAlign:'center' }}><div style={{ display:'flex', flexDirection:'column', gap:1, alignItems:'center' }}><span style={{ fontSize:12, fontWeight:700, color:'#6C5CE7' }}>{t.work}일</span>{t.half>0&&<span style={{ fontSize:9, color:'#FF6B35' }}>반{t.half}</span>}<span style={{ fontSize:10, color:'#E84393' }}>휴{t.off}</span></div></td>) })}
+              {visibleStaff.map(name => {
+                const t = staffTotals[name] || { work:0, off:0, half:0, absent:0, early:0, K:0, H:0, KH:0 }
+                return (
+                  <td key={name} style={{ background:'#F4F5F8', borderTop:'2px solid #E8ECF0', borderRight:'1px solid #ECEEF2', padding:'5px 3px', textAlign:'center' }}>
+                    <div style={{ display:'flex', flexDirection:'column', gap:1, alignItems:'center' }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:'#6C5CE7' }}>{t.work}일</span>
+                      {t.half > 0 && <span style={{ fontSize:9, color:'#FF6B35' }}>반{t.half}</span>}
+                      {t.early > 0 && <span style={{ fontSize:9, color:'#00B894' }}>조{t.early}</span>}
+                      {t.absent > 0 && <span style={{ fontSize:9, color:'#d63031' }}>결{t.absent}</span>}
+                      <span style={{ fontSize:9, color:'#E84393' }}>휴{t.off}</span>
+                      {/* 포지션 카운트 */}
+                      {(t.K > 0 || t.H > 0 || t.KH > 0) && (
+                        <div style={{ display:'flex', gap:3, marginTop:1 }}>
+                          {t.K > 0 && <span style={{ fontSize:8, color:POS_COLOR.K, fontWeight:700 }}>K{t.K}</span>}
+                          {t.H > 0 && <span style={{ fontSize:8, color:POS_COLOR.H, fontWeight:700 }}>H{t.H}</span>}
+                          {t.KH > 0 && <span style={{ fontSize:8, color:POS_COLOR.KH, fontWeight:700 }}>KH{t.KH}</span>}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                )
+              })}
               <td style={{ background:'#F4F5F8', borderTop:'2px solid #E8ECF0' }} />
             </tr>
           </tfoot>
@@ -413,6 +509,25 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
   async function handleSave(status: string, position: string, note: string) { if(!popup)return; await supabase.from('schedules').upsert({store_id:storeId,staff_name:popup.staff,schedule_date:popup.date,status,position:position||null,note:note||null},{onConflict:'store_id,staff_name,schedule_date'}); setPopup(null); onSaved() }
   async function handleRequest(status: string, note: string) { if(!popup)return; const current=scheduleMap[`${popup.staff}-${popup.date}`]; await supabase.from('schedule_requests').insert({store_id:storeId,requester_nm:myName,staff_name:popup.staff,schedule_date:popup.date,requested_status:status,current_status:current?.status||null,note:note||null}); setPopup(null); alert('변경 요청이 전송되었습니다!') }
   async function handleDelete() { if(!popup||!popupData)return; await supabase.from('schedules').delete().eq('id',popupData.id); setPopup(null); onSaved() }
+
+  // 모바일 월간 요약도 결근/조퇴/포지션 포함
+  const staffSummary = useMemo(() => {
+    return visibleStaff.map(staff => {
+      const ss = schedules.filter(s => s.staff_name === staff)
+      return {
+        name: staff,
+        work: ss.filter(s=>s.status==='work').length,
+        off: ss.filter(s=>s.status==='off').length,
+        half: ss.filter(s=>s.status==='half').length,
+        absent: ss.filter(s=>s.status==='absent').length,
+        early: ss.filter(s=>s.status==='early').length,
+        K: ss.filter(s=>s.position==='K').length,
+        H: ss.filter(s=>s.position==='H').length,
+        KH: ss.filter(s=>s.position==='KH').length,
+      }
+    })
+  }, [schedules, visibleStaff])
+
   return (
     <div>
       {popup && <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} />}
@@ -438,21 +553,67 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
           <div key={staff} style={{ display:'flex', borderTop:si>0?'1px solid #F0F2F5':'none' }}>
             <div style={{ minWidth:68, flexShrink:0, background:'#FAFBFC', borderRight:'2px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px 6px', minHeight:52 }}><span style={{ fontSize:11, fontWeight:600, color:'#1a1a2e', textAlign:'center', wordBreak:'keep-all' as const, lineHeight:1.3 }}>{staff}</span></div>
             <div ref={el => { bodyScrollRefs.current[si] = el }} style={{ flex:1, overflowX:'auto', display:'flex' }} onScroll={e => syncScroll(e.currentTarget.scrollLeft)}>
-              {days.map(day => { const dateStr=`${monthStr}-${String(day).padStart(2,'0')}`; const s=scheduleMap[`${staff}-${dateStr}`]; const dow=new Date(dateStr).getDay(); const isToday=dateStr===today; const isSun=dow===0; const isSat=dow===6; const clickable=canClick(staff,!!s); return (<div key={day} onClick={() => clickable&&setPopup({staff,date:dateStr})} style={{ minWidth:44, flexShrink:0, borderRight:'1px solid #F0F2F5', minHeight:52, background:s?STATUS_BG[s.status]:isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff', cursor:clickable?'pointer':'default', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1 }}>{s?(<><span style={{ fontSize:9, fontWeight:700, color:STATUS_COLOR[s.status] }}>{STATUS_LABEL[s.status]}</span>{s.position&&<span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[s.position]||'#888' }}>{s.position}</span>}{s.note&&<span style={{ fontSize:7, color:'#999', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>{s.note}</span>}</>):clickable?<span style={{ fontSize:16, color:'#ebebeb' }}>+</span>:null}</div>) })}
+              {days.map(day => {
+                const dateStr=`${monthStr}-${String(day).padStart(2,'0')}`
+                const s=scheduleMap[`${staff}-${dateStr}`]
+                const dow=new Date(dateStr).getDay()
+                const isToday=dateStr===today; const isSun=dow===0; const isSat=dow===6
+                const clickable=canClick(staff,!!s)
+                let earlyTimeDisplay = ''
+                if (s?.status === 'early' && s?.note) {
+                  const m = s.note.match(/^\[조퇴:(\d{2}:\d{2})\]/)
+                  if (m) earlyTimeDisplay = m[1]
+                }
+                return (
+                  <div key={day} onClick={() => clickable&&setPopup({staff,date:dateStr})}
+                    style={{ minWidth:44, flexShrink:0, borderRight:'1px solid #F0F2F5', minHeight:52, background:s?STATUS_BG[s.status]:isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff', cursor:clickable?'pointer':'default', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1 }}>
+                    {s ? (
+                      <>
+                        <span style={{ fontSize:9, fontWeight:700, color:STATUS_COLOR[s.status] }}>{STATUS_LABEL[s.status]}</span>
+                        {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
+                        {s.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[s.position]||'#888' }}>{s.position}</span>}
+                        {s.note && !earlyTimeDisplay && <span style={{ fontSize:7, color:'#999', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>{s.note}</span>}
+                      </>
+                    ) : clickable ? <span style={{ fontSize:16, color:'#ebebeb' }}>+</span> : null}
+                  </div>
+                )
+              })}
             </div>
           </div>
         ))}
         <div style={{ display:'flex', borderTop:'2px solid #E8ECF0', background:'#F8F9FB' }}>
           <div style={{ minWidth:68, flexShrink:0, borderRight:'2px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px 0' }}><span style={{ fontSize:9, color:'#6C5CE7', fontWeight:700 }}>출근</span></div>
           <div ref={footerScrollRef} style={{ flex:1, overflowX:'auto', display:'flex' }} onScroll={e => syncScroll(e.currentTarget.scrollLeft)}>
-            {days.map(day => { const dateStr=`${monthStr}-${String(day).padStart(2,'0')}`; const cnt=visibleStaff.filter(staff=>{const s=scheduleMap[`${staff}-${dateStr}`];return s&&(s.status==='work'||s.status==='half')}).length; return (<div key={day} style={{ minWidth:44, flexShrink:0, borderRight:'1px solid #F0F2F5', minHeight:28, display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt>0&&<span style={{ fontSize:10, fontWeight:700, color:'#6C5CE7' }}>{cnt}</span>}</div>) })}
+            {days.map(day => { const dateStr=`${monthStr}-${String(day).padStart(2,'0')}`; const cnt=visibleStaff.filter(staff=>{const s=scheduleMap[`${staff}-${dateStr}`];return s&&(s.status==='work'||s.status==='half'||s.status==='early')}).length; return (<div key={day} style={{ minWidth:44, flexShrink:0, borderRight:'1px solid #F0F2F5', minHeight:28, display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt>0&&<span style={{ fontSize:10, fontWeight:700, color:'#6C5CE7' }}>{cnt}</span>}</div>) })}
           </div>
         </div>
       </div>
+
+      {/* 모바일 월간 요약 */}
       <div style={{ marginTop:16 }}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>월간 요약</div>
         <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-          {visibleStaff.map(staff => { const ss=schedules.filter(s=>s.staff_name===staff); const work=ss.filter(s=>s.status==='work').length; const off=ss.filter(s=>s.status==='off').length; const half=ss.filter(s=>s.status==='half').length; return (<div key={staff} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}><span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{staff}</span><div style={{ display:'flex', gap:10 }}><span style={{ fontSize:11, color:'#6C5CE7', fontWeight:700 }}>근무 {work}</span>{half>0&&<span style={{ fontSize:11, color:'#FF6B35', fontWeight:700 }}>반차 {half}</span>}<span style={{ fontSize:11, color:'#E84393', fontWeight:700 }}>휴일 {off}</span></div></div>) })}
+          {staffSummary.map(s => (
+            <div key={s.name} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'10px 14px' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: (s.K>0||s.H>0||s.KH>0) ? 6 : 0 }}>
+                <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{s.name}</span>
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
+                  <span style={{ fontSize:11, color:'#6C5CE7', fontWeight:700 }}>근무 {s.work}</span>
+                  {s.half > 0 && <span style={{ fontSize:11, color:'#FF6B35', fontWeight:700 }}>반차 {s.half}</span>}
+                  {s.early > 0 && <span style={{ fontSize:11, color:'#00B894', fontWeight:700 }}>조퇴 {s.early}</span>}
+                  {s.absent > 0 && <span style={{ fontSize:11, color:'#d63031', fontWeight:700 }}>결근 {s.absent}</span>}
+                  <span style={{ fontSize:11, color:'#E84393', fontWeight:700 }}>휴일 {s.off}</span>
+                </div>
+              </div>
+              {(s.K>0||s.H>0||s.KH>0) && (
+                <div style={{ display:'flex', gap:8, paddingTop:4, borderTop:'1px solid #F4F6F9' }}>
+                  {s.K > 0 && <span style={{ fontSize:10, color:POS_COLOR.K, fontWeight:700 }}>K {s.K}일</span>}
+                  {s.H > 0 && <span style={{ fontSize:10, color:POS_COLOR.H, fontWeight:700 }}>H {s.H}일</span>}
+                  {s.KH > 0 && <span style={{ fontSize:10, color:POS_COLOR.KH, fontWeight:700 }}>KH {s.KH}일</span>}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -462,7 +623,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
 // ─── 월간 캘린더 ───
 function MonthlyView({ year, month, schedules, onChangeMonth, selectedDate, onDayClick }: { year: number; month: number; schedules: any[]; onChangeMonth: (y:number,m:number)=>void; selectedDate: string; onDayClick: (d:string)=>void }) {
   const today = toDateStr(new Date()); const daysInMonth = getDaysInMonth(year,month); const firstDay = new Date(year,month,1).getDay(); const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
-  const dayMap = useMemo(() => { const m: Record<string,{work:number;off:number}>={};schedules.forEach(s=>{if(!m[s.schedule_date])m[s.schedule_date]={work:0,off:0};if(s.status==='work'||s.status==='half')m[s.schedule_date].work++;else m[s.schedule_date].off++});return m },[schedules])
+  const dayMap = useMemo(() => { const m: Record<string,{work:number;off:number}>={};schedules.forEach(s=>{if(!m[s.schedule_date])m[s.schedule_date]={work:0,off:0};if(s.status==='work'||s.status==='half'||s.status==='early')m[s.schedule_date].work++;else m[s.schedule_date].off++});return m },[schedules])
   const weeks:(number|null)[][]=[];let week:(number|null)[]=Array(firstDay).fill(null)
   for(let d=1;d<=daysInMonth;d++){week.push(d);if(week.length===7){weeks.push(week);week=[]}}
   if(week.length>0){while(week.length<7)week.push(null);weeks.push(week)}
@@ -521,24 +682,18 @@ export default function SchedulePage() {
     setSchedules(data||[])
   }
 
-  // ★ DB sort_order 우선 로드, 없으면 localStorage 폴백
   async function loadStaff(sid: string) {
     const { data } = await supabase.from('store_members')
       .select('profile_id, sort_order, profiles(nm)')
       .eq('store_id', sid).eq('active', true)
-
     const members = (data||[])
       .map((m: any) => ({ nm: m.profiles?.nm||'', sort_order: m.sort_order ?? 9999 }))
       .filter(m => m.nm)
-
     const hasDbOrder = members.some(m => m.sort_order !== 9999)
-
     if (hasDbOrder) {
-      // ★ DB에 저장된 순서 사용 (모든 계정에서 동일하게 보임)
       members.sort((a, b) => a.sort_order - b.sort_order)
       setStaffList(members.map(m => m.nm))
     } else {
-      // DB 순서 없으면 localStorage 폴백
       const names = members.map(m => m.nm)
       const savedOrder: string[] = JSON.parse(localStorage.getItem(`staff_order_${sid}`)||'[]')
       if (savedOrder.length > 0) {
@@ -569,7 +724,6 @@ export default function SchedulePage() {
     onChangeMonth: handleChangeMonth,
   }
 
-  // ★ PC에서도 layout의 헤더와 BottomNav 그대로 사용 (position:fixed 완전 제거)
   if (isPC) return (
     <div>
       <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16, maxWidth:320 }}>
@@ -581,7 +735,6 @@ export default function SchedulePage() {
     </div>
   )
 
-  // 모바일
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
