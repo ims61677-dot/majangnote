@@ -40,7 +40,7 @@ function MiniGraph({ history }: { history: HistoryItem[] }) {
   const maxR = Math.max(...ranks)
   const minR = Math.min(...ranks)
   const range = maxR - minR || 1
-  const w = 200, h = 60, pad = 8
+  const w = 220, h = 60, pad = 10
   const points = ranks.map((r, i) => {
     const x = pad + (i / (ranks.length - 1)) * (w - pad * 2)
     const y = pad + ((r - minR) / range) * (h - pad * 2)
@@ -73,6 +73,7 @@ function MiniGraph({ history }: { history: HistoryItem[] }) {
 
 export default function PlaceRankChecker() {
   const [tab, setTab] = useState<'check' | 'track'>('check')
+  const [storeId, setStoreId] = useState('')
   const [storeName, setStoreName] = useState('')
   const [kwInput, setKwInput] = useState('')
   const [keywords, setKeywords] = useState<string[]>([])
@@ -83,22 +84,31 @@ export default function PlaceRankChecker() {
   const [histories, setHistories] = useState<Record<string, HistoryItem[]>>({})
   const [trackStore, setTrackStore] = useState('')
   const [trackKw, setTrackKw] = useState('')
-  const [storeId, setStoreId] = useState('')
 
   useEffect(() => {
-    // store_id를 로컬스토리지에서 가져오거나 생성
-    let sid = localStorage.getItem('place_store_id')
-    if (!sid) { sid = Math.random().toString(36).slice(2); localStorage.setItem('place_store_id', sid) }
+    // mj_store.id 사용 (실제 매장 ID)
+    const mjStore = JSON.parse(localStorage.getItem('mj_store') || '{}')
+    const sid = mjStore.id || ''
     setStoreId(sid)
-    loadTrackers(sid)
+    if (sid) loadTrackers(sid)
   }, [])
 
   async function loadTrackers(sid: string) {
-    const { data } = await supabase.from('place_rank_trackers').select('*').eq('store_id', sid)
+    const { data } = await supabase
+      .from('place_rank_trackers')
+      .select('*')
+      .eq('store_id', sid)
+      .order('created_at', { ascending: true })
+
     if (data) {
       setTrackers(data)
       for (const t of data) {
-        const { data: h } = await supabase.from('place_rank_history').select('checked_date, rank').eq('tracker_id', t.id).order('checked_date', { ascending: true })
+        const { data: h } = await supabase
+          .from('place_rank_history')
+          .select('checked_date, rank')
+          .eq('tracker_id', t.id)
+          .order('checked_date', { ascending: true })
+          .limit(30)
         if (h) setHistories(prev => ({ ...prev, [t.id]: h }))
       }
     }
@@ -106,7 +116,14 @@ export default function PlaceRankChecker() {
 
   async function addTracker() {
     if (!trackStore.trim() || !trackKw.trim()) { alert('업체명과 키워드를 입력해주세요!'); return }
-    const { data, error } = await supabase.from('place_rank_trackers').insert({ store_id: storeId, store_name: trackStore.trim(), keyword: trackKw.trim() }).select().single()
+    if (!storeId) { alert('매장 정보를 찾을 수 없어요. 다시 로그인해주세요.'); return }
+
+    const { data, error } = await supabase
+      .from('place_rank_trackers')
+      .insert({ store_id: storeId, store_name: trackStore.trim(), keyword: trackKw.trim() })
+      .select()
+      .single()
+
     if (error) { alert('이미 등록된 키워드예요!'); return }
     setTrackers(prev => [...prev, data])
     setTrackKw('')
@@ -114,6 +131,7 @@ export default function PlaceRankChecker() {
   }
 
   async function deleteTracker(id: string) {
+    if (!confirm('이 키워드 추적을 삭제할까요? 저장된 순위 기록도 모두 삭제돼요.')) return
     await supabase.from('place_rank_trackers').delete().eq('id', id)
     setTrackers(prev => prev.filter(t => t.id !== id))
     setHistories(prev => { const n = { ...prev }; delete n[id]; return n })
@@ -130,21 +148,29 @@ export default function PlaceRankChecker() {
   }
 
   async function checkAllTrackers() {
+    if (trackers.length === 0) { alert('추적할 키워드를 먼저 등록해주세요!'); return }
     setLoading(true)
+
     for (const t of trackers) {
       setCurrentKw(t.keyword)
       try {
         const res = await fetch(`/api/place-rank?keyword=${encodeURIComponent(t.keyword)}&store=${encodeURIComponent(t.store_name)}`)
         const data = await res.json()
         if (data.rank > 0) await saveRank(t, data.rank)
-        const { data: h } = await supabase.from('place_rank_history').select('checked_date, rank').eq('tracker_id', t.id).order('checked_date', { ascending: true })
+        const { data: h } = await supabase
+          .from('place_rank_history')
+          .select('checked_date, rank')
+          .eq('tracker_id', t.id)
+          .order('checked_date', { ascending: true })
+          .limit(30)
         if (h) setHistories(prev => ({ ...prev, [t.id]: h }))
       } catch {}
       await new Promise(r => setTimeout(r, 1000))
     }
+
     setLoading(false)
     setCurrentKw('')
-    alert('순위 저장 완료!')
+    alert('오늘 순위 저장 완료!')
   }
 
   function addKeyword() {
@@ -161,12 +187,16 @@ export default function PlaceRankChecker() {
     if (!storeName.trim()) { alert('업체명을 입력해주세요!'); return }
     if (keywords.length === 0) { alert('키워드를 1개 이상 추가해주세요!'); return }
     setLoading(true); setResults([])
+
     for (let i = 0; i < keywords.length; i++) {
       const kw = keywords[i]; setCurrentKw(kw)
       try {
         const res = await fetch(`/api/place-rank?keyword=${encodeURIComponent(kw)}&store=${encodeURIComponent(storeName.trim())}`)
         const data = await res.json()
-        setResults(p => [...p, { keyword: kw, rank: data.rank ?? -1, total: data.total ?? 0, places: data.places ?? [], checkedAt: data.checkedAt ?? new Date().toISOString(), error: data.error }])
+        setResults(p => [...p, {
+          keyword: kw, rank: data.rank ?? -1, total: data.total ?? 0,
+          places: data.places ?? [], checkedAt: data.checkedAt ?? new Date().toISOString(), error: data.error
+        }])
       } catch {
         setResults(p => [...p, { keyword: kw, rank: -1, total: 0, places: [], checkedAt: new Date().toISOString(), error: '조회 실패' }])
       }
@@ -191,10 +221,11 @@ export default function PlaceRankChecker() {
         ))}
       </div>
 
+      {/* 순위 조회 탭 */}
       {tab === 'check' && (
         <>
           <div style={{ background: 'rgba(45,198,214,0.06)', border: '1px solid rgba(45,198,214,0.22)', borderRadius: 12, padding: '10px 14px', marginBottom: 12, fontSize: 11, color: '#2DC6D6', lineHeight: 1.7 }}>
-            💡 키워드 검색으로 내 업체가 몇 위에 노출되는지 확인해요.
+            💡 키워드 검색으로 내 업체가 몇 위에 노출되는지 확인해요. 내 플레이스에는 아무런 영향이 없어요.
           </div>
           <div style={bx}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>🏪 내 업체명</div>
@@ -217,9 +248,10 @@ export default function PlaceRankChecker() {
               </div>
             )}
           </div>
-          <button onClick={startSearch} disabled={loading} style={{ width: '100%', padding: '15px 0', borderRadius: 13, background: loading ? '#ddd' : 'linear-gradient(135deg, #FF6B35, #E84393)', border: 'none', color: '#fff', fontSize: 15, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', marginBottom: 16, boxShadow: loading ? 'none' : '0 4px 16px rgba(255,107,53,0.28)', fontFamily: 'inherit' }}>
+          <button onClick={startSearch} disabled={loading} style={{ width: '100%', padding: '15px 0', borderRadius: 13, background: loading ? '#ddd' : 'linear-gradient(135deg, #FF6B35, #E84393)', border: 'none', color: '#fff', fontSize: 15, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', marginBottom: 16, fontFamily: 'inherit' }}>
             {loading ? `"${currentKw}" 조회 중...` : '🔍 순위 조회하기'}
           </button>
+
           {results.map((r, i) => {
             if (r.error) return (
               <div key={i} style={{ ...bx, background: 'rgba(232,67,147,0.04)', border: '1px solid rgba(232,67,147,0.2)' }}>
@@ -236,8 +268,13 @@ export default function PlaceRankChecker() {
                     <div style={{ fontSize: 28, fontWeight: 800, color: b.color, lineHeight: 1 }}>{r.rank > 0 ? `${r.rank}위` : '100위 밖'}</div>
                     <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{b.desc}</div>
                   </div>
+                  <div style={{ fontSize: 10, color: '#ccc' }}>{new Date(r.checkedAt).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit' })}</div>
                 </div>
                 <div style={{ ...bx, marginBottom: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                    <span style={{ background: 'rgba(45,198,214,0.1)', color: '#2DC6D6', padding: '2px 9px', borderRadius: 10, border: '1px solid rgba(45,198,214,0.25)', fontSize: 11, fontWeight: 700 }}>{r.keyword}</span>
+                    <span style={{ fontSize: 10, color: '#bbb', marginLeft: 'auto' }}>상위 {r.places.length}개 · 총 {r.total}개</span>
+                  </div>
                   {r.places.map(p => (
                     <div key={p.rank} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid #F4F6F9' }}>
                       <div style={{ width: 34, height: 34, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 800, flexShrink: 0, ...getRankBadgeStyle(p.rank) }}>{p.rank}</div>
@@ -255,9 +292,9 @@ export default function PlaceRankChecker() {
         </>
       )}
 
+      {/* 순위 추적 탭 */}
       {tab === 'track' && (
         <>
-          {/* 키워드 등록 */}
           <div style={bx}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>➕ 추적 키워드 등록</div>
             <span style={lbl}>업체명</span>
@@ -293,7 +330,7 @@ export default function PlaceRankChecker() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{ fontSize: 28, fontWeight: 800, color: '#FF6B35' }}>{latest.rank}위</div>
                         {diff !== 0 && (
-                          <div style={{ fontSize: 12, fontWeight: 700, color: diff > 0 ? '#00B894' : '#E84393' }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: diff > 0 ? '#00B894' : '#E84393' }}>
                             {diff > 0 ? `▲ ${diff}` : `▼ ${Math.abs(diff)}`}
                           </div>
                         )}
@@ -316,8 +353,6 @@ export default function PlaceRankChecker() {
           )}
         </>
       )}
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
