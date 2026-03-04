@@ -326,15 +326,25 @@ export default function AttendancePage() {
   const [ipLoading, setIpLoading] = useState(true)
   const wifiOk = !!allowedIp && currentIp === allowedIp
 
-  const [notices,        setNotices]        = useState<any[]>([])
-  const [checkedNotices, setCheckedNotices] = useState<Set<string>>(new Set())
-  const [closingTodos,   setClosingTodos]   = useState<any[]>([])  // ★ 마감 전달사항
+  const [closingTodos,   setClosingTodos]   = useState<any[]>([])   // 전날 마감 전달사항
   const [checkedClosing, setCheckedClosing] = useState<Set<string>>(new Set())
+  const [overdueTodos,   setOverdueTodos]   = useState<any[]>([])   // 미완료 이월 할일
+  const [checkedOverdue, setCheckedOverdue] = useState<Set<string>>(new Set())
+  const [todayTodos,     setTodayTodos]     = useState<any[]>([])   // 당일 할일
+  const [checkedToday,   setCheckedToday]   = useState<Set<string>>(new Set())
 
-  // ★ 전달사항(공지) + 마감 전달사항 합산해서 모두 체크해야 출근 가능
-  const totalNoticeCount = notices.length + closingTodos.length
-  const allChecked = totalNoticeCount === 0
-    || (notices.every(n => checkedNotices.has(n.id)) && closingTodos.every(t => checkedClosing.has(t.id)))
+  // 3가지 전달사항 모두 체크해야 출근 가능
+  const allTodos = [
+    ...closingTodos.map(t => `c-${t.id}`),
+    ...overdueTodos.map(t => `o-${t.id}`),
+    ...todayTodos.map(t => `t-${t.id}`),
+  ]
+  const allCheckedIds = new Set([
+    ...[...checkedClosing].map(id => `c-${id}`),
+    ...[...checkedOverdue].map(id => `o-${id}`),
+    ...[...checkedToday].map(id => `t-${id}`),
+  ])
+  const allChecked = allTodos.length === 0 || allTodos.every(id => allCheckedIds.has(id))
 
   const [todaySchedule, setTodaySchedule]   = useState<any>(null)
   const [attendance,    setAttendance]       = useState<any>(null)
@@ -366,8 +376,9 @@ export default function AttendancePage() {
     setMyName(u.nm || ''); setRole(u.role || 'staff')
     fetchCurrentIp()
     loadAllowedIp(s.id)
-    loadTodayNotices(s.id)
     loadClosingTodos(s.id)
+    loadOverdueTodos(s.id)
+    loadTodayTodos(s.id)
     loadMyAttendance(u.id, s.id)
     loadTodaySchedule(u.nm, s.id)
     loadBoard(s.id)
@@ -389,14 +400,7 @@ export default function AttendancePage() {
     const { data } = await supabase.from('stores').select('allowed_ip').eq('id', sid).single()
     setAllowedIp(data?.allowed_ip || '')
   }
-  async function loadTodayNotices(sid: string) {
-    const { data } = await supabase.from('notices').select('id, title, content, created_by')
-      .eq('store_id', sid).eq('is_from_closing', false)
-      .order('created_at', { ascending: false }).limit(10)
-    setNotices(data || [])
-  }
-
-  // ★ 전날 마감 전달사항 로드
+  // 전날 마감 전달사항
   async function loadClosingTodos(sid: string) {
     const prev = new Date(); prev.setDate(prev.getDate() - 1)
     const prevStr = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}-${String(prev.getDate()).padStart(2,'0')}`
@@ -406,6 +410,54 @@ export default function AttendancePage() {
     const { data: todos } = await supabase.from('closing_next_todos').select('*')
       .eq('closing_id', closing.id).order('created_at')
     setClosingTodos(todos || [])
+    // 기존 체크 로드
+    if (todos && todos.length > 0) {
+      const { data: chks } = await supabase.from('closing_next_todo_checks').select('*')
+        .in('todo_id', todos.map((t: any) => t.id))
+      const myChecks = new Set<string>()
+      ;(chks || []).forEach((c: any) => { if (c.checked_by === myName) myChecks.add(c.todo_id) })
+      setCheckedClosing(myChecks)
+    }
+  }
+
+  // 미완료 이월 할일 (최근 7일)
+  async function loadOverdueTodos(sid: string) {
+    const results: any[] = []
+    for (let i = 1; i <= 7; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i)
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+      const { data } = await supabase.from('notices').select('*, notice_todos(*)')
+        .eq('store_id', sid).eq('notice_date', dateStr).eq('is_from_closing', false)
+      if (!data) continue
+      const allIds = data.flatMap((n: any) => (n.notice_todos||[]).map((t: any) => t.id))
+      if (allIds.length === 0) continue
+      const { data: chks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', allIds)
+      const checkMap: Record<string, any[]> = {}
+      ;(chks || []).forEach((c: any) => { if (!checkMap[c.todo_id]) checkMap[c.todo_id]=[]; checkMap[c.todo_id].push(c) })
+      for (const notice of data) {
+        for (const todo of (notice.notice_todos || [])) {
+          if ((checkMap[todo.id]||[]).length === 0)
+            results.push({ ...todo, day_count: i })
+        }
+      }
+    }
+    setOverdueTodos(results)
+  }
+
+  // 당일 할일
+  async function loadTodayTodos(sid: string) {
+    const { data } = await supabase.from('notices').select('*, notice_todos(*)')
+      .eq('store_id', sid).eq('notice_date', today).eq('is_from_closing', false)
+    const todos = (data || []).flatMap((n: any) => n.notice_todos || [])
+    setTodayTodos(todos)
+    // 기존 체크 로드
+    if (todos.length > 0) {
+      const { data: chks } = await supabase.from('notice_todo_checks').select('*')
+        .in('todo_id', todos.map((t: any) => t.id))
+      const myChecks = new Set<string>()
+      ;(chks || []).forEach((c: any) => { if (c.checked_by === myName) myChecks.add(c.todo_id) })
+      setCheckedToday(myChecks)
+    }
   }
   async function loadMyAttendance(pid: string, sid: string) {
     const { data } = await supabase.from('attendance').select('*')
@@ -733,89 +785,137 @@ export default function AttendancePage() {
               </span>
             </div>
 
-            {/* ★ 전달사항: 공지 + 마감 전달사항, 출근 전에만 표시 */}
-            {totalNoticeCount > 0 && !attendance?.clock_in && (
+            {/* ★ 전달사항: 출근 전에만 표시 — 마감/미완료/당일 3가지 */}
+            {allTodos.length > 0 && !attendance?.clock_in && (
               <div style={bx}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#E84393', marginBottom:12,
                   display:'flex', alignItems:'center', gap:6 }}>
                   📢 출근 전 전달사항 확인 필수
                   <span style={{ fontSize:10, color:'#aaa', fontWeight:500, marginLeft:'auto' }}>
-                    {checkedNotices.size + checkedClosing.size}/{totalNoticeCount} 확인
+                    {allCheckedIds.size}/{allTodos.length} 확인
                   </span>
                 </div>
 
-                {/* 마감 전달사항 */}
+                {/* 1. 전날 마감 전달사항 */}
                 {closingTodos.length > 0 && (
                   <>
                     <div style={{ fontSize:10, fontWeight:700, color:'#FF6B35', marginBottom:6, paddingLeft:2 }}>
                       📋 전날 마감 전달사항
                     </div>
-                    {closingTodos.map(t => (
-                      <div key={t.id} onClick={() => {
-                        const next = new Set(checkedClosing)
-                        next.has(t.id) ? next.delete(t.id) : next.add(t.id)
-                        setCheckedClosing(next)
-                      }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
-                        borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
-                        <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
-                          border:`2px solid ${checkedClosing.has(t.id)?'#FF6B35':'#ddd'}`,
-                          background:checkedClosing.has(t.id)?'#FF6B35':'#fff',
-                          display:'flex', alignItems:'center', justifyContent:'center' }}>
-                          {checkedClosing.has(t.id) && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
-                        </div>
-                        <div>
-                          <div style={{ fontSize:13, lineHeight:1.5,
-                            color:checkedClosing.has(t.id)?'#bbb':'#555',
-                            textDecoration:checkedClosing.has(t.id)?'line-through':'none' }}>
-                            {t.content}
+                    {closingTodos.map(t => {
+                      const checked = checkedClosing.has(t.id)
+                      return (
+                        <div key={t.id} onClick={() => {
+                          if (!wifiOk) { alert('매장 와이파이 연결 후 체크할 수 있습니다'); return }
+                          const next = new Set(checkedClosing)
+                          checked ? next.delete(t.id) : next.add(t.id)
+                          setCheckedClosing(next)
+                          // DB 저장
+                          if (!checked) supabase.from('closing_next_todo_checks').insert({ todo_id:t.id, checked_by:myName, checked_at:new Date().toISOString() })
+                          else supabase.from('closing_next_todo_checks').delete().eq('todo_id', t.id).eq('checked_by', myName)
+                        }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
+                          borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
+                          <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
+                            border:`2px solid ${checked?'#FF6B35':'#ddd'}`,
+                            background:checked?'#FF6B35':'#fff',
+                            display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
                           </div>
-                          {t.created_by && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {t.created_by}</div>}
+                          <div>
+                            <div style={{ fontSize:13, lineHeight:1.5, color:checked?'#bbb':'#555', textDecoration:checked?'line-through':'none' }}>{t.content}</div>
+                            {t.created_by && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {t.created_by}</div>}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </>
                 )}
 
-                {/* 공지 전달사항 */}
-                {notices.length > 0 && (
+                {/* 2. 미완료 이월 할일 */}
+                {overdueTodos.length > 0 && (
                   <>
-                    {closingTodos.length > 0 && (
-                      <div style={{ fontSize:10, fontWeight:700, color:'#6C5CE7', margin:'10px 0 6px', paddingLeft:2 }}>
-                        📢 공지 전달사항
-                      </div>
-                    )}
-                    {notices.map(n => (
-                      <div key={n.id} onClick={() => {
-                        const next = new Set(checkedNotices)
-                        next.has(n.id) ? next.delete(n.id) : next.add(n.id)
-                        setCheckedNotices(next)
-                      }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
-                        borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
-                        <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
-                          border:`2px solid ${checkedNotices.has(n.id)?'#FF6B35':'#ddd'}`,
-                          background:checkedNotices.has(n.id)?'#FF6B35':'#fff',
-                          display:'flex', alignItems:'center', justifyContent:'center' }}>
-                          {checkedNotices.has(n.id) && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
-                        </div>
-                        <div>
-                          <div style={{ fontSize:13, lineHeight:1.5,
-                            color:checkedNotices.has(n.id)?'#bbb':'#555',
-                            textDecoration:checkedNotices.has(n.id)?'line-through':'none' }}>
-                            {n.content || n.title}
+                    <div style={{ fontSize:10, fontWeight:700, color:'#E84393', margin:`${closingTodos.length>0?'10px':0} 0 6px`, paddingLeft:2 }}>
+                      ⚠️ 미완료 이월 할일
+                    </div>
+                    {overdueTodos.map(t => {
+                      const checked = checkedOverdue.has(t.id)
+                      const urgentColor = t.day_count >= 3 ? '#E84393' : t.day_count >= 2 ? '#FF6B35' : '#FDC400'
+                      return (
+                        <div key={t.id} onClick={() => {
+                          if (!wifiOk) { alert('매장 와이파이 연결 후 체크할 수 있습니다'); return }
+                          const next = new Set(checkedOverdue)
+                          checked ? next.delete(t.id) : next.add(t.id)
+                          setCheckedOverdue(next)
+                          if (!checked) supabase.from('notice_todo_checks').insert({ todo_id:t.id, checked_by:myName, checked_at:new Date().toISOString() })
+                          else supabase.from('notice_todo_checks').delete().eq('todo_id', t.id).eq('checked_by', myName)
+                        }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
+                          borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
+                          <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
+                            border:`2px solid ${checked?urgentColor:'#ddd'}`,
+                            background:checked?urgentColor:'#fff',
+                            display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
                           </div>
-                          {n.created_by && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {n.created_by}</div>}
+                          <div style={{ flex:1 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                              <div style={{ fontSize:13, lineHeight:1.5, color:checked?'#bbb':'#555', textDecoration:checked?'line-through':'none' }}>{t.content}</div>
+                              <span style={{ fontSize:9, fontWeight:700, color:urgentColor, background:`${urgentColor}15`, padding:'1px 5px', borderRadius:5, flexShrink:0 }}>{t.day_count}일째</span>
+                            </div>
+                            {t.created_by && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {t.created_by}</div>}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </>
                 )}
 
-                {!allChecked ? (
+                {/* 3. 당일 할일 */}
+                {todayTodos.length > 0 && (
+                  <>
+                    <div style={{ fontSize:10, fontWeight:700, color:'#6C5CE7', margin:`${closingTodos.length>0||overdueTodos.length>0?'10px':0} 0 6px`, paddingLeft:2 }}>
+                      ✅ 오늘 할일
+                    </div>
+                    {todayTodos.map(t => {
+                      const checked = checkedToday.has(t.id)
+                      return (
+                        <div key={t.id} onClick={() => {
+                          if (!wifiOk) { alert('매장 와이파이 연결 후 체크할 수 있습니다'); return }
+                          const next = new Set(checkedToday)
+                          checked ? next.delete(t.id) : next.add(t.id)
+                          setCheckedToday(next)
+                          if (!checked) supabase.from('notice_todo_checks').insert({ todo_id:t.id, checked_by:myName, checked_at:new Date().toISOString() })
+                          else supabase.from('notice_todo_checks').delete().eq('todo_id', t.id).eq('checked_by', myName)
+                        }} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0',
+                          borderBottom:'1px solid #F8F9FB', cursor:'pointer' }}>
+                          <div style={{ width:20, height:20, borderRadius:6, flexShrink:0, marginTop:2,
+                            border:`2px solid ${checked?'#6C5CE7':'#ddd'}`,
+                            background:checked?'#6C5CE7':'#fff',
+                            display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:800 }}>✓</span>}
+                          </div>
+                          <div>
+                            <div style={{ fontSize:13, lineHeight:1.5, color:checked?'#bbb':'#555', textDecoration:checked?'line-through':'none' }}>{t.content}</div>
+                            {t.created_by && <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>작성: {t.created_by}</div>}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </>
+                )}
+
+                {!wifiOk && (
+                  <div style={{ marginTop:10, padding:'8px 12px', borderRadius:8,
+                    background:'rgba(232,67,147,0.06)', fontSize:12, color:'#E84393', fontWeight:600 }}>
+                    📶 매장 와이파이 연결 후 체크할 수 있습니다
+                  </div>
+                )}
+                {wifiOk && !allChecked && (
                   <div style={{ marginTop:10, padding:'10px 12px', borderRadius:8,
                     background:'rgba(232,67,147,0.06)', fontSize:12, color:'#E84393', fontWeight:600 }}>
                     ⚠️ 전달사항을 모두 확인(체크)해야 출근 버튼이 활성화됩니다
                   </div>
-                ) : (
+                )}
+                {wifiOk && allChecked && (
                   <div style={{ marginTop:10, padding:'8px 12px', borderRadius:8,
                     background:'rgba(0,184,148,0.06)', fontSize:12, color:'#00B894', fontWeight:600 }}>
                     ✅ 전달사항 확인 완료 — 출근할 수 있어요!
