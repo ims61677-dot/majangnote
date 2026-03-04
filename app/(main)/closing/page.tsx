@@ -86,7 +86,6 @@ function ClosingCalendar({ year, month, salesMap, weatherMap, editedDates, selec
                 border: isSelected ? '2px solid #FF6B35' : isToday ? '1px solid rgba(255,107,53,0.3)' : '1px solid transparent',
                 background: isSelected ? 'rgba(255,107,53,0.1)' : hasSales ? 'rgba(0,184,148,0.06)' : 'transparent',
               }}>
-                {/* 수정된 날 빨간 점 */}
                 {wasEdited && (
                   <div style={{ position:'absolute', top:3, right:3, width:6, height:6, borderRadius:'50%', background:'#E84393', boxShadow:'0 0 0 1px #fff' }} />
                 )}
@@ -184,7 +183,6 @@ export default function ClosingPage() {
   useEffect(() => { if (storeId) loadClosing(storeId, selectedDate) }, [selectedDate, storeId])
   useEffect(() => { closingRef.current = closing }, [closing])
 
-  // 대표만 수정이력 로드
   useEffect(() => {
     if (isOwner && storeId) loadEditLogs(storeId)
   }, [isOwner, storeId])
@@ -198,12 +196,10 @@ export default function ClosingPage() {
       .limit(300)
     if (!data) return
     setEditLogs(data)
-    // 미확인 카운트: 마지막 확인 시각 이후 & 본인 제외
     const lastSeen = localStorage.getItem('mj_edit_log_seen') || '1970-01-01'
     const myName = JSON.parse(localStorage.getItem('mj_user') || '{}').nm || ''
-    const unread = data.filter(l => l.edited_at > lastSeen && l.edited_by !== myName)
+    const unread = data.filter((l: any) => l.edited_at > lastSeen && l.edited_by !== myName)
     setUnreadEditCount(unread.length)
-    // 수정 이력 있는 날짜 set (달력 빨간 점용)
     const dates = new Set<string>(data.map((l: any) => l.closing_date).filter(Boolean))
     setEditedDates(dates)
   }
@@ -211,16 +207,10 @@ export default function ClosingPage() {
   async function logEdit(closingId: string, closingDate: string, changes: {field: string; oldVal: string; newVal: string}[]) {
     if (changes.length === 0) return
     const rows = changes.map(c => ({
-      closing_id: closingId,
-      store_id: storeId,
-      closing_date: closingDate,
-      edited_by: userName,
-      field_name: c.field,
-      old_value: c.oldVal,
-      new_value: c.newVal,
+      closing_id: closingId, store_id: storeId, closing_date: closingDate,
+      edited_by: userName, field_name: c.field, old_value: c.oldVal, new_value: c.newVal,
     }))
     await supabase.from('closing_edit_logs').insert(rows)
-    // 대표면 바로 갱신
     if (isOwner) loadEditLogs(storeId)
   }
 
@@ -232,7 +222,6 @@ export default function ClosingPage() {
       const o = String(prev[f] ?? ''), n = String(next[f] ?? '')
       if (o !== n) changes.push({ field: FIELD_LABELS[f] || f, oldVal: o, newVal: n })
     })
-    // 매출 변경 감지
     platforms.forEach(p => {
       const oldAmt = String(prev.salesSnapshot?.[p.name] ?? 0)
       const newAmt = String(next.salesSnapshot?.[p.name] ?? 0)
@@ -326,7 +315,6 @@ export default function ClosingPage() {
       if (rv) rv.forEach((r:any) => { rvm[r.platform] = { review_count: r.review_count || 0, reply_count: r.reply_count || 0 } })
       setReviews(rvm)
 
-      // 비교 기준값 저장
       prevDataRef.current = {
         writer: cl.writer || '', close_staff: cl.close_staff || '',
         staff_count: cl.staff_count || 0, open_time: cl.open_time || '',
@@ -343,7 +331,8 @@ export default function ClosingPage() {
       setSales({}); setCounts({}); setCancelCounts({})
       setChecks({}); setSoldouts([]); setNextTodos([]); setTodoChecks({})
       setReviews({}); prevDataRef.current = null
-      setShowForm(false)
+      // 당일이면 폼 자동으로 열기
+      setShowForm(date === todayStr)
     }
   }
 
@@ -353,13 +342,14 @@ export default function ClosingPage() {
     setCalYear(y); setCalMonth(m-1)
   }
 
-  // 자동저장 트리거 (당일 + 이미 저장된 경우만)
+  // 자동저장 트리거 - 당일이면 항상 (최초 입력 포함)
   const triggerAutoSave = useCallback(() => {
-    if (!isToday) return
+    if (selectedDate !== todayStr) return
     setAutoSaveStatus('pending')
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
-    autoSaveTimer.current = setTimeout(() => performSave(true), 3000)
-  }, [isToday])
+    autoSaveTimer.current = setTimeout(() => performSave(true), 2000)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, todayStr])
 
   async function getOrCreateClosingId(): Promise<string> {
     const current = closingRef.current
@@ -377,7 +367,10 @@ export default function ClosingPage() {
 
   async function performSave(isAuto = false) {
     if (!storeId) return
-    if (isSaved && !isManager && !isToday) { alert('저장된 마감일지는 매니저/대표만 수정할 수 있습니다.'); return }
+    if (isSaved && !isManager && selectedDate !== todayStr) {
+      if (!isAuto) alert('저장된 마감일지는 매니저/대표만 수정할 수 있습니다.')
+      return
+    }
     if (isAuto) setAutoSaveStatus('saving')
     else setIsSaving(true)
 
@@ -415,7 +408,6 @@ export default function ClosingPage() {
 
       if (current?.id) {
         closingId = current.id
-        // 수정 이력 기록 (기존에 저장된 일지 수정 시만)
         if (prevDataRef.current) {
           const changes = detectChanges(prevDataRef.current, nextSnapshot)
           if (changes.length > 0) await logEdit(closingId, selectedDate, changes)
@@ -463,7 +455,6 @@ export default function ClosingPage() {
         setWeatherMap(prev => ({ ...prev, [selectedDate]: { code: weatherData.weather_code, tmax: weatherData.temp_max, tmin: weatherData.temp_min } }))
       }
 
-      // 기준값 갱신
       prevDataRef.current = { ...nextSnapshot }
       setShowForm(true)
 
@@ -477,9 +468,9 @@ export default function ClosingPage() {
     }
   }
 
-  // 당일 자동저장용 onChange 래퍼
+  // 당일 자동저장 래퍼 - isSaved 여부 무관하게 항상 트리거
   function aw<T>(setter: (v: T) => void) {
-    return (v: T) => { setter(v); if (isToday && isSaved) triggerAutoSave() }
+    return (v: T) => { setter(v); if (selectedDate === todayStr) triggerAutoSave() }
   }
 
   async function toggleCheck(itemId: string) {
@@ -600,11 +591,9 @@ export default function ClosingPage() {
             setUnreadEditCount(0)
           }} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
         </div>
-
         {editLogs.length === 0 ? (
           <div style={{ textAlign:'center', padding:'48px 0', color:'#ccc', fontSize:13 }}>수정 이력이 없어요</div>
         ) : (() => {
-          // 날짜별 그룹핑
           const grouped: Record<string, any[]> = {}
           editLogs.forEach(l => {
             const date = l.closing_date || l.edited_at?.slice(0,10) || '?'
@@ -617,7 +606,7 @@ export default function ClosingPage() {
                 <span>📅 {date.replace(/-/g,'.')} 마감일지</span>
                 <span style={{ fontWeight:400, color:'#ccc' }}>({logs.length}건 수정)</span>
               </div>
-              {logs.map((l, i) => (
+              {logs.map((l: any, i: number) => (
                 <div key={i} style={{ borderRadius:12, border:'1px solid #F0F2F5', padding:'12px 14px', marginBottom:8, background:'#FAFBFC' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -648,13 +637,13 @@ export default function ClosingPage() {
   // ── 폼 콘텐츠 ──
   const formContent = (
     <>
-      {/* 당일: 자동저장 상태 표시 */}
-      {isToday && isSaved && (
+      {/* 자동저장 상태 (당일만) */}
+      {isToday && (
         <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:6, marginBottom:10 }}>
-          {autoSaveStatus === 'pending' && <span style={{ fontSize:11, color:'#FDC400', fontWeight:600 }}>⏳ 자동저장 대기 중...</span>}
+          {autoSaveStatus === 'pending' && <span style={{ fontSize:11, color:'#FDC400', fontWeight:600 }}>⏳ 저장 대기 중...</span>}
           {autoSaveStatus === 'saving' && <span style={{ fontSize:11, color:'#6C5CE7', fontWeight:600 }}>💾 저장 중...</span>}
-          {autoSaveStatus === 'saved' && <span style={{ fontSize:11, color:'#00B894', fontWeight:600 }}>✓ 자동저장 완료</span>}
-          {autoSaveStatus === 'idle' && <span style={{ fontSize:11, color:'#aaa' }}>✓ 오늘 일지 · 실시간 자동저장</span>}
+          {autoSaveStatus === 'saved' && <span style={{ fontSize:11, color:'#00B894', fontWeight:600 }}>✅ 자동저장 완료</span>}
+          {autoSaveStatus === 'idle' && <span style={{ fontSize:11, color:'#aaa' }}>✏️ 입력하면 자동 저장돼요</span>}
         </div>
       )}
 
@@ -716,15 +705,15 @@ export default function ClosingPage() {
             <span style={{ fontSize:12, color:'#555', fontWeight:600 }}>{p.name}</span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
               <input type="number" value={sales[p.name]||''} placeholder="0" disabled={disabled}
-                onChange={e => { const v = Number(e.target.value); setSales(prev => ({...prev,[p.name]:v})); if(isToday&&isSaved) triggerAutoSave() }}
+                onChange={e => { const v = Number(e.target.value); setSales(prev => ({...prev,[p.name]:v})); if(selectedDate===todayStr) triggerAutoSave() }}
                 style={{ ...inp, textAlign:'right', padding:'6px 8px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:10, color:'#aaa', flexShrink:0 }}>원</span>
             </div>
             <input type="number" value={counts[p.name]||''} placeholder="0" disabled={disabled}
-              onChange={e => { const v = Number(e.target.value); setCounts(prev => ({...prev,[p.name]:v})); if(isToday&&isSaved) triggerAutoSave() }}
+              onChange={e => { const v = Number(e.target.value); setCounts(prev => ({...prev,[p.name]:v})); if(selectedDate===todayStr) triggerAutoSave() }}
               style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
             <input type="number" value={cancelCounts[p.name]||''} placeholder="0" disabled={disabled}
-              onChange={e => { const v = Number(e.target.value); setCancelCounts(prev => ({...prev,[p.name]:v})); if(isToday&&isSaved) triggerAutoSave() }}
+              onChange={e => { const v = Number(e.target.value); setCancelCounts(prev => ({...prev,[p.name]:v})); if(selectedDate===todayStr) triggerAutoSave() }}
               style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'rgba(232,67,147,0.04)', border:'1px solid rgba(232,67,147,0.2)' }} />
           </div>
         ))}
@@ -929,13 +918,7 @@ export default function ClosingPage() {
         </div>
       </div>
 
-      {/* 저장 버튼: 당일 최초저장만 표시 / 이후 자동저장 */}
-      {isToday && !isSaved && (
-        <button onClick={() => performSave(false)} disabled={isSaving}
-          style={{ width:'100%', padding:'15px 0', borderRadius:14, background: isSaving?'#ddd':'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor: isSaving?'not-allowed':'pointer', marginBottom:24 }}>
-          {isSaving ? '저장 중...' : '💾 마감일지 저장'}
-        </button>
-      )}
+      {/* 저장 버튼: 당일은 없음(자동저장) / 과거 날짜만 표시 */}
       {!isToday && (
         (!isSaved || isManager) ? (
           <button onClick={() => performSave(false)} disabled={isSaving}
@@ -951,7 +934,6 @@ export default function ClosingPage() {
     </>
   )
 
-  // 수정이력 버튼 (대표 전용)
   const editLogBtn = isOwner && (
     <button onClick={() => setShowEditLogs(true)}
       style={{ position:'relative', padding:'6px 14px', borderRadius:10, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.25)', color:'#E84393', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
@@ -968,7 +950,6 @@ export default function ClosingPage() {
     <div>
       {editLogModal}
 
-      {/* 플랫폼 관리 모달 */}
       {showPlatformMgr && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
           <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'75vh', overflowY:'auto' }}>
@@ -990,7 +971,6 @@ export default function ClosingPage() {
         </div>
       )}
 
-      {/* 리뷰 플랫폼 관리 모달 */}
       {showReviewMgr && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
           <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'75vh', overflowY:'auto' }}>
@@ -1025,7 +1005,6 @@ export default function ClosingPage() {
         </div>
       )}
 
-      {/* 체크리스트 관리 모달 */}
       {showCheckMgr && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
           <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'75vh', overflowY:'auto' }}>
@@ -1063,7 +1042,7 @@ export default function ClosingPage() {
                     <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>{selectedDate.replace(/-/g,'.')}</div>
                     {isSaved
                       ? <div style={{ fontSize:11, color:'#00B894', marginTop:2 }}>✓ 저장됨 · 총 매출 {totalSales.toLocaleString()}원 · {totalCount}건</div>
-                      : <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>미작성</div>}
+                      : <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>{isToday ? '✏️ 오늘 일지 작성 중' : '미작성'}</div>}
                   </div>
                   <button onClick={() => setShowForm(p => !p)}
                     style={{ padding:'7px 14px', borderRadius:9, background: isSaved?'rgba(0,184,148,0.1)':'rgba(255,107,53,0.1)', border: isSaved?'1px solid rgba(0,184,148,0.3)':'1px solid rgba(255,107,53,0.3)', color: isSaved?'#00B894':'#FF6B35', fontSize:12, fontWeight:700, cursor:'pointer' }}>
@@ -1089,7 +1068,7 @@ export default function ClosingPage() {
                 <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>{selectedDate.replace(/-/g,'.')}</div>
                 {isSaved
                   ? <div style={{ fontSize:11, color:'#00B894', marginTop:2 }}>✓ 저장됨 · 총 매출 {totalSales.toLocaleString()}원 · {totalCount}건</div>
-                  : <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>미작성</div>}
+                  : <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>{isToday ? '✏️ 오늘 일지 작성 중' : '미작성'}</div>}
               </div>
               <button onClick={() => setShowForm(p => !p)}
                 style={{ padding:'7px 14px', borderRadius:9, background: isSaved?'rgba(0,184,148,0.1)':'rgba(255,107,53,0.1)', border: isSaved?'1px solid rgba(0,184,148,0.3)':'1px solid rgba(255,107,53,0.3)', color: isSaved?'#00B894':'#FF6B35', fontSize:12, fontWeight:700, cursor:'pointer' }}>
