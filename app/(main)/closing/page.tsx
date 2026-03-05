@@ -354,7 +354,7 @@ export default function ClosingPage() {
     setCalYear(y); setCalMonth(m-1)
   }
 
-- 당일이면 항상 (최초 입력 포함)
+  // 자동저장 트리거 - 당일이면 항상 (최초 입력 포함)
   const triggerAutoSave = useCallback(() => {
     if (selectedDate !== todayStr) return
     setAutoSaveStatus('pending')
