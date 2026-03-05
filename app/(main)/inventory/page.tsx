@@ -356,14 +356,21 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [logs, setLogs] = useState<any[]>([])
   const [lastYearLogs, setLastYearLogs] = useState<any[]>([])
-  const [trendLogs, setTrendLogs] = useState<any[]>([]) // 최근 6개월
+  const [trendLogs, setTrendLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeSection, setActiveSection] = useState<'summary' | 'trend' | 'depletion' | 'staff'>('summary')
+  const [activeSection, setActiveSection] = useState<'summary' | 'trend' | 'depletion' | 'staff' | 'calendar'>('summary')
+  const [snapshots, setSnapshots] = useState<any[]>([])
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [calLoading, setCalLoading] = useState(false)
 
   useEffect(() => {
     if (!items.length || !storeId) return
     loadAll()
   }, [items, year, month])
+
+  useEffect(() => {
+    if (activeSection === 'calendar' && storeId && items.length) loadSnapshots()
+  }, [activeSection, year, month, storeId, items])
 
   async function loadAll() {
     setLoading(true)
@@ -390,6 +397,21 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
     setLastYearLogs(ly.data || [])
     setTrendLogs(trend.data || [])
     setLoading(false)
+  }
+
+  async function loadSnapshots() {
+    setCalLoading(true)
+    const from = `${year}-${String(month).padStart(2, '0')}-01`
+    const to = new Date(year, month, 1).toISOString().split('T')[0]
+    const { data } = await supabase
+      .from('inventory_snapshots')
+      .select('*, inventory_items(name, unit)')
+      .eq('store_id', storeId)
+      .gte('snapshot_date', from)
+      .lt('snapshot_date', to)
+      .order('snapshot_date', { ascending: false })
+    setSnapshots(data || [])
+    setCalLoading(false)
   }
 
   function prevMonth() {
@@ -516,6 +538,7 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
         {tabBtn('summary', '📊 요약')}
         {tabBtn('trend', '📈 트렌드')}
         {tabBtn('depletion', '⏳ 소진예상')}
+        {tabBtn('calendar', '📅 캘린더')}
         {tabBtn('staff', '👤 직원')}
       </div>
 
@@ -680,6 +703,96 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {/* ── 캘린더 ── */}
+          {activeSection === 'calendar' && (
+            <div>
+              {calLoading ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>불러오는 중...</div>
+              ) : (
+                <>
+                  {/* 캘린더 그리드 */}
+                  <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📅 {year}년 {month}월 마감 기록</div>
+                    {/* 요일 헤더 */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+                      {['일', '월', '화', '수', '목', '금', '토'].map(d => (
+                        <div key={d} style={{ textAlign: 'center', fontSize: 10, color: '#aaa', fontWeight: 600, padding: '4px 0' }}>{d}</div>
+                      ))}
+                    </div>
+                    {/* 날짜 셀 */}
+                    {(() => {
+                      const firstDay = new Date(year, month - 1, 1).getDay()
+                      const daysInMonth = new Date(year, month, 0).getDate()
+                      const snapshotDates = new Set(snapshots.map(s => s.snapshot_date))
+                      const cells = []
+                      // 빈 칸
+                      for (let i = 0; i < firstDay; i++) cells.push(<div key={`e${i}`} />)
+                      // 날짜
+                      for (let d = 1; d <= daysInMonth; d++) {
+                        const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+                        const hasSnap = snapshotDates.has(dateStr)
+                        const isSelected = selectedDate === dateStr
+                        const isToday = dateStr === now.toISOString().split('T')[0]
+                        const isFuture = new Date(dateStr) > now
+                        cells.push(
+                          <div key={d} onClick={() => { if (hasSnap) setSelectedDate(isSelected ? null : dateStr) }}
+                            style={{
+                              aspectRatio: '1', borderRadius: 8, display: 'flex', flexDirection: 'column',
+                              alignItems: 'center', justifyContent: 'center', cursor: hasSnap ? 'pointer' : 'default',
+                              background: isSelected ? 'linear-gradient(135deg,#6C5CE7,#a29bfe)' : hasSnap ? 'rgba(108,92,231,0.08)' : 'transparent',
+                              border: isToday ? '2px solid #FF6B35' : '2px solid transparent',
+                              opacity: isFuture ? 0.3 : 1
+                            }}>
+                            <span style={{ fontSize: 12, fontWeight: isToday ? 700 : 400, color: isSelected ? '#fff' : hasSnap ? '#6C5CE7' : '#bbb' }}>{d}</span>
+                            {hasSnap && <div style={{ width: 4, height: 4, borderRadius: 2, background: isSelected ? '#fff' : '#6C5CE7', marginTop: 2 }} />}
+                          </div>
+                        )
+                      }
+                      return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>{cells}</div>
+                    })()}
+                    <div style={{ fontSize: 10, color: '#bbb', marginTop: 10 }}>● 기록 있는 날짜 · 오늘 주황 테두리 · 날짜 클릭하면 상세 보기</div>
+                  </div>
+
+                  {/* 선택 날짜 상세 */}
+                  {selectedDate && (() => {
+                    const daySnaps = snapshots.filter(s => s.snapshot_date === selectedDate)
+                    // 품목별 합산
+                    const byItem: Record<string, { name: string; unit: string; total: number }> = {}
+                    daySnaps.forEach(s => {
+                      if (!byItem[s.item_id]) byItem[s.item_id] = { name: s.inventory_items?.name || '', unit: s.inventory_items?.unit || '', total: 0 }
+                      byItem[s.item_id].total += s.quantity
+                    })
+                    const itemList = Object.values(byItem).sort((a, b) => a.total - b.total)
+                    const [y, m, d] = selectedDate.split('-')
+                    return (
+                      <div style={{ background: '#fff', borderRadius: 16, border: '1px solid rgba(108,92,231,0.2)', padding: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#6C5CE7', marginBottom: 12 }}>
+                          {parseInt(m)}월 {parseInt(d)}일 마감 재고
+                          <span style={{ fontSize: 10, color: '#aaa', fontWeight: 400, marginLeft: 8 }}>{daySnaps.length}개 장소</span>
+                        </div>
+                        {itemList.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: 16, color: '#bbb', fontSize: 12 }}>데이터 없음</div>
+                        ) : itemList.map(item => (
+                          <div key={item.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F4F6F9' }}>
+                            <span style={{ fontSize: 12, color: '#1a1a2e' }}>{item.name}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: item.total === 0 ? '#E84393' : '#1a1a2e' }}>{item.total}{item.unit}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
+
+                  {snapshots.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>
+                      이 달 마감 기록이 없어요<br/>
+                      <span style={{ fontSize: 11, marginTop: 6, display: 'block' }}>매일 자정에 자동으로 기록돼요</span>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 
