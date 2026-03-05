@@ -123,6 +123,20 @@ export default function ClosingPage() {
   const prevDataRef = useRef<any>(null)
   const isSavingRef = useRef(false)
 
+  // 최신 state를 ref로 항상 동기화 (onBlur 즉시 저장용)
+  const writerRef = useRef('')
+  const closeStaffRef = useRef('')
+  const staffCountRef = useRef(0)
+  const openTimeRef = useRef('')
+  const closeTimeRef = useRef('')
+  const discountAmountRef = useRef(0)
+  const cashAmountRef = useRef(0)
+  const noteRef = useRef('')
+  const memoRef = useRef('')
+  const salesRef = useRef<Record<string, number>>({})
+  const countsRef = useRef<Record<string, number>>({})
+  const cancelCountsRef = useRef<Record<string, number>>({})
+
   // 수정 이력 관련
   const [editLogs, setEditLogs] = useState<any[]>([])
   const [showEditLogs, setShowEditLogs] = useState(false)
@@ -179,6 +193,7 @@ export default function ClosingPage() {
     if (!store.id) return
     setStoreId(store.id); setUserName(user.nm || ''); setUserRole(user.role || '')
     loadBase(store.id); loadSalesMap(store.id)
+    saveYesterdayWeather(store.id)
   }, [])
 
   useEffect(() => { if (storeId) loadClosing(storeId, selectedDate) }, [selectedDate, storeId])
@@ -245,6 +260,32 @@ export default function ClosingPage() {
       })
     })
     return changes
+  }
+
+  async function saveYesterdayWeather(sid: string) {
+    try {
+      const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
+      const yesterdayStr = toDateStr(yesterday)
+      // 어제 마감일지가 있고 날씨가 아직 없는 경우만 저장
+      const { data: cl } = await supabase.from('closings').select('id, weather_code').eq('store_id', sid).eq('closing_date', yesterdayStr).maybeSingle()
+      if (!cl || cl.weather_code !== null) return
+      const { data: storeData } = await supabase.from('stores').select('lat, lng').eq('id', sid).maybeSingle()
+      if (!storeData?.lat || !storeData?.lng) return
+      const res = await fetch(
+        'https://api.open-meteo.com/v1/forecast?latitude=' + storeData.lat +
+        '&longitude=' + storeData.lng +
+        '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode' +
+        '&timezone=Asia/Seoul&start_date=' + yesterdayStr + '&end_date=' + yesterdayStr
+      )
+      const wJson = await res.json()
+      if (!wJson.daily) return
+      await supabase.from('closings').update({
+        weather_code: wJson.daily.weathercode?.[0] ?? null,
+        temp_max: wJson.daily.temperature_2m_max?.[0] ?? null,
+        temp_min: wJson.daily.temperature_2m_min?.[0] ?? null,
+        precipitation: wJson.daily.precipitation_sum?.[0] ?? null,
+      }).eq('id', cl.id)
+    } catch {}
   }
 
   async function loadBase(sid: string) {
@@ -335,6 +376,19 @@ export default function ClosingPage() {
         cash_amount: cl.cash_amount || 0, note: cl.note || '', memo: cl.memo || '',
         salesSnapshot: sm
       }
+      // ref 동기화
+      writerRef.current = cl.writer || cl.created_by || ''
+      closeStaffRef.current = cl.close_staff || ''
+      staffCountRef.current = cl.staff_count || 0
+      openTimeRef.current = cl.open_time || ''
+      closeTimeRef.current = cl.close_time || ''
+      discountAmountRef.current = cl.discount_amount || 0
+      cashAmountRef.current = cl.cash_amount || 0
+      noteRef.current = cl.note || ''
+      memoRef.current = cl.memo || ''
+      salesRef.current = sm
+      countsRef.current = cm
+      cancelCountsRef.current = ccm
       setShowForm(true)
     } else {
       setClosing(null); closingRef.current = null
@@ -379,6 +433,19 @@ export default function ClosingPage() {
   }
 
   async function performSave(isAuto = false) {
+    return performSaveWithValues(isAuto,
+      writer, closeStaff, staffCount, openTime, closeTime,
+      discountAmount, cashAmount, note, memo, sales, counts, cancelCounts
+    )
+  }
+
+  async function performSaveWithValues(
+    isAuto: boolean,
+    _writer: string, _closeStaff: string, _staffCount: number,
+    _openTime: string, _closeTime: string, _discountAmount: number,
+    _cashAmount: number, _note: string, _memo: string,
+    _sales: Record<string, number>, _counts: Record<string, number>, _cancelCounts: Record<string, number>
+  ) {
     if (!storeId) return
     if (isSaved && !isManager && selectedDate !== todayStr) {
       if (!isAuto) alert('저장된 마감일지는 매니저/대표만 수정할 수 있습니다.')
@@ -390,34 +457,37 @@ export default function ClosingPage() {
 
     try {
       let weatherData: any = {}
-      const { data: storeData } = await supabase.from('stores').select('lat, lng').eq('id', storeId).maybeSingle()
-      if (storeData?.lat && storeData?.lng) {
-        try {
-          const res = await fetch(
-            'https://api.open-meteo.com/v1/forecast?latitude=' + storeData.lat +
-            '&longitude=' + storeData.lng +
-            '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode' +
-            '&timezone=Asia/Seoul&start_date=' + selectedDate + '&end_date=' + selectedDate
-          )
-          const wJson = await res.json()
-          if (wJson.daily) {
-            weatherData = {
-              weather_code: wJson.daily.weathercode?.[0] ?? null,
-              temp_max: wJson.daily.temperature_2m_max?.[0] ?? null,
-              temp_min: wJson.daily.temperature_2m_min?.[0] ?? null,
-              precipitation: wJson.daily.precipitation_sum?.[0] ?? null,
+      // 자동저장 시 날씨 API 스킵 (속도 우선)
+      if (!isAuto) {
+        const { data: storeData } = await supabase.from('stores').select('lat, lng').eq('id', storeId).maybeSingle()
+        if (storeData?.lat && storeData?.lng) {
+          try {
+            const res = await fetch(
+              'https://api.open-meteo.com/v1/forecast?latitude=' + storeData.lat +
+              '&longitude=' + storeData.lng +
+              '&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode' +
+              '&timezone=Asia/Seoul&start_date=' + selectedDate + '&end_date=' + selectedDate
+            )
+            const wJson = await res.json()
+            if (wJson.daily) {
+              weatherData = {
+                weather_code: wJson.daily.weathercode?.[0] ?? null,
+                temp_max: wJson.daily.temperature_2m_max?.[0] ?? null,
+                temp_min: wJson.daily.temperature_2m_min?.[0] ?? null,
+                precipitation: wJson.daily.precipitation_sum?.[0] ?? null,
+              }
             }
-          }
-        } catch {}
+          } catch {}
+        }
       }
 
       const current = closingRef.current
       let closingId: string
 
       const nextSnapshot = {
-        writer, close_staff: closeStaff, staff_count: staffCount,
-        open_time: openTime, close_time: closeTime, discount_amount: discountAmount,
-        cash_amount: cashAmount, note, memo, salesSnapshot: { ...sales }
+        writer: _writer, close_staff: _closeStaff, staff_count: _staffCount,
+        open_time: _openTime, close_time: _closeTime, discount_amount: _discountAmount,
+        cash_amount: _cashAmount, note: _note, memo: _memo, salesSnapshot: { ..._sales }
       }
 
       if (current?.id) {
@@ -427,18 +497,21 @@ export default function ClosingPage() {
           if (changes.length > 0) await logEdit(closingId, selectedDate, changes)
         }
         await supabase.from('closings').update({
-          writer, close_staff: closeStaff,
-          cancel_count: cancelCount, cash_amount: cashAmount,
-          note, memo, discount_amount: discountAmount,
-          staff_count: staffCount, open_time: openTime, close_time: closeTime,
+          writer: _writer, close_staff: _closeStaff,
+          cancel_count: Object.values(_cancelCounts).reduce((a,b)=>a+b,0),
+          cash_amount: _cashAmount, note: _note, memo: _memo,
+          discount_amount: _discountAmount, staff_count: _staffCount,
+          open_time: _openTime, close_time: _closeTime,
           ...weatherData
         }).eq('id', closingId)
       } else {
         const { data, error } = await supabase.from('closings').insert({
-          store_id: storeId, closing_date: selectedDate, writer, close_staff: closeStaff,
-          cancel_count: cancelCount, cash_amount: cashAmount, note, memo,
-          discount_amount: discountAmount, created_by: userName,
-          staff_count: staffCount, open_time: openTime, close_time: closeTime,
+          store_id: storeId, closing_date: selectedDate,
+          writer: _writer, close_staff: _closeStaff,
+          cancel_count: Object.values(_cancelCounts).reduce((a,b)=>a+b,0),
+          cash_amount: _cashAmount, note: _note, memo: _memo,
+          discount_amount: _discountAmount, created_by: userName,
+          staff_count: _staffCount, open_time: _openTime, close_time: _closeTime,
           ...weatherData
         }).select().single()
         if (error) throw error
@@ -448,8 +521,8 @@ export default function ClosingPage() {
       await supabase.from('closing_sales').delete().eq('closing_id', closingId)
       const rows = platforms.map(p => ({
         closing_id: closingId, platform: p.name,
-        amount: sales[p.name] || 0, count: counts[p.name] || 0,
-        cancel_count: cancelCounts[p.name] || 0, sort_order: p.sort_order
+        amount: _sales[p.name] || 0, count: _counts[p.name] || 0,
+        cancel_count: _cancelCounts[p.name] || 0, sort_order: p.sort_order
       }))
       if (rows.length > 0) await supabase.from('closing_sales').insert(rows)
 
@@ -483,9 +556,26 @@ export default function ClosingPage() {
     }
   }
 
-  // 당일 자동저장 래퍼 - isSaved 여부 무관하게 항상 트리거
+  // state + ref 동시 업데이트 래퍼
+  function sr<T>(setter: (v: T) => void, ref: React.MutableRefObject<T>) {
+    return (v: T) => { setter(v); ref.current = v; if (selectedDate === todayStr) triggerAutoSave() }
+  }
+
+  // 당일 자동저장 래퍼 (ref 동기화 포함)
   function aw<T>(setter: (v: T) => void) {
     return (v: T) => { setter(v); if (selectedDate === todayStr) triggerAutoSave() }
+  }
+
+  // onBlur 즉시 저장 - ref의 최신값으로 저장
+  function saveNow() {
+    if (selectedDate !== todayStr) return
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+    performSaveWithValues(true,
+      writerRef.current, closeStaffRef.current, staffCountRef.current,
+      openTimeRef.current, closeTimeRef.current, discountAmountRef.current,
+      cashAmountRef.current, noteRef.current, memoRef.current,
+      salesRef.current, countsRef.current, cancelCountsRef.current
+    )
   }
 
   async function toggleCheck(itemId: string) {
@@ -674,30 +764,30 @@ export default function ClosingPage() {
         <div style={{ display:'grid', gridTemplateColumns: isPC ? '1fr 1fr 1fr 80px 80px' : '1fr 1fr', gap:8 }}>
           <div>
             <span style={lbl}>작성자</span>
-            <input value={writer} onChange={e => aw(setWriter)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="작성자" disabled={disabled}
+            <input value={writer} onChange={e => sr(setWriter, writerRef)(e.target.value)} onBlur={saveNow} placeholder="작성자" disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
           <div>
             <span style={lbl}>마감 담당자</span>
-            <input value={closeStaff} onChange={e => aw(setCloseStaff)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="마감 담당자" disabled={disabled}
+            <input value={closeStaff} onChange={e => sr(setCloseStaff, closeStaffRef)(e.target.value)} onBlur={saveNow} placeholder="마감 담당자" disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
           <div>
             <span style={lbl}>근무 직원 수</span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <input type="number" value={staffCount||''} onChange={e => aw(setStaffCount)(Number(e.target.value))} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="0" disabled={disabled}
+              <input type="number" value={staffCount||''} onChange={e => sr(setStaffCount, staffCountRef)(Number(e.target.value))} onBlur={saveNow} placeholder="0" disabled={disabled}
                 style={{ ...inp, textAlign:'center', background: disabled?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>명</span>
             </div>
           </div>
           <div>
             <span style={lbl}>오픈</span>
-            <input type="time" value={openTime} onChange={e => aw(setOpenTime)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} disabled={disabled}
+            <input type="time" value={openTime} onChange={e => sr(setOpenTime, openTimeRef)(e.target.value)} onBlur={saveNow} disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
           <div>
             <span style={lbl}>마감</span>
-            <input type="time" value={closeTime} onChange={e => aw(setCloseTime)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} disabled={disabled}
+            <input type="time" value={closeTime} onChange={e => sr(setCloseTime, closeTimeRef)(e.target.value)} onBlur={saveNow} disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
         </div>
@@ -720,18 +810,18 @@ export default function ClosingPage() {
             <span style={{ fontSize:12, color:'#555', fontWeight:600 }}>{p.name}</span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
               <input type="number" value={sales[p.name]||''} placeholder="0" disabled={disabled}
-                onChange={e => { const v = Number(e.target.value); setSales(prev => ({...prev,[p.name]:v})); if(selectedDate===todayStr) triggerAutoSave() }}
-                onBlur={() => { if(selectedDate===todayStr) performSave(true) }}
+                onChange={e => { const v = Number(e.target.value); setSales(prev => {const n={...prev,[p.name]:v}; salesRef.current=n; return n}); if(selectedDate===todayStr) triggerAutoSave() }}
+                onBlur={saveNow}
                 style={{ ...inp, textAlign:'right', padding:'6px 8px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:10, color:'#aaa', flexShrink:0 }}>원</span>
             </div>
             <input type="number" value={counts[p.name]||''} placeholder="0" disabled={disabled}
-              onChange={e => { const v = Number(e.target.value); setCounts(prev => ({...prev,[p.name]:v})); if(selectedDate===todayStr) triggerAutoSave() }}
-              onBlur={() => { if(selectedDate===todayStr) performSave(true) }}
+              onChange={e => { const v = Number(e.target.value); setCounts(prev => {const n={...prev,[p.name]:v}; countsRef.current=n; return n}); if(selectedDate===todayStr) triggerAutoSave() }}
+              onBlur={saveNow}
               style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
             <input type="number" value={cancelCounts[p.name]||''} placeholder="0" disabled={disabled}
-              onChange={e => { const v = Number(e.target.value); setCancelCounts(prev => ({...prev,[p.name]:v})); if(selectedDate===todayStr) triggerAutoSave() }}
-              onBlur={() => { if(selectedDate===todayStr) performSave(true) }}
+              onChange={e => { const v = Number(e.target.value); setCancelCounts(prev => {const n={...prev,[p.name]:v}; cancelCountsRef.current=n; return n}); if(selectedDate===todayStr) triggerAutoSave() }}
+              onBlur={saveNow}
               style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'rgba(232,67,147,0.04)', border:'1px solid rgba(232,67,147,0.2)' }} />
           </div>
         ))}
@@ -764,7 +854,7 @@ export default function ClosingPage() {
           <div style={{ flex:1 }}>
             <span style={lbl}>할인/프로모션 금액</span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <input type="number" value={discountAmount||''} onChange={e => aw(setDiscountAmount)(Number(e.target.value))} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="0" disabled={disabled}
+              <input type="number" value={discountAmount||''} onChange={e => sr(setDiscountAmount, discountAmountRef)(Number(e.target.value))} onBlur={saveNow} placeholder="0" disabled={disabled}
                 style={{ ...inp, textAlign:'right', background: disabled?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
             </div>
@@ -776,7 +866,7 @@ export default function ClosingPage() {
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>💵 시재</div>
         <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-          <input type="number" value={cashAmount||''} onChange={e => aw(setCashAmount)(Number(e.target.value))} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="마감 시재 금액 입력" disabled={disabled}
+          <input type="number" value={cashAmount||''} onChange={e => sr(setCashAmount, cashAmountRef)(Number(e.target.value))} onBlur={saveNow} placeholder="마감 시재 금액 입력" disabled={disabled}
             style={{ ...inp, textAlign:'right', background: disabled?'#F4F6F9':'#F8F9FB' }} />
           <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
         </div>
@@ -821,7 +911,7 @@ export default function ClosingPage() {
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📌 특이사항 메모</div>
         <div style={{ fontSize:10, color:'#aaa', marginBottom:8 }}>이벤트, 행사, 날씨, 특이 상황 등 — 분석탭에서 매출과 연결됩니다</div>
-        <textarea value={memo} onChange={e => aw(setMemo)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="오늘의 특이사항을 기록하세요 (이벤트, 날씨, 행사 등)" disabled={disabled}
+        <textarea value={memo} onChange={e => sr(setMemo, memoRef)(e.target.value)} onBlur={saveNow} placeholder="오늘의 특이사항을 기록하세요 (이벤트, 날씨, 행사 등)" disabled={disabled}
           style={{ ...inp, minHeight:70, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
       </div>
 
@@ -891,7 +981,7 @@ export default function ClosingPage() {
       {/* 클레임/특이사항 */}
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📝 클레임/특이사항</div>
-        <textarea value={note} onChange={e => aw(setNote)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder={disabled?'':'오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={disabled}
+        <textarea value={note} onChange={e => sr(setNote, noteRef)(e.target.value)} onBlur={saveNow} placeholder={disabled?'':'오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={disabled}
           style={{ ...inp, minHeight:80, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
       </div>
 
