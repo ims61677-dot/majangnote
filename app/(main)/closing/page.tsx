@@ -121,6 +121,7 @@ export default function ClosingPage() {
   const [isPC, setIsPC] = useState(false)
   const autoSaveTimer = useRef<any>(null)
   const prevDataRef = useRef<any>(null)
+  const isSavingRef = useRef(false)
 
   // 수정 이력 관련
   const [editLogs, setEditLogs] = useState<any[]>([])
@@ -354,12 +355,12 @@ export default function ClosingPage() {
     setCalYear(y); setCalMonth(m-1)
   }
 
-  // 자동저장 트리거 - 당일이면 항상 (최초 입력 포함)
+  // 자동저장 트리거 - 당일이면 즉시 저장 (이미 저장 중이면 스킵)
   const triggerAutoSave = useCallback(() => {
     if (selectedDate !== todayStr) return
-    setAutoSaveStatus('pending')
+    if (isSavingRef.current) return
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
-    autoSaveTimer.current = setTimeout(() => performSave(true), 500)
+    autoSaveTimer.current = setTimeout(() => performSave(true), 100)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, todayStr])
 
@@ -385,6 +386,7 @@ export default function ClosingPage() {
     }
     if (isAuto) setAutoSaveStatus('saving')
     else setIsSaving(true)
+    isSavingRef.current = true
 
     try {
       let weatherData: any = {}
@@ -477,6 +479,7 @@ export default function ClosingPage() {
       if (isAuto) setAutoSaveStatus('idle')
     } finally {
       if (!isAuto) setIsSaving(false)
+      isSavingRef.current = false
     }
   }
 
