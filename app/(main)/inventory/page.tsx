@@ -483,11 +483,32 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
 
   return (
     <div>
-      {/* 월 선택 */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 16 }}>
-        <button onClick={prevMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 14, color: '#888' }}>‹</button>
-        <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', minWidth: 90, textAlign: 'center' }}>{year}년 {month}월</span>
-        <button onClick={nextMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 14, color: '#888' }}>›</button>
+      {/* 년/월 선택 */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        {/* 년도 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => setYear(y => y - 1)} style={{ width: 28, height: 28, borderRadius: 7, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 12, color: '#888' }}>«</button>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#6C5CE7', minWidth: 60, textAlign: 'center' }}>{year}년</span>
+          <button onClick={() => { if (year < now.getFullYear()) setYear(y => y + 1) }} style={{ width: 28, height: 28, borderRadius: 7, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 12, color: year < now.getFullYear() ? '#888' : '#ddd' }}>»</button>
+        </div>
+        {/* 월 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={prevMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 14, color: '#888' }}>‹</button>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
+              const isFuture = year === now.getFullYear() && m > now.getMonth() + 1
+              return (
+                <button key={m} onClick={() => { if (!isFuture) setMonth(m) }} style={{
+                  width: 26, height: 26, borderRadius: 6, border: 'none', cursor: isFuture ? 'default' : 'pointer',
+                  fontSize: 10, fontWeight: m === month ? 700 : 400,
+                  background: m === month ? 'linear-gradient(135deg,#6C5CE7,#a29bfe)' : isFuture ? 'transparent' : '#F4F6F9',
+                  color: m === month ? '#fff' : isFuture ? '#ddd' : '#888'
+                }}>{m}</button>
+              )
+            })}
+          </div>
+          <button onClick={nextMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 14, color: '#888' }}>›</button>
+        </div>
       </div>
 
       {/* 섹션 탭 */}
