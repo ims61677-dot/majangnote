@@ -172,7 +172,7 @@ export default function AnalyticsPage() {
   const [month, setMonth] = useState(now.getMonth())
   const [storeId, setStoreId] = useState('')
   const [isPC, setIsPC] = useState<boolean|null>(null)
-  const [tab, setTab] = useState<'overview'|'action'|'sales'|'unit'|'dow'|'platform'|'review'|'place'|'compare'|'yearcmp'|'memo'>('overview')
+  const [tab, setTab] = useState<'overview'|'sales'|'marketing'|'insight'>('overview')
   const [loading, setLoading] = useState(false)
 
   const [closings, setClosings] = useState<any[]>([])
@@ -1304,8 +1304,92 @@ export default function AnalyticsPage() {
           // PC: 콘텐츠를 왼쪽/오른쪽으로 분할
           isPC ? (
             <div style={{ display:'contents' }}>
-              {/* PC 왼쪽 컬럼 */}
-              <div>
+
+              {/* PC - 매출분석 탭: 일별+요일 / 플랫폼+비교 */}
+              {tab==='sales' && (
+                <>
+                  <div>
+                    <DropSection id="s-daily" title="📅 일별 매출 흐름" summary={daily.length>0?`최고 ${daily.reduce((a,b)=>b.amount>a.amount?b:a,daily[0]).day}일 ${fmtW(Math.max(...daily.map(d=>d.amount)))}`:'-'} summaryColor="#FF6B35">
+                      <SubSection id="s-daily-chart" title="📊 일별 매출 바차트">
+                        {daily.length===0?<div style={{textAlign:'center',padding:20,color:'#ccc',fontSize:12}}>데이터 없음</div>:(()=>{
+                          const maxAmt=Math.max(...daily.map(d=>d.amount),1)
+                          return(<><div style={{display:'flex',alignItems:'flex-end',gap:3,height:80,marginBottom:6}}>{daily.map(d=>(<div key={d.day} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,minWidth:0}}><div style={{flex:1,width:'100%',borderRadius:'3px 3px 0 0',background:d.dow===0||d.dow===6?'#6C5CE7':'#FF6B35',opacity:d.amount===Math.max(...daily.map(x=>x.amount))?1:0.6,height:`${Math.max((d.amount/maxAmt)*100,3)}%`}}/></div>))}</div><div style={{display:'flex',gap:3}}>{daily.map(d=><div key={d.day} style={{flex:1,textAlign:'center',fontSize:8,color:d.dow===0||d.dow===6?'#6C5CE7':'#aaa',minWidth:0}}>{d.day}</div>)}</div></>)
+                        })()}
+                      </SubSection>
+                      <SubSection id="s-daily-tbl" title="📋 일별 상세 테이블">
+                        <div style={{overflowX:'auto'}}><table style={tbl}><thead><tr style={{borderBottom:'1px solid #F0F2F5'}}>{['날짜','요일','날씨','매출','건수','객단가','전일비'].map(h=><th key={h} style={{fontSize:10,color:'#aaa',fontWeight:700,padding:'6px 8px',textAlign:'left'}}>{h}</th>)}</tr></thead><tbody>{daily.map((d,i)=>{const prev=daily[i-1];const diff=prev&&prev.amount>0?Math.round(((d.amount-prev.amount)/prev.amount)*100):null;return(<tr key={d.day} style={{borderBottom:'1px solid #F8F9FB'}}><td style={{fontSize:12,padding:'8px 8px',fontWeight:600}}>{month+1}/{d.day}</td><td style={{fontSize:12,padding:'8px 8px',color:d.dow===0||d.dow===6?'#6C5CE7':'#888',fontWeight:d.dow===0||d.dow===6?700:400}}>{DOW[d.dow]}</td><td style={{fontSize:12,padding:'8px 8px'}}>{d.weatherCode!==null&&d.weatherCode!==undefined?weatherIcon(d.weatherCode):'-'}</td><td style={{fontSize:12,padding:'8px 8px',fontWeight:700,color:'#FF6B35'}}>{fmtW(d.amount)}</td><td style={{fontSize:12,padding:'8px 8px'}}>{d.count}건</td><td style={{fontSize:12,padding:'8px 8px',color:'#6C5CE7'}}>{d.unitPrice>0?fmtW(d.unitPrice):'-'}</td><td style={{fontSize:11,padding:'8px 8px',fontWeight:700,color:diff===null?'#aaa':diff>=0?'#00B894':'#E84393'}}>{diff===null?'-':`${diff>=0?'▲':'▼'}${Math.abs(diff)}%`}</td></tr>)})}</tbody></table></div>
+                      </SubSection>
+                    </DropSection>
+                    <DropSection id="s-dow" title="📆 요일별 패턴" summary={dowStats.filter(d=>d.value>0).length>0?`${dowStats.filter(d=>d.value>0).sort((a,b)=>b.value-a.value)[0].label}요일 최고`:'-'} summaryColor="#2DC6D6">
+                      <SubSection id="s-dow-avg" title="📊 요일별 평균 매출">
+                        <table style={tbl}><thead><tr style={{borderBottom:'1px solid #F0F2F5'}}>{['요일','평균매출','건수','객단가','횟수'].map(h=><th key={h} style={{fontSize:10,color:'#aaa',fontWeight:700,padding:'6px 8px',textAlign:'left'}}>{h}</th>)}</tr></thead><tbody>{dowStats.filter(d=>d.value>0).map(d=>(<tr key={d.label} style={{borderBottom:'1px solid #F8F9FB'}}><td style={{fontSize:12,padding:'8px 8px',fontWeight:700,color:d.color}}>{d.label}</td><td style={{fontSize:12,padding:'8px 8px',fontWeight:700,color:d.value===maxDow?'#FF6B35':'#1a1a2e'}}>{fmtW(d.value)}</td><td style={{fontSize:12,padding:'8px 8px'}}>{Math.round(daily.filter(x=>DOW[x.dow]===d.label).reduce((s,x)=>s+x.count,0)/Math.max(d.count,1))}건</td><td style={{fontSize:12,padding:'8px 8px',color:'#6C5CE7'}}>{d.value>0&&daily.filter(x=>DOW[x.dow]===d.label).reduce((s,x)=>s+x.count,0)>0?fmtW(Math.round(daily.filter(x=>DOW[x.dow]===d.label).reduce((s,x)=>s+x.amount,0)/daily.filter(x=>DOW[x.dow]===d.label).reduce((s,x)=>s+x.count,0))):'-'}</td><td style={{fontSize:12,padding:'8px 8px',color:'#aaa'}}>{d.count}회</td></tr>))}</tbody></table>
+                      </SubSection>
+                    </DropSection>
+                  </div>
+                  <div>
+                    <DropSection id="s-platform2" title="🥧 플랫폼별 분석" summary={platforms[0]?`${platforms[0].name} 1위 ${totalSales>0?Math.round((platforms[0].amount/totalSales)*100):0}%`:'-'} summaryColor="#FF6B35">
+                      <div style={{overflowX:'auto',marginTop:14}}><table style={tbl}><thead><tr style={{borderBottom:'1px solid #F0F2F5'}}>{['플랫폼','매출','비중','건수','객단가'].map(h=><th key={h} style={{fontSize:10,color:'#aaa',fontWeight:700,padding:'6px 8px',textAlign:'left'}}>{h}</th>)}</tr></thead><tbody>{platforms.map(p=>(<tr key={p.name} style={{borderBottom:'1px solid #F8F9FB'}}><td style={{padding:'8px 8px'}}><span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:6,background:`${p.color}18`,color:p.color}}>{p.name}</span></td><td style={{fontSize:12,padding:'8px 8px',fontWeight:700}}>{fmtW(p.amount)}</td><td style={{fontSize:12,padding:'8px 8px'}}>{totalSales>0?Math.round((p.amount/totalSales)*100):0}%</td><td style={{fontSize:12,padding:'8px 8px'}}>{p.count}건</td><td style={{fontSize:12,padding:'8px 8px',color:'#6C5CE7',fontWeight:700}}>{p.count>0?fmtW(Math.round(p.amount/p.count)):'-'}</td></tr>))}</tbody></table></div>
+                      <div style={{marginTop:10}}>{platforms.map(p=><HBar key={p.name} label={p.name} value={p.amount} max={maxPlatform} color={p.color}/>)}</div>
+                    </DropSection>
+                    <DropSection id="s-compare2" title="📊 전월 / 전년 비교" summary={`전월 ${prevMonthPct>=0?'▲':'▼'}${Math.abs(prevMonthPct)}% · YoY ${prevYearPct>=0?'+':''}${prevYearPct}%`} summaryColor={prevMonthPct>=0?'#00B894':'#E84393'}>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:14}}>
+                        <div style={{background:totalSales>=prevTotal?'rgba(0,184,148,.07)':'rgba(232,67,147,.07)',borderRadius:12,padding:14,border:`1px solid ${totalSales>=prevTotal?'rgba(0,184,148,.25)':'rgba(232,67,147,.25)'}`}}>
+                          <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>전월 대비</div>
+                          <div style={{fontSize:24,fontWeight:900,color:totalSales>=prevTotal?'#00B894':'#E84393'}}>{totalSales>=prevTotal?'▲':'▼'} {Math.abs(prevMonthPct)}%</div>
+                          <div style={{fontSize:11,color:'#aaa',marginTop:6}}>{prevMonthLabel} {fmtW(prevTotal)}</div>
+                        </div>
+                        {prevYearTotal>0&&(<div style={{background:totalSales>=prevYearTotal?'rgba(0,184,148,.07)':'rgba(232,67,147,.07)',borderRadius:12,padding:14,border:`1px solid ${totalSales>=prevYearTotal?'rgba(0,184,148,.25)':'rgba(232,67,147,.25)'}`}}>
+                          <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>전년 동월</div>
+                          <div style={{fontSize:24,fontWeight:900,color:totalSales>=prevYearTotal?'#00B894':'#E84393'}}>{totalSales>=prevYearTotal?'+':''}{prevYearPct}%</div>
+                          <div style={{fontSize:11,color:'#aaa',marginTop:6}}>{year-1}년 {month+1}월 {fmtW(prevYearTotal)}</div>
+                        </div>)}
+                      </div>
+                    </DropSection>
+                  </div>
+                </>
+              )}
+
+              {/* PC - 마케팅 탭: 리뷰 / 블로그+메모 */}
+              {tab==='marketing' && (
+                <>
+                  <div>{marketingContent}</div>
+                  <div style={{display:'none'}}></div>
+                </>
+              )}
+
+              {/* PC - 인사이트 탭: 날씨 / 액션 */}
+              {tab==='insight' && (
+                <>
+                  <div>
+                    <DropSection id="i-weather2" title="🌤️ 날씨 × 매출 분석" summary={weatherStats.length>0?`${weatherStats[0].label} 최고 ${fmtW(weatherStats[0].avg)}`:'-'} summaryColor="#2DC6D6">
+                      {weatherStats.length===0?(<div style={{textAlign:'center',padding:30,color:'#ccc',fontSize:12,marginTop:14}}>날씨 데이터가 쌓이면 분석이 나타나요</div>):(
+                        <>
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8,marginTop:14}}>
+                            {weatherStats.map(w=>(<div key={w.label} style={{background:'#F8F9FB',borderRadius:12,padding:'12px',border:'1px solid #E8ECF0',textAlign:'center'}}><div style={{fontSize:22,marginBottom:4}}>{w.icon}</div><div style={{fontSize:10,color:'#aaa',marginBottom:5,fontWeight:600}}>{w.label}</div><div style={{fontSize:16,fontWeight:900,color:'#FF6B35'}}>{fmtW(w.avg)}</div><div style={{fontSize:9,color:'#bbb',marginTop:2}}>{w.days}일</div>{baseWeatherAvg>0&&w.avg!==baseWeatherAvg&&(<div style={{fontSize:10,fontWeight:700,marginTop:4,color:w.avg>=baseWeatherAvg?'#00B894':'#E84393'}}>{w.avg>=baseWeatherAvg?'▲':'▼'} {Math.abs(Math.round(((w.avg-baseWeatherAvg)/baseWeatherAvg)*100))}%</div>)}</div>))}
+                          </div>
+                          <SubSection id="i-wx-tbl2" title="📋 일별 날씨 × 매출 대조표">
+                            <div style={{overflowX:'auto'}}><table style={tbl}><thead><tr style={{borderBottom:'1px solid #F0F2F5'}}>{['날짜','날씨','최고기온','최저기온','매출','건수'].map(h=><th key={h} style={{fontSize:10,color:'#aaa',fontWeight:700,padding:'6px 8px',textAlign:'left'}}>{h}</th>)}</tr></thead><tbody>{daily.map(d=>(<tr key={d.day} style={{borderBottom:'1px solid #F8F9FB'}}><td style={{fontSize:12,padding:'8px 8px',fontWeight:600}}>{month+1}/{d.day}</td><td style={{fontSize:12,padding:'8px 8px'}}>{d.weatherCode!==null&&d.weatherCode!==undefined?weatherIcon(d.weatherCode):'-'}</td><td style={{fontSize:12,padding:'8px 8px',color:'#FF6B35'}}>{d.tempMax!=null?`${d.tempMax}°`:'-'}</td><td style={{fontSize:12,padding:'8px 8px',color:'#2DC6D6'}}>{d.tempMin!=null?`${d.tempMin}°`:'-'}</td><td style={{fontSize:12,padding:'8px 8px',fontWeight:700,color:'#FF6B35'}}>{fmtW(d.amount)}</td><td style={{fontSize:12,padding:'8px 8px'}}>{d.count}건</td></tr>))}</tbody></table></div>
+                          </SubSection>
+                        </>
+                      )}
+                    </DropSection>
+                  </div>
+                  <div>
+                    <DropSection id="i-action2" title="⚡ 액션 인사이트" summary={`즉시조치 ${insights.filter(i=>i.priority===1).length}건 · 권고 ${insights.filter(i=>i.priority===2).length}건`} summaryColor="#E84393">
+                      {daily.length===0?(<div style={{textAlign:'center',padding:30,color:'#ccc',fontSize:12,marginTop:14}}>마감일지를 작성하면 인사이트가 나타나요</div>):(
+                        <div style={{marginTop:14}}>
+                          {insights.filter(i=>i.priority===1).length>0&&(<><div style={{fontSize:10,fontWeight:700,color:'#E84393',marginBottom:8,letterSpacing:.5}}>🔴 즉시 조치</div>{insights.filter(i=>i.priority===1).map((ins,i)=>(<div key={i} style={{display:'flex',gap:10,padding:'12px 14px',borderRadius:12,background:'rgba(232,67,147,.07)',border:'1px solid rgba(232,67,147,.2)',marginBottom:8}}><span style={{fontSize:18}}>{ins.icon}</span><div><div style={{fontSize:12,fontWeight:700,marginBottom:3}}>{ins.title}</div><div style={{fontSize:11,color:'#777',lineHeight:1.5}}>{ins.desc}</div>{ins.action&&<div style={{marginTop:6,fontSize:11,fontWeight:700,color:'#E84393',padding:'3px 10px',background:'rgba(232,67,147,.1)',borderRadius:7,display:'inline-block'}}>→ {ins.action}</div>}</div></div>))}</>)}
+                          {insights.filter(i=>i.priority===2).length>0&&(<><div style={{fontSize:10,fontWeight:700,color:'#FDC400',marginBottom:8,letterSpacing:.5,marginTop:12}}>🟡 개선 권고</div>{insights.filter(i=>i.priority===2).map((ins,i)=>(<div key={i} style={{display:'flex',gap:10,padding:'12px 14px',borderRadius:12,background:'rgba(253,196,0,.07)',border:'1px solid rgba(253,196,0,.3)',marginBottom:8}}><span style={{fontSize:18}}>{ins.icon}</span><div><div style={{fontSize:12,fontWeight:700,marginBottom:3}}>{ins.title}</div><div style={{fontSize:11,color:'#777',lineHeight:1.5}}>{ins.desc}</div></div></div>))}</>)}
+                          {insights.filter(i=>i.priority>=3).length>0&&(<><div style={{fontSize:10,fontWeight:700,color:'#00B894',marginBottom:8,letterSpacing:.5,marginTop:12}}>✅ 잘하고 있어요</div>{insights.filter(i=>i.priority>=3).map((ins,i)=>(<div key={i} style={{display:'flex',gap:10,padding:'12px 14px',borderRadius:12,background:'rgba(0,184,148,.07)',border:'1px solid rgba(0,184,148,.2)',marginBottom:8}}><span style={{fontSize:18}}>{ins.icon}</span><div><div style={{fontSize:12,fontWeight:700,marginBottom:3}}>{ins.title}</div><div style={{fontSize:11,color:'#777',lineHeight:1.5}}>{ins.desc}</div></div></div>))}</>)}
+                        </div>
+                      )}
+                    </DropSection>
+                  </div>
+                </>
+              )}
+
+              {/* PC 왼쪽 컬럼 - 종합 */}
+              <div style={{ display: tab==='overview' ? 'block' : 'none' }}>
                 {tab==='overview' && (
                   <>
                     {/* KPI 카드 */}
@@ -1364,10 +1448,9 @@ export default function AnalyticsPage() {
                     </DropSection>
                   </>
                 )}
-                {tab!=='overview' && <div style={{ gridColumn:'1/-1' }}>{TAB_LIST.find(t=>t.id===tab)?.content}</div>}
               </div>
 
-              {/* PC 오른쪽 컬럼 */}
+              {/* PC 오른쪽 컬럼 - 종합 탭 */}
               {tab==='overview' && (
                 <div>
                   <DropSection id="ov-mkt-pc" title="⭐ 마케팅 요약" summary={`리뷰 ${totalReviewsMonth}건 · 블로그 ${blogThisMonth.length}건`} summaryColor="#E84393">
