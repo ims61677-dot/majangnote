@@ -187,6 +187,18 @@ export default function ClosingPage() {
     if (isOwner && storeId) loadEditLogs(storeId)
   }, [isOwner, storeId])
 
+  // 페이지 떠날 때 대기 중인 자동저장 즉시 실행
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && autoSaveStatus === 'pending') {
+        if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+        performSave(true)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [autoSaveStatus])
+
   async function loadEditLogs(sid: string) {
     const { data } = await supabase
       .from('closing_edit_logs')
@@ -342,12 +354,12 @@ export default function ClosingPage() {
     setCalYear(y); setCalMonth(m-1)
   }
 
-  // 자동저장 트리거 - 당일이면 항상 (최초 입력 포함)
+- 당일이면 항상 (최초 입력 포함)
   const triggerAutoSave = useCallback(() => {
     if (selectedDate !== todayStr) return
     setAutoSaveStatus('pending')
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
-    autoSaveTimer.current = setTimeout(() => performSave(true), 2000)
+    autoSaveTimer.current = setTimeout(() => performSave(true), 500)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, todayStr])
 
