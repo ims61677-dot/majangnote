@@ -1,6 +1,5 @@
 ﻿'use client'
-import { useEffect, useState, useMemo, useRef } from 'react'
-import React from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const DOW = ['일','월','화','수','목','금','토']
@@ -29,11 +28,9 @@ function weatherIcon(code: number): string {
 }
 
 function MonthNav({ year, month, onChange }: { year:number; month:number; onChange:(y:number,m:number)=>void }) {
-  const [open, setOpen] = React.useState(false)
   function go(delta: number) {
     let m = month + delta, y = year
-    while (m < 0) { y--; m += 12 }
-    while (m > 11) { y++; m -= 12 }
+    if (m < 0) { y--; m = 11 } else if (m > 11) { y++; m = 0 }
     onChange(y, m)
   }
   const now = new Date()
@@ -41,37 +38,30 @@ function MonthNav({ year, month, onChange }: { year:number; month:number; onChan
   const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
   const years = Array.from({length:6}, (_,i) => now.getFullYear()-2+i)
   return (
-    <div style={{ position:'relative' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-        <button onClick={() => go(-3)} style={{ padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:12, color:'#888', fontWeight:700 }}>«3</button>
+    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+        <button onClick={() => go(-3)} style={{ padding:'5px 9px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:12, color:'#888', fontWeight:700 }}>«3</button>
         <button onClick={() => go(-1)} style={{ width:32, height:32, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>‹</button>
-        <button onClick={() => setOpen(o=>!o)} style={{ fontSize:17, fontWeight:800, color:'#1a1a2e', minWidth:110, textAlign:'center', background:'none', border:'none', cursor:'pointer', padding:'4px 8px', borderRadius:8 }}>
-          {year}년 {month+1}월 {open?'▲':'▼'}
-        </button>
+        <span style={{ fontSize:17, fontWeight:800, color:'#1a1a2e', minWidth:100, textAlign:'center' }}>{year}년 {month+1}월</span>
         <button onClick={() => go(1)} style={{ width:32, height:32, borderRadius:8, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center', color:'#555' }}>›</button>
-        <button onClick={() => go(3)} style={{ padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:12, color:'#888', fontWeight:700 }}>3»</button>
-        {!isCurrent && <button onClick={() => { onChange(now.getFullYear(), now.getMonth()); setOpen(false) }} style={{ padding:'5px 12px', borderRadius:8, border:'1px solid rgba(255,107,53,0.4)', background:'rgba(255,107,53,0.08)', cursor:'pointer', fontSize:12, color:'#FF6B35', fontWeight:700 }}>이번달</button>}
+        <button onClick={() => go(3)} style={{ padding:'5px 9px', borderRadius:8, border:'1px solid #E8ECF0', background:'#F8F9FB', cursor:'pointer', fontSize:12, color:'#888', fontWeight:700 }}>3»</button>
+        {!isCurrent && <button onClick={() => onChange(now.getFullYear(), now.getMonth())} style={{ padding:'5px 11px', borderRadius:8, border:'1px solid rgba(255,107,53,0.4)', background:'rgba(255,107,53,0.08)', cursor:'pointer', fontSize:12, color:'#FF6B35', fontWeight:700 }}>이번달</button>}
       </div>
-      {open && (
-        <div style={{ position:'absolute', top:44, left:0, zIndex:100, background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 8px 24px rgba(0,0,0,0.12)', padding:'14px 16px', minWidth:280 }}>
-          <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:10 }}>
-            {years.map(y => (
-              <button key={y} onClick={() => { onChange(y, month); setOpen(false) }}
-                style={{ padding:'5px 11px', borderRadius:8, border:'none',
-                  background:y===year?'linear-gradient(135deg,#FF6B35,#E84393)':'#F0F2F5',
-                  color:y===year?'#fff':'#888', fontSize:12, fontWeight:700, cursor:'pointer' }}>{y}</button>
-            ))}
-          </div>
-          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-            {months.map((ml,mi) => (
-              <button key={mi} onClick={() => { onChange(year, mi); setOpen(false) }}
-                style={{ padding:'5px 10px', borderRadius:8, border:'none',
-                  background:mi===month?'linear-gradient(135deg,#FF6B35,#E84393)':'#F0F2F5',
-                  color:mi===month?'#fff':'#888', fontSize:12, fontWeight:600, cursor:'pointer' }}>{ml}</button>
-            ))}
-          </div>
-        </div>
-      )}
+      <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+        {years.map(y => (
+          <button key={y} onClick={() => onChange(y, month)}
+            style={{ padding:'4px 9px', borderRadius:8, border:y===year?'none':'1px solid #E8ECF0',
+              background:y===year?'linear-gradient(135deg,#FF6B35,#E84393)':'#F8F9FB',
+              color:y===year?'#fff':'#888', fontSize:11, fontWeight:700, cursor:'pointer' }}>{y}</button>
+        ))}
+        <span style={{ width:'100%', height:0 }} />
+        {months.map((ml,mi) => (
+          <button key={mi} onClick={() => onChange(year, mi)}
+            style={{ padding:'4px 8px', borderRadius:8, border:mi===month&&year===year?'none':'1px solid #E8ECF0',
+              background:mi===month?'linear-gradient(135deg,#FF6B35,#E84393)':'#F8F9FB',
+              color:mi===month?'#fff':'#888', fontSize:11, fontWeight:600, cursor:'pointer' }}>{ml}</button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -439,789 +429,811 @@ export default function AnalyticsPage() {
 
   const memoData = useMemo(()=>daily.filter(d=>d.memo||d.note),[daily])
 
-  if (isPC === null) return <div style={{ minHeight:'100vh', background:'#F4F6F9' }} />
 
-  const TAB_LIST = [
-    {id:'overview', label:'🏠 종합'},
-    {id:'action', label:'⚡ 액션'},
-    {id:'sales', label:'📈 일별 매출'},
-    {id:'unit', label:'💡 객단가'},
-    {id:'dow', label:'📆 요일'},
-    {id:'platform', label:'🥧 플랫폼'},
-    {id:'review', label:'⭐ 리뷰'},
-    {id:'place', label:'📍 순위'},
-    {id:'compare', label:'🔄 전월'},
-    {id:'yearcmp', label:'📅 전년'},
-    {id:'memo', label:'📌 메모'},
-  ]
+  // ── 블로그/카페/카카오 검색 상태 ──
+  const [searchKeyword, setSearchKeyword] = useState('')
+  const [savedKeyword, setSavedKeyword] = useState('')
+  const [blogData, setBlogData] = useState<any[]>([])
+  const [cafeData, setCafeData] = useState<any[]>([])
+  const [kakaoData, setKakaoData] = useState<any>(null)
+  const [marketingLoading, setMarketingLoading] = useState(false)
+  const [keywordSaving, setKeywordSaving] = useState(false)
+  const [openDrops, setOpenDrops] = useState<Record<string,boolean>>({})
 
-  // ── 종합 탭 ──
+  useEffect(() => {
+    if (storeId) loadKeyword(storeId)
+  }, [storeId])
+
+  async function loadKeyword(sid: string) {
+    const { data } = await supabase.from('stores').select('search_keyword').eq('id', sid).maybeSingle()
+    if (data?.search_keyword) {
+      setSavedKeyword(data.search_keyword)
+      setSearchKeyword(data.search_keyword)
+    }
+  }
+
+  async function saveKeyword() {
+    if (!searchKeyword.trim() || !storeId) return
+    setKeywordSaving(true)
+    await supabase.from('stores').update({ search_keyword: searchKeyword.trim() }).eq('id', storeId)
+    setSavedKeyword(searchKeyword.trim())
+    setKeywordSaving(false)
+    fetchMarketingData(searchKeyword.trim())
+  }
+
+  async function fetchMarketingData(kw: string) {
+    if (!kw) return
+    setMarketingLoading(true)
+    try {
+      const [blogRes, cafeRes, kakaoRes] = await Promise.all([
+        fetch(`/api/naver-search?query=${encodeURIComponent(kw)}&type=blog&display=20`),
+        fetch(`/api/naver-search?query=${encodeURIComponent(kw)}&type=cafearticle&display=20`),
+        fetch(`/api/kakao-place?query=${encodeURIComponent(kw)}&size=1`),
+      ])
+      if (blogRes.ok) { const d = await blogRes.json(); setBlogData(d.items || []) }
+      if (cafeRes.ok) { const d = await cafeRes.json(); setCafeData(d.items || []) }
+      if (kakaoRes.ok) { const d = await kakaoRes.json(); setKakaoData(d.documents?.[0] || null) }
+    } catch {}
+    setMarketingLoading(false)
+  }
+
+  useEffect(() => {
+    if (savedKeyword) fetchMarketingData(savedKeyword)
+  }, [savedKeyword, year, month])
+
+  function toggleDrop(key: string) {
+    setOpenDrops(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  // ── 블로그 데이터 이번달 필터링 ──
+  const blogThisMonth = useMemo(() => {
+    const from = new Date(year, month, 1)
+    const to = new Date(year, month+1, 0)
+    return blogData.filter(item => {
+      const d = new Date(item.postdate)
+      return d >= from && d <= to
+    })
+  }, [blogData, year, month])
+
+  const cafeThisMonth = useMemo(() => {
+    const from = new Date(year, month, 1)
+    const to = new Date(year, month+1, 0)
+    return cafeData.filter(item => {
+      const d = new Date(item.postdate)
+      return d >= from && d <= to
+    })
+  }, [cafeData, year, month])
+
+  // 블로그 주차별 집계
+  const blogByWeek = useMemo(() => {
+    const weeks: Record<number, number> = {1:0,2:0,3:0,4:0,5:0}
+    blogThisMonth.forEach(item => {
+      const d = new Date(item.postdate)
+      const day = d.getDate()
+      const w = Math.ceil(day/7)
+      weeks[Math.min(w,5)]++
+    })
+    return weeks
+  }, [blogThisMonth])
+
+  // 날씨별 매출 분석
+  const weatherStats = useMemo(() => {
+    const map: Record<string,{days:number;total:number;counts:number}> = {}
+    daily.forEach(d => {
+      if (d.weatherCode === null || d.weatherCode === undefined) return
+      const icon = weatherIcon(d.weatherCode)
+      const label = d.weatherCode === 0 ? '맑음' : d.weatherCode <= 2 ? '구름조금' : d.weatherCode <= 3 ? '흐림' : d.weatherCode <= 49 ? '안개' : d.weatherCode <= 67 ? '비' : d.weatherCode <= 77 ? '눈' : '기타'
+      if (!map[label]) map[label] = {days:0,total:0,counts:0}
+      map[label].days++; map[label].total+=d.amount; map[label].counts+=d.count
+    })
+    return Object.entries(map).map(([label,v]) => ({
+      label, icon: label==='맑음'?'☀️':label==='구름조금'?'🌤️':label==='흐림'?'☁️':label==='비'?'🌧️':label==='눈'?'❄️':'🌫️',
+      days:v.days, avg:v.days>0?Math.round(v.total/v.days):0, total:v.total, counts:v.counts
+    })).sort((a,b) => b.avg-a.avg)
+  }, [daily])
+
+  const baseWeatherAvg = weatherStats.find(w=>w.label==='흐림')?.avg || weatherStats[Math.floor(weatherStats.length/2)]?.avg || 0
+
+  // 스타일 상수
+  const card = { background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', marginBottom:10, boxShadow:'0 1px 4px rgba(0,0,0,0.04)', overflow:'hidden' as const }
+  const dropHeader = { padding:'15px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', userSelect:'none' as const }
+  const dropBodyStyle = (open:boolean) => ({ maxHeight: open ? '9999px' : '0', overflow:'hidden' as const, transition:'max-height .35s ease' })
+  const subCard = { background:'#F8F9FB', borderRadius:12, border:'1px solid #E8ECF0', marginTop:10, overflow:'hidden' as const }
+  const tbl = { width:'100%', borderCollapse:'collapse' as const }
+
+  function DropSection({ id, title, summary, summaryColor='#00B894', children }: { id:string; title:string; summary:string; summaryColor?:string; children:React.ReactNode }) {
+    const open = !!openDrops[id]
+    return (
+      <div style={card}>
+        <div style={dropHeader} onClick={() => toggleDrop(id)}>
+          <div style={{ fontSize:14, fontWeight:800, color:'#1a1a2e' }}>{title}</div>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20, background:`${summaryColor}18`, color:summaryColor }}>{summary}</span>
+            <span style={{ fontSize:11, color:'#bbb', transform:open?'rotate(180deg)':'none', transition:'transform .25s', display:'inline-block' }}>▼</span>
+          </div>
+        </div>
+        <div style={dropBodyStyle(open)}>
+          <div style={{ padding:'0 18px 18px', borderTop:'1px solid #F0F2F5' }}>
+            {children}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  function SubSection({ id, title, children }: { id:string; title:string; children:React.ReactNode }) {
+    const open = !!openDrops[id]
+    return (
+      <div style={subCard}>
+        <div style={{ ...dropHeader, padding:'11px 14px' }} onClick={() => toggleDrop(id)}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#555' }}>{title}</div>
+          <span style={{ fontSize:10, color:'#bbb', transform:open?'rotate(180deg)':'none', transition:'transform .25s', display:'inline-block' }}>▼</span>
+        </div>
+        <div style={dropBodyStyle(open)}>
+          <div style={{ padding:'10px 14px', borderTop:'1px solid #E8ECF0' }}>
+            {children}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  function HBar({ label, value, max, color, suffix='' }: { label:string; value:number; max:number; color:string; suffix?:string }) {
+    return (
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
+        <div style={{ fontSize:11, color:'#555', width:72, flexShrink:0 }}>{label}</div>
+        <div style={{ flex:1, background:'#F0F2F5', borderRadius:99, height:8, overflow:'hidden' }}>
+          <div style={{ width:`${max>0?Math.round((value/max)*100):0}%`, height:'100%', background:color, borderRadius:99 }} />
+        </div>
+        <div style={{ fontSize:11, fontWeight:700, color, minWidth:60, textAlign:'right' }}>{suffix || fmtW(value)}</div>
+      </div>
+    )
+  }
+
+  function KpiMini({ label, value, color='#1a1a2e', sub, border }: { label:string; value:string; color?:string; sub?:string; border?:string }) {
+    return (
+      <div style={{ background:'#F8F9FB', borderRadius:10, padding:'10px 12px', border: border||'1px solid #E8ECF0' }}>
+        <div style={{ fontSize:9, color:'#aaa', marginBottom:3, fontWeight:600 }}>{label}</div>
+        <div style={{ fontSize:15, fontWeight:800, color }}>{value}</div>
+        {sub && <div style={{ fontSize:9, color:'#aaa', marginTop:2 }}>{sub}</div>}
+      </div>
+    )
+  }
+
+  const maxDow = Math.max(...dowStats.map(d=>d.value),1)
+  const totalReviewsMonth = daily.reduce((s,d)=>s+d.totalReviews,0)
+  const totalRepliesMonth = daily.reduce((s,d)=>s+d.totalReplies,0)
+  const replyRate = totalReviewsMonth>0?Math.round((totalRepliesMonth/totalReviewsMonth)*100):0
+  const reviewDays = daily.filter(d=>d.totalReviews>0)
+  const noReviewDays = daily.filter(d=>d.totalReviews===0&&d.amount>0)
+  const reviewDayAvg = reviewDays.length>0?Math.round(reviewDays.reduce((s,d)=>s+d.amount,0)/reviewDays.length):0
+  const noReviewDayAvg = noReviewDays.length>0?Math.round(noReviewDays.reduce((s,d)=>s+d.amount,0)/noReviewDays.length):0
+  const maxPlatform = Math.max(...platforms.map(p=>p.amount),1)
+  const prevMonthPct = prevTotal>0?Math.round(((totalSales-prevTotal)/prevTotal)*100):0
+  const prevYearPct = prevYearTotal>0?Math.round(((totalSales-prevYearTotal)/prevYearTotal)*100):0
+
+  // ── 탭별 콘텐츠 ──
+
+  // ▶ 종합
   const overviewContent = (
     <div>
       {/* 핵심 KPI */}
-      <div style={{ ...bx, background:'linear-gradient(135deg, rgba(255,107,53,0.06), rgba(232,67,147,0.04))' }}>
-        <div style={{ fontSize:14, fontWeight:800, color:'#1a1a2e', marginBottom:16 }}>📊 {year}년 {month+1}월 핵심 지표</div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:12, marginBottom:16 }}>
-          <div style={{ background:'#fff', borderRadius:14, padding:'16px', border:'1px solid rgba(255,107,53,0.2)' }}>
-            <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>총 매출</div>
-            <div style={{ fontSize:24, fontWeight:900, color:'#FF6B35' }}>{fmtW(totalSales)}</div>
-            {prevTotal > 0 && <div style={{ fontSize:11, marginTop:4, color:totalSales>=prevTotal?'#00B894':'#E84393', fontWeight:700 }}>{totalSales>=prevTotal?'▲':'▼'} {Math.abs(Math.round(((totalSales-prevTotal)/prevTotal)*100))}% 전월비</div>}
-          </div>
-          <div style={{ background:'#fff', borderRadius:14, padding:'16px', border:'1px solid rgba(108,92,231,0.2)' }}>
-            <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>종합 객단가</div>
-            <div style={{ fontSize:24, fontWeight:900, color:'#6C5CE7' }}>{fmtW(avgUnit)}</div>
-            <div style={{ fontSize:11, marginTop:4, color:'#aaa' }}>총 {totalCount}건</div>
-            {platforms.filter(p=>p.count>0).length>0 && (
-              <div style={{ marginTop:8, borderTop:'1px solid #F4F6F9', paddingTop:8 }}>
-                {platforms.filter(p=>p.count>0).map(p => (
-                  <div key={p.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                      <div style={{ width:6, height:6, borderRadius:2, background:p.color, flexShrink:0 }} />
-                      <span style={{ fontSize:10, color:'#888' }}>{p.name}</span>
-                    </div>
-                    <span style={{ fontSize:11, fontWeight:700, color:p.color }}>{fmtW(Math.round(p.amount/p.count))}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+        <div style={{ background:'linear-gradient(135deg,rgba(255,107,53,.05),#fff)', borderRadius:14, padding:'16px 18px', border:'1px solid rgba(255,107,53,.25)' }}>
+          <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>총 매출</div>
+          <div style={{ fontSize:28, fontWeight:900, color:'#FF6B35', lineHeight:1 }}>{fmtW(totalSales)}</div>
+          {prevTotal>0&&<div style={{ fontSize:11, fontWeight:700, marginTop:6, color:totalSales>=prevTotal?'#00B894':'#E84393' }}>{totalSales>=prevTotal?'▲':'▼'} {Math.abs(prevMonthPct)}% 전월비</div>}
+          <div style={{ fontSize:11, color:'#aaa', marginTop:4 }}>일평균 {fmtW(daily.length>0?Math.round(totalSales/daily.length):0)} · {daily.length}일</div>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:isPC?'repeat(4,1fr)':'repeat(2,1fr)', gap:8 }}>
-          {[
-            { label:'영업일', value:`${daily.length}일`, color:'#555' },
-            { label:'취소/환불', value:`${totalCancel}건`, color:'#E84393' },
-            { label:'할인금액', value:fmtW(totalDiscount), color:'#FDC400' },
-            { label:'일평균', value:fmtW(daily.length>0?Math.round(totalSales/daily.length):0), color:'#2DC6D6' },
-          ].map(s => (
-            <div key={s.label} style={{ background:'#fff', borderRadius:12, padding:'12px 14px', border:'1px solid #E8ECF0' }}>
-              <div style={{ fontSize:10, color:'#aaa', marginBottom:3 }}>{s.label}</div>
-              <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{loading?'…':s.value}</div>
-            </div>
-          ))}
+        <div style={{ background:'linear-gradient(135deg,rgba(108,92,231,.05),#fff)', borderRadius:14, padding:'16px 18px', border:'1px solid rgba(108,92,231,.25)' }}>
+          <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>종합 객단가</div>
+          <div style={{ fontSize:28, fontWeight:900, color:'#6C5CE7', lineHeight:1 }}>{fmtW(avgUnit)}</div>
+          <div style={{ fontSize:11, color:'#aaa', marginTop:6 }}>총 {totalCount}건 · 취소 {totalCancel}건</div>
         </div>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:10 }}>
+        {[
+          { label:'목표달성률', value: goalAmt>0?`${goalPct}%`:'-', color:'#FF6B35' },
+          { label:'최고 매출일', value: daily.length>0?`${daily.reduce((a,b)=>b.amount>a.amount?b:a,daily[0]).day}일`:'–', color:'#00B894' },
+          { label:'블로그 언급', value: blogThisMonth.length>0?`${blogThisMonth.length}건`:'–', color:'#6C5CE7' },
+          { label:'리뷰 답글률', value: totalReviewsMonth>0?`${replyRate}%`:'–', color:replyRate>=80?'#00B894':replyRate>=50?'#FDC400':'#E84393' },
+        ].map(s=>(
+          <div key={s.label} style={{ background:'#fff', borderRadius:12, padding:'12px 14px', border:'1px solid #E8ECF0' }}>
+            <div style={{ fontSize:10, color:'#aaa', marginBottom:3, fontWeight:600 }}>{s.label}</div>
+            <div style={{ fontSize:18, fontWeight:800, color:s.color }}>{loading?'…':s.value}</div>
+          </div>
+        ))}
       </div>
 
       {/* 목표 달성률 */}
-      {goalAmt > 0 && (
-        <div style={bx}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-            <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>🎯 월 목표 달성률</span>
-            <span style={{ fontSize:16, fontWeight:900, color: goalPct>=100?'#00B894':'#FF6B35' }}>{goalPct}%</span>
+      {goalAmt>0&&(
+        <div style={{ ...card, padding:'14px 18px', marginBottom:10 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+            <span style={{ fontSize:13, fontWeight:700 }}>🎯 월 목표 달성률</span>
+            <span style={{ fontSize:18, fontWeight:900, color:goalPct>=100?'#00B894':'#FF6B35' }}>{goalPct}%</span>
           </div>
-          <ProgressBar value={totalSales} max={goalAmt} color={goalPct>=100?'#00B894':'#FF6B35'} height={14} />
-          <div style={{ display:'flex', justifyContent:'space-between', marginTop:6, fontSize:11, color:'#aaa' }}>
-            <span>현재 {fmtW(totalSales)}</span>
-            <span>목표 {fmtW(goalAmt)}</span>
+          <div style={{ background:'#F0F2F5', borderRadius:99, height:10, overflow:'hidden', marginBottom:6 }}>
+            <div style={{ width:`${goalPct}%`, height:'100%', background:goalPct>=100?'#00B894':'linear-gradient(90deg,#FF6B35,#E84393)', borderRadius:99 }} />
           </div>
-          {goalPct < 100 && <div style={{ marginTop:8, fontSize:11, color:'#6C5CE7', background:'rgba(108,92,231,0.07)', borderRadius:8, padding:'6px 10px' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#aaa' }}>
+            <span>현재 {fmtW(totalSales)}</span><span>목표 {fmtW(goalAmt)}</span>
+          </div>
+          {goalPct<100&&<div style={{ marginTop:8, padding:'7px 12px', background:'rgba(108,92,231,.07)', borderRadius:8, fontSize:11, color:'#6C5CE7' }}>
             남은 금액 {fmtW(goalAmt-totalSales)} · 하루 {daily.length>0?fmtW(Math.round((goalAmt-totalSales)/Math.max(new Date(year,month+1,0).getDate()-daily[daily.length-1]?.day,1))):'-'} 필요
           </div>}
         </div>
       )}
 
-      {/* 전월/전년 대비 */}
-      {(prevTotal > 0 || prevYearTotal > 0) && (
-        <div style={bx}>
-          <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:12 }}>📊 성과 비교</div>
-          <div style={{ display:'grid', gridTemplateColumns:prevTotal>0&&prevYearTotal>0?'1fr 1fr':'1fr', gap:10 }}>
-            {prevTotal > 0 && (
-              <div style={{ borderRadius:12, padding:'14px', background:totalSales>=prevTotal?'rgba(0,184,148,0.07)':'rgba(232,67,147,0.07)', border:`1px solid ${totalSales>=prevTotal?'rgba(0,184,148,0.25)':'rgba(232,67,147,0.25)'}` }}>
-                <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>전월 대비</div>
-                <div style={{ fontSize:22, fontWeight:900, color:totalSales>=prevTotal?'#00B894':'#E84393' }}>
-                  {totalSales>=prevTotal?'▲':'▼'} {Math.abs(Math.round(((totalSales-prevTotal)/prevTotal)*100))}%
-                </div>
-                <div style={{ fontSize:11, color:'#aaa', marginTop:4 }}>{prevMonthLabel} {fmtW(prevTotal)}</div>
-              </div>
-            )}
-            {prevYearTotal > 0 && (
-              <div style={{ borderRadius:12, padding:'14px', background:totalSales>=prevYearTotal?'rgba(0,184,148,0.07)':'rgba(232,67,147,0.07)', border:`1px solid ${totalSales>=prevYearTotal?'rgba(0,184,148,0.25)':'rgba(232,67,147,0.25)'}` }}>
-                <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>전년 동월 대비 (YoY)</div>
-                <div style={{ fontSize:22, fontWeight:900, color:totalSales>=prevYearTotal?'#00B894':'#E84393' }}>
-                  {totalSales>=prevYearTotal?'+':''}{Math.round(((totalSales-prevYearTotal)/prevYearTotal)*100)}%
-                </div>
-                <div style={{ fontSize:11, color:'#aaa', marginTop:4 }}>{year-1}년 {month+1}월 {fmtW(prevYearTotal)}</div>
-              </div>
-            )}
-          </div>
+      {/* 매출분석 요약 드롭 */}
+      <DropSection id="ov-sales" title="📈 매출분석 요약" summary={`${fmtW(totalSales)} ${prevMonthPct>=0?'▲':'▼'}${Math.abs(prevMonthPct)}%`} summaryColor="#FF6B35">
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginTop:14 }}>
+          <KpiMini label="최고 매출일" value={daily.length>0?`${daily.reduce((a,b)=>b.amount>a.amount?b:a,daily[0]).day}일`:'-'} color="#FF6B35" sub={daily.length>0?fmtW(Math.max(...daily.map(d=>d.amount))):''} />
+          <KpiMini label="최저 매출일" value={daily.filter(d=>d.amount>0).length>0?`${daily.filter(d=>d.amount>0).reduce((a,b)=>b.amount<a.amount?b:a,daily.filter(d=>d.amount>0)[0]).day}일`:'-'} color="#E84393" sub={daily.filter(d=>d.amount>0).length>0?fmtW(Math.min(...daily.filter(d=>d.amount>0).map(d=>d.amount))):''} />
+          <KpiMini label="주말 비중" value={totalSales>0?`${Math.round((daily.filter(d=>d.dow===0||d.dow===6).reduce((s,d)=>s+d.amount,0)/totalSales)*100)}%`:'-'} color="#6C5CE7" />
         </div>
-      )}
-
-      {/* 매출 흐름 미니차트 */}
-      {daily.length > 0 && (
-        <div style={bx}>
-          <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>📈 매출 흐름</div>
-          <LineChart data={daily.map(d=>({x:d.day,y:d.amount,label:String(d.day)}))} prevData={prevDaily.map(d=>({x:d.day,y:d.amount}))} color="#FF6B35" height={isPC?180:140} />
+        <div style={{ marginTop:10 }}>
+          {platforms.slice(0,3).map(p=>(
+            <HBar key={p.name} label={p.name} value={p.amount} max={maxPlatform} color={p.color} />
+          ))}
         </div>
-      )}
+      </DropSection>
 
-      {/* 플랫폼 요약 */}
-      {platforms.length > 0 && (
-        <div style={bx}>
-          <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:12 }}>🥧 플랫폼 요약</div>
-          <div style={{ display:'flex', gap:20, alignItems:'center' }}>
-            <PieChart data={platforms.map(p=>({label:p.name,value:p.amount,color:p.color}))} size={100} />
-            <div style={{ flex:1 }}>
-              {platforms.slice(0,4).map(p => (
-                <div key={p.name} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
-                  <div style={{ width:8, height:8, borderRadius:2, background:p.color, flexShrink:0 }} />
-                  <span style={{ fontSize:12, color:'#555', flex:1 }}>{p.name}</span>
-                  <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>{fmtW(p.amount)}</span>
-                  <span style={{ fontSize:10, color:'#aaa', width:30, textAlign:'right' }}>{totalSales>0?Math.round((p.amount/totalSales)*100):0}%</span>
-                </div>
-              ))}
+      {/* 마케팅 요약 드롭 */}
+      <DropSection id="ov-mkt" title="⭐ 마케팅 요약" summary={`리뷰 ${totalReviewsMonth}건 · 블로그 ${blogThisMonth.length}건`} summaryColor="#E84393">
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginTop:14 }}>
+          <KpiMini label="총 리뷰" value={`${totalReviewsMonth}건`} color="#FF6B35" />
+          <KpiMini label="답글률" value={totalReviewsMonth>0?`${replyRate}%`:'-'} color={replyRate>=80?'#00B894':'#E84393'} />
+          <KpiMini label="블로그+카페" value={`${blogThisMonth.length+cafeThisMonth.length}건`} color="#6C5CE7" />
+        </div>
+        {reviewDayAvg>0&&noReviewDayAvg>0&&(
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:10 }}>
+            <div style={{ background:'rgba(0,184,148,.07)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(0,184,148,.2)' }}>
+              <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>리뷰 있는 날 평균</div>
+              <div style={{ fontSize:16, fontWeight:800, color:'#00B894' }}>{fmtW(reviewDayAvg)}</div>
+            </div>
+            <div style={{ background:'rgba(108,92,231,.07)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(108,92,231,.2)' }}>
+              <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>블로그 많은 주 매출</div>
+              <div style={{ fontSize:16, fontWeight:800, color:'#6C5CE7' }}>분석 중</div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </DropSection>
 
-      {/* 리뷰 × 매출 분석 */}
-      {(()=>{
-        const totalReviewsMonth = daily.reduce((s,d)=>s+d.totalReviews,0)
-        const totalRepliesMonth = daily.reduce((s,d)=>s+d.totalReplies,0)
-        if(totalReviewsMonth===0) return null
-        const reviewDays = daily.filter(d=>d.totalReviews>0)
-        const noReviewDays = daily.filter(d=>d.totalReviews===0&&d.amount>0)
-        const replyRate = Math.round((totalRepliesMonth/totalReviewsMonth)*100)
-        const reviewDayAvg = reviewDays.length>0?Math.round(reviewDays.reduce((s,d)=>s+d.amount,0)/reviewDays.length):0
-        const noReviewDayAvg = noReviewDays.length>0?Math.round(noReviewDays.reduce((s,d)=>s+d.amount,0)/noReviewDays.length):0
-        return (
-          <div style={bx}>
-            <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:12 }}>⭐ 리뷰 × 매출 분석</div>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:12 }}>
-              {[
-                {label:'이달 리뷰 수',value:`${totalReviewsMonth}건`,color:'#FF6B35'},
-                {label:'답글 수',value:`${totalRepliesMonth}건`,color:'#00B894'},
-                {label:'답글률',value:`${replyRate}%`,color:replyRate>=80?'#00B894':replyRate>=50?'#FDC400':'#E84393'},
-              ].map(s=>(
-                <div key={s.label} style={{ background:'#F8F9FB', borderRadius:10, padding:'10px 12px', border:'1px solid #E8ECF0' }}>
-                  <div style={{ fontSize:9, color:'#aaa', marginBottom:3 }}>{s.label}</div>
-                  <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{s.value}</div>
-                </div>
-              ))}
-            </div>
-            {reviewDayAvg>0&&noReviewDayAvg>0&&(
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
-                <div style={{ background:'rgba(0,184,148,0.07)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(0,184,148,0.2)' }}>
-                  <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>리뷰 있는 날 평균</div>
-                  <div style={{ fontSize:15, fontWeight:800, color:'#00B894' }}>{fmtW(reviewDayAvg)}</div>
-                </div>
-                <div style={{ background:'rgba(232,67,147,0.06)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(232,67,147,0.15)' }}>
-                  <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>리뷰 없는 날 평균</div>
-                  <div style={{ fontSize:15, fontWeight:800, color:'#E84393' }}>{fmtW(noReviewDayAvg)}</div>
-                </div>
+      {/* 인사이트 요약 드롭 */}
+      <DropSection id="ov-ins" title="💡 인사이트 요약" summary={`즉시조치 ${insights.filter(i=>i.priority===1).length}건`} summaryColor="#E84393">
+        <div style={{ marginTop:14 }}>
+          {insights.slice(0,3).map((ins,i)=>(
+            <div key={i} style={{ display:'flex', gap:10, padding:'10px 12px', borderRadius:12, background:i===0?`${ins.color}10`:'#F8F9FB', border:`1px solid ${i===0?ins.color+'30':'#E8ECF0'}`, marginBottom:8 }}>
+              <span style={{ fontSize:18 }}>{ins.icon}</span>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, marginBottom:2 }}>{ins.title}</div>
+                <div style={{ fontSize:11, color:'#777', lineHeight:1.5 }}>{ins.desc}</div>
               </div>
-            )}
-            {replyRate<80&&(
-              <div style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.06)', borderRadius:8, padding:'7px 10px' }}>
-                ⚠️ 미답글 {Math.max(totalReviewsMonth-totalRepliesMonth,0)}건 — 답글률을 높이면 재방문율이 올라가요
-              </div>
-            )}
-          </div>
-        )
-      })()}
-
-      {/* 메모/컴플레인 × 매출 분석 */}
-      {(()=>{
-        const memoDays = daily.filter(d=>d.memo)
-        const noteDays = daily.filter(d=>d.note)
-        if(memoDays.length===0&&noteDays.length===0) return null
-        const normalDays = daily.filter(d=>!d.memo&&!d.note&&d.amount>0)
-        const memoAvg = memoDays.length>0?Math.round(memoDays.reduce((s,d)=>s+d.amount,0)/memoDays.length):0
-        const noteAvg = noteDays.length>0?Math.round(noteDays.reduce((s,d)=>s+d.amount,0)/noteDays.length):0
-        const normalAvg = normalDays.length>0?Math.round(normalDays.reduce((s,d)=>s+d.amount,0)/normalDays.length):0
-        const colCount = [normalAvg>0, memoAvg>0, noteAvg>0].filter(Boolean).length
-        return (
-          <div style={bx}>
-            <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>📌 메모/컴플레인 × 매출 영향</div>
-            <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>특이사항이 있는 날과 없는 날의 매출을 비교해요</div>
-            <div style={{ display:'grid', gridTemplateColumns:`repeat(${colCount},1fr)`, gap:8, marginBottom:12 }}>
-              {normalAvg>0&&<div style={{ background:'#F8F9FB', borderRadius:10, padding:'10px 12px', border:'1px solid #E8ECF0' }}>
-                <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>평상시 ({normalDays.length}일)</div>
-                <div style={{ fontSize:14, fontWeight:800, color:'#555' }}>{fmtW(normalAvg)}</div>
-              </div>}
-              {memoAvg>0&&<div style={{ background:'rgba(255,107,53,0.07)', borderRadius:10, padding:'10px 12px', border:'1px solid rgba(255,107,53,0.2)' }}>
-                <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>특이사항 ({memoDays.length}일)</div>
-                <div style={{ fontSize:14, fontWeight:800, color:'#FF6B35' }}>{fmtW(memoAvg)}</div>
-                {normalAvg>0&&<div style={{ fontSize:9, color:memoAvg>=normalAvg?'#00B894':'#E84393', marginTop:2 }}>{memoAvg>=normalAvg?'▲':'▼'} {Math.abs(Math.round(((memoAvg-normalAvg)/normalAvg)*100))}%</div>}
-              </div>}
-              {noteAvg>0&&<div style={{ background:'rgba(232,67,147,0.06)', borderRadius:10, padding:'10px 12px', border:'1px solid rgba(232,67,147,0.15)' }}>
-                <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>컴플레인 ({noteDays.length}일)</div>
-                <div style={{ fontSize:14, fontWeight:800, color:'#E84393' }}>{fmtW(noteAvg)}</div>
-                {normalAvg>0&&<div style={{ fontSize:9, color:noteAvg>=normalAvg?'#00B894':'#E84393', marginTop:2 }}>{noteAvg>=normalAvg?'▲':'▼'} {Math.abs(Math.round(((noteAvg-normalAvg)/normalAvg)*100))}%</div>}
-              </div>}
             </div>
-            {noteDays.length>0&&<div style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.06)', borderRadius:8, padding:'7px 10px' }}>
-              📝 이달 컴플레인 {noteDays.length}건 — 메모탭에서 내용을 확인하세요
-            </div>}
-          </div>
-        )
-      })()}
-
-      {/* 인사이트 미리보기 */}
-      {insights.length > 0 && (
-        <div style={bx}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-            <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>⚡ 주요 인사이트</span>
-            <button onClick={()=>setTab('action')} style={{ fontSize:11, color:'#FF6B35', background:'rgba(255,107,53,0.08)', border:'1px solid rgba(255,107,53,0.25)', borderRadius:8, padding:'4px 10px', cursor:'pointer' }}>전체 보기</button>
-          </div>
-          {insights.slice(0,3).map((ins,i) => <InsightCard key={i} {...ins} />)}
+          ))}
+          {insights.length===0&&<div style={{ textAlign:'center', padding:'20px', color:'#ccc', fontSize:12 }}>데이터가 쌓이면 인사이트가 나타나요</div>}
         </div>
-      )}
+      </DropSection>
     </div>
   )
 
-  // ── 액션 인사이트 탭 ──
-  const actionContent = (
+  // ▶ 매출분석
+  const salesContent = (
     <div>
-      <div style={{ ...bx, background:'linear-gradient(135deg,rgba(108,92,231,0.06),rgba(232,67,147,0.04))', border:'1px solid rgba(108,92,231,0.2)' }}>
-        <div style={{ fontSize:14, fontWeight:800, color:'#1a1a2e', marginBottom:4 }}>⚡ 매출 향상 액션 플랜</div>
-        <div style={{ fontSize:11, color:'#aaa' }}>AI가 이번 달 데이터를 분석해 자동으로 만든 개선 포인트예요. 회의에서 바로 활용하세요.</div>
-      </div>
-
-      {/* 목표 달성률 */}
-      {goalAmt > 0 && (
-        <div style={{ ...bx, border:`1px solid ${goalPct>=100?'rgba(0,184,148,0.35)':'rgba(108,92,231,0.25)'}` }}>
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}>
-            <span style={{ fontSize:13, fontWeight:700 }}>🎯 목표 달성률</span>
-            <span style={{ fontSize:18, fontWeight:900, color:goalPct>=100?'#00B894':'#6C5CE7' }}>{goalPct}%</span>
-          </div>
-          <ProgressBar value={totalSales} max={goalAmt} color={goalPct>=100?'#00B894':'#6C5CE7'} height={16} />
-          <div style={{ display:'flex', justifyContent:'space-between', marginTop:8, fontSize:12 }}>
-            <span style={{ color:'#555', fontWeight:700 }}>{fmtWFull(totalSales)}</span>
-            <span style={{ color:'#aaa' }}>/ 목표 {fmtWFull(goalAmt)}</span>
-          </div>
-          {goalPct < 100 && (
-            <div style={{ marginTop:10, padding:'10px 14px', background:'rgba(108,92,231,0.07)', borderRadius:10, fontSize:12, color:'#6C5CE7', lineHeight:1.7 }}>
-              부족분 <strong>{fmtW(goalAmt-totalSales)}</strong><br/>
-              남은 기간 하루 <strong>{fmtW(Math.round((goalAmt-totalSales)/Math.max(new Date(year,month+1,0).getDate()-(daily[daily.length-1]?.day||0),1)))}</strong> 달성 필요
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 자동 분석 인사이트 */}
-      {daily.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'60px 0', color:'#ccc' }}>
-          <div style={{ fontSize:32, marginBottom:12 }}>📊</div>
-          <div style={{ fontSize:14 }}>마감일지를 작성하면 인사이트가 나타나요</div>
-        </div>
-      ) : (
-        <>
-          <div style={{ fontSize:12, fontWeight:700, color:'#888', marginBottom:8, paddingLeft:4 }}>🔴 즉시 조치 필요</div>
-          {insights.filter(i=>i.priority===1).map((ins,i) => <InsightCard key={i} {...ins} />)}
-          {insights.filter(i=>i.priority===1).length===0 && <div style={{ padding:'12px 16px', borderRadius:12, background:'rgba(0,184,148,0.06)', border:'1px solid rgba(0,184,148,0.2)', fontSize:12, color:'#00B894', marginBottom:12 }}>✅ 즉각 개선이 필요한 항목이 없어요</div>}
-
-          <div style={{ fontSize:12, fontWeight:700, color:'#888', marginBottom:8, marginTop:4, paddingLeft:4 }}>🟡 개선 권장</div>
-          {insights.filter(i=>i.priority===2).map((ins,i) => <InsightCard key={i} {...ins} />)}
-
-          <div style={{ fontSize:12, fontWeight:700, color:'#888', marginBottom:8, marginTop:4, paddingLeft:4 }}>🟢 참고 사항</div>
-          {insights.filter(i=>i.priority===3).map((ins,i) => <InsightCard key={i} {...ins} />)}
-
-          {/* 회의 체크리스트 */}
-          <div style={{ ...bx, border:'1px solid rgba(253,196,0,0.4)', background:'rgba(253,196,0,0.04)' }}>
-            <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:12 }}>📋 이번 달 회의 체크리스트</div>
-            {[
-              { check: totalSales>0, label:'이번 달 총 매출 확인', value:fmtW(totalSales) },
-              { check: prevTotal>0, label:'전월 대비 성과', value:prevTotal>0?`${totalSales>=prevTotal?'▲':'▼'}${Math.abs(Math.round(((totalSales-prevTotal)/prevTotal)*100))}%`:'데이터 없음' },
-              { check: avgUnit>0, label:'객단가 현황', value:fmtW(avgUnit) },
-              { check: totalCancel>0, label:'취소/환불 현황', value:`${totalCancel}건`, warn:true },
-              { check: true, label:'최고/최저 요일 파악', value:dowStats.filter(d=>d.value>0).sort((a,b)=>b.value-a.value)[0]?.label+'요일 최고' },
-              { check: platforms.length>0, label:'플랫폼별 매출 점검', value:platforms[0]?.name+' 1위' },
-            ].map((item,i) => (
-              <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 0', borderBottom:'1px solid #F4F6F9' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <span style={{ fontSize:15, color:item.check?item.warn?'#FDC400':'#00B894':'#ddd' }}>{item.check?'✓':'○'}</span>
-                  <span style={{ fontSize:12, color:'#555' }}>{item.label}</span>
+      {/* 일별 흐름 */}
+      <DropSection id="s-daily" title="📅 일별 매출 흐름" summary={daily.length>0?`최고 ${daily.reduce((a,b)=>b.amount>a.amount?b:a,daily[0]).day}일 ${fmtW(Math.max(...daily.map(d=>d.amount)))}`:'-'} summaryColor="#FF6B35">
+        <SubSection id="s-daily-chart" title="📊 일별 매출 바차트">
+          {daily.length===0?<div style={{ textAlign:'center', padding:20, color:'#ccc', fontSize:12 }}>데이터 없음</div>:(()=>{
+            const maxAmt = Math.max(...daily.map(d=>d.amount),1)
+            return (
+              <>
+                <div style={{ display:'flex', alignItems:'flex-end', gap:3, height:80, marginBottom:6 }}>
+                  {daily.map(d=>(
+                    <div key={d.day} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:2, minWidth:0 }}>
+                      <div style={{ flex:1, width:'100%', borderRadius:'3px 3px 0 0', background: d.dow===0||d.dow===6?'#6C5CE7':'#FF6B35', opacity: d.amount===Math.max(...daily.map(x=>x.amount))?1:0.6, height:`${Math.max((d.amount/maxAmt)*100,3)}%` }} />
+                    </div>
+                  ))}
                 </div>
-                <span style={{ fontSize:11, color:'#888', fontWeight:600 }}>{item.value}</span>
+                <div style={{ display:'flex', gap:3 }}>
+                  {daily.map(d=><div key={d.day} style={{ flex:1, textAlign:'center', fontSize:8, color:d.dow===0||d.dow===6?'#6C5CE7':'#aaa', minWidth:0 }}>{d.day}</div>)}
+                </div>
+              </>
+            )
+          })()}
+        </SubSection>
+        <SubSection id="s-daily-tbl" title="📋 일별 상세 테이블">
+          <div style={{ overflowX:'auto' }}>
+            <table style={tbl}>
+              <thead>
+                <tr style={{ borderBottom:'1px solid #F0F2F5' }}>
+                  {['날짜','요일','날씨','매출','건수','객단가','전일비'].map(h=><th key={h} style={{ fontSize:10, color:'#aaa', fontWeight:700, padding:'6px 8px', textAlign:'left' }}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {daily.map((d,i)=>{
+                  const prev = daily[i-1]
+                  const diff = prev&&prev.amount>0?Math.round(((d.amount-prev.amount)/prev.amount)*100):null
+                  return (
+                    <tr key={d.day} style={{ borderBottom:'1px solid #F8F9FB' }}>
+                      <td style={{ fontSize:12, padding:'8px 8px', fontWeight:600 }}>3/{d.day}</td>
+                      <td style={{ fontSize:12, padding:'8px 8px', color:d.dow===0||d.dow===6?'#6C5CE7':'#888', fontWeight:d.dow===0||d.dow===6?700:400 }}>{DOW[d.dow]}</td>
+                      <td style={{ fontSize:12, padding:'8px 8px' }}>{d.weatherCode!==null&&d.weatherCode!==undefined?weatherIcon(d.weatherCode):'-'}</td>
+                      <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:'#FF6B35' }}>{fmtW(d.amount)}</td>
+                      <td style={{ fontSize:12, padding:'8px 8px' }}>{d.count}건</td>
+                      <td style={{ fontSize:12, padding:'8px 8px', color:'#6C5CE7' }}>{d.unitPrice>0?fmtW(d.unitPrice):'-'}</td>
+                      <td style={{ fontSize:11, padding:'8px 8px', fontWeight:700, color:diff===null?'#aaa':diff>=0?'#00B894':'#E84393' }}>{diff===null?'-':`${diff>=0?'▲':'▼'}${Math.abs(diff)}%`}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </SubSection>
+        <SubSection id="s-daily-stats" title="📈 통계 요약">
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
+            <KpiMini label="일 평균" value={fmtW(daily.length>0?Math.round(totalSales/daily.length):0)} color="#FF6B35" />
+            <KpiMini label="최고 매출" value={daily.length>0?fmtW(Math.max(...daily.map(d=>d.amount))):'-'} color="#00B894" sub={daily.length>0?`${daily.reduce((a,b)=>b.amount>a.amount?b:a,daily[0]).day}일`:''} />
+            <KpiMini label="최저 매출" value={daily.filter(d=>d.amount>0).length>0?fmtW(Math.min(...daily.filter(d=>d.amount>0).map(d=>d.amount))):'-'} color="#E84393" sub={daily.filter(d=>d.amount>0).length>0?`${daily.filter(d=>d.amount>0).reduce((a,b)=>b.amount<a.amount?b:a,daily.filter(d=>d.amount>0)[0]).day}일`:''} />
+          </div>
+        </SubSection>
+      </DropSection>
+
+      {/* 요일별 패턴 */}
+      <DropSection id="s-dow" title="📆 요일별 패턴" summary={dowStats.filter(d=>d.value>0).length>0?`${dowStats.filter(d=>d.value>0).sort((a,b)=>b.value-a.value)[0].label}요일 최고`:'-'} summaryColor="#2DC6D6">
+        <SubSection id="s-dow-avg" title="📊 요일별 평균 매출">
+          <div style={{ display:'flex', alignItems:'flex-end', gap:5, height:80, marginBottom:8 }}>
+            {dowStats.map(d=>(
+              <div key={d.label} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, minWidth:0 }}>
+                <div style={{ flex:1, width:'100%', borderRadius:'4px 4px 0 0', background:d.color, opacity: d.value===maxDow?1:0.55, minHeight:4, height:`${maxDow>0?(d.value/maxDow)*100:0}%` }} />
+                <div style={{ fontSize:9, color:d.color, fontWeight:700 }}>{d.label}</div>
               </div>
             ))}
           </div>
-        </>
-      )}
-    </div>
-  )
-
-  // ── 리뷰 분석 탭 ──
-  const reviewContent = (
-    <div>
-      {/* 요약 */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:12 }}>
-        {[
-          { label:'총 리뷰 수', value:`${daily.reduce((s,d)=>s+d.totalReviews,0)}건`, color:'#FF6B35' },
-          { label:'총 답글 수', value:`${daily.reduce((s,d)=>s+d.totalReplies,0)}건`, color:'#00B894' },
-          { label:'전체 답글률', value:`${daily.reduce((s,d)=>s+d.totalReviews,0)>0?Math.round((daily.reduce((s,d)=>s+d.totalReplies,0)/daily.reduce((s,d)=>s+d.totalReviews,0))*100):0}%`, color:'#6C5CE7' },
-        ].map(s => (
-          <div key={s.label} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'12px 14px' }}>
-            <div style={{ fontSize:10, color:'#aaa', marginBottom:3 }}>{s.label}</div>
-            <div style={{ fontSize:18, fontWeight:800, color:s.color }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* 플랫폼별 리뷰 */}
-      {reviewPlatforms.length > 0 ? (
-        <div style={bx}>
-          <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14 }}>⭐ 플랫폼별 리뷰 현황</div>
-          {reviewPlatforms.map(p => (
-            <div key={p.name} style={{ marginBottom:16, paddingBottom:16, borderBottom:'1px solid #F4F6F9' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <div style={{ width:8, height:8, borderRadius:2, background:p.color }} />
-                  <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{p.name}</span>
-                </div>
-                <span style={{ fontSize:11, padding:'2px 8px', borderRadius:10, background:`${p.color}15`, color:p.color, fontWeight:700, border:`1px solid ${p.color}33` }}>답글률 {p.replyRate}%</span>
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:8 }}>
-                <div style={{ background:'#F8F9FB', borderRadius:10, padding:'10px 12px', textAlign:'center' }}>
-                  <div style={{ fontSize:9, color:'#aaa', marginBottom:3 }}>리뷰 수</div>
-                  <div style={{ fontSize:18, fontWeight:800, color:'#FF6B35' }}>{p.reviews}</div>
-                </div>
-                <div style={{ background:'#F8F9FB', borderRadius:10, padding:'10px 12px', textAlign:'center' }}>
-                  <div style={{ fontSize:9, color:'#aaa', marginBottom:3 }}>답글 수</div>
-                  <div style={{ fontSize:18, fontWeight:800, color:'#00B894' }}>{p.replies}</div>
-                </div>
-                <div style={{ background:'#F8F9FB', borderRadius:10, padding:'10px 12px', textAlign:'center' }}>
-                  <div style={{ fontSize:9, color:'#aaa', marginBottom:3 }}>미답글</div>
-                  <div style={{ fontSize:18, fontWeight:800, color:p.reviews-p.replies>0?'#E84393':'#bbb' }}>{Math.max(p.reviews-p.replies,0)}</div>
-                </div>
-              </div>
-              <div style={{ marginBottom:4 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'#aaa', marginBottom:4 }}>
-                  <span>답글률</span><span>{p.replyRate}%</span>
-                </div>
-                <ProgressBar value={p.replies} max={Math.max(p.reviews,1)} color={p.replyRate>=80?'#00B894':p.replyRate>=50?'#FDC400':'#E84393'} height={8} />
-              </div>
-              {p.replyRate < 80 && p.reviews > 0 && (
-                <div style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.06)', borderRadius:8, padding:'6px 10px' }}>
-                  ⚠️ {p.name} 미답글 {Math.max(p.reviews-p.replies,0)}건 — 빠른 답글이 재방문율을 높여요
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div style={{ textAlign:'center', padding:'60px 0', color:'#ccc' }}>
-          <div style={{ fontSize:32, marginBottom:12 }}>⭐</div>
-          <div style={{ fontSize:13 }}>마감일지에서 리뷰/답글 수를 입력하면 여기서 분석할 수 있어요</div>
-        </div>
-      )}
-
-      {/* 리뷰 수 × 매출 상관관계 */}
-      {daily.filter(d=>d.totalReviews>0).length >= 3 && (
-        <div style={bx}>
-          <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>📊 리뷰 수 × 매출 상관관계</div>
-          <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>리뷰가 많은 날 매출도 높은지 확인해요</div>
-          {daily.filter(d=>d.totalReviews>0).sort((a,b)=>b.totalReviews-a.totalReviews).slice(0,8).map(d => (
-            <div key={d.day} style={{ display:'grid', gridTemplateColumns:'60px 1fr 80px', gap:8, padding:'7px 0', borderBottom:'1px solid #F8F9FB', alignItems:'center' }}>
-              <span style={{ fontSize:11, color:'#888' }}>{month+1}/{d.day}({DOW[d.dow]})</span>
-              <div>
-                <div style={{ fontSize:10, color:'#aaa', marginBottom:2 }}>리뷰 {d.totalReviews}건 · 답글 {d.totalReplies}건</div>
-                <ProgressBar value={d.totalReplies} max={Math.max(d.totalReviews,1)} color='#00B894' height={5} />
-              </div>
-              <span style={{ fontSize:12, fontWeight:700, color:'#FF6B35', textAlign:'right' }}>{fmtW(d.amount)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-
-  // ── 플레이스 순위 × 매출 탭 ──
-  const placeContent = (
-    <div>
-      {placeTrackers.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'60px 0', color:'#ccc' }}>
-          <div style={{ fontSize:32, marginBottom:12 }}>📍</div>
-          <div style={{ fontSize:13 }}>플레이스 순위 탭에서 키워드를 등록하고<br/>순위를 저장하면 여기서 매출과 비교할 수 있어요</div>
-        </div>
-      ) : (
-        <>
-          {placeTrackers.map(t => {
-            const hist = placeHistory.filter(h=>h.tracker_id===t.id).sort((a,b)=>a.checked_date.localeCompare(b.checked_date))
-            const corr = hist.map(h=>{ const d=daily.find(d=>d.date===h.checked_date); return { date:h.checked_date, rank:h.rank, sales:d?.amount||0 } }).filter(h=>h.sales>0)
-            const latestRank = hist[hist.length-1]?.rank
+          <table style={tbl}>
+            <thead><tr style={{ borderBottom:'1px solid #F0F2F5' }}>
+              {['요일','평균매출','평균건수','평균객단가','영업횟수'].map(h=><th key={h} style={{ fontSize:10, color:'#aaa', fontWeight:700, padding:'6px 8px', textAlign:'left' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {dowStats.filter(d=>d.value>0).map(d=>(
+                <tr key={d.label} style={{ borderBottom:'1px solid #F8F9FB' }}>
+                  <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:d.color }}>{d.label}</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:d.value===maxDow?'#FF6B35':'#1a1a2e' }}>{fmtW(d.value)}</td>
+                  <td style={{ fontSize:12, padding:'8px 8px' }}>{Math.round(daily.filter(x=>DOW[x.dow]===d.label).reduce((s,x)=>s+x.count,0)/Math.max(d.count,1))}건</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', color:'#6C5CE7' }}>{d.value>0&&daily.filter(x=>DOW[x.dow]===d.label).reduce((s,x)=>s+x.count,0)>0?fmtW(Math.round(daily.filter(x=>DOW[x.dow]===d.label).reduce((s,x)=>s+x.amount,0)/daily.filter(x=>DOW[x.dow]===d.label).reduce((s,x)=>s+x.count,0))):'-'}</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', color:'#aaa' }}>{d.count}회</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </SubSection>
+        <SubSection id="s-dow-wknd" title="🆚 주중 vs 주말">
+          {(()=>{
+            const wknd = daily.filter(d=>d.dow===0||d.dow===6)
+            const wkdy = daily.filter(d=>d.dow!==0&&d.dow!==6)
+            const wkndAvg = wknd.length>0?Math.round(wknd.reduce((s,d)=>s+d.amount,0)/wknd.length):0
+            const wkdyAvg = wkdy.length>0?Math.round(wkdy.reduce((s,d)=>s+d.amount,0)/wkdy.length):0
             return (
-              <div key={t.id} style={bx}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-                  <div>
-                    <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{t.store_name}</span>
-                    <span style={{ fontSize:11, color:'#FF6B35', marginLeft:8 }}>#{t.keyword}</span>
-                  </div>
-                  {latestRank && <div style={{ fontSize:22, fontWeight:900, color:'#FF6B35' }}>{latestRank}위</div>}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                <div style={{ background:'rgba(108,92,231,.07)', borderRadius:12, padding:14, border:'1px solid rgba(108,92,231,.2)' }}>
+                  <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>주중 평균 (월~금)</div>
+                  <div style={{ fontSize:22, fontWeight:900, color:'#6C5CE7' }}>{fmtW(wkdyAvg)}</div>
+                  <div style={{ fontSize:11, color:'#aaa', marginTop:4 }}>{wkdy.length}일 영업</div>
                 </div>
-                {corr.length >= 2 ? (
-                  <>
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10, marginBottom:14 }}>
-                      {[
-                        { label:'순위 좋은 날 평균 매출', value:fmtW(Math.round(corr.filter(c=>c.rank<=10).reduce((s,c)=>s+c.sales,0)/Math.max(corr.filter(c=>c.rank<=10).length,1))), color:'#00B894' },
-                        { label:'순위 낮은 날 평균 매출', value:fmtW(Math.round(corr.filter(c=>c.rank>10).reduce((s,c)=>s+c.sales,0)/Math.max(corr.filter(c=>c.rank>10).length,1))), color:'#E84393' },
-                      ].map(s => (
-                        <div key={s.label} style={{ background:'#F8F9FB', borderRadius:10, padding:'12px', border:'1px solid #E8ECF0' }}>
-                          <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{s.label}</div>
-                          <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{s.value}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>날짜별 순위 × 매출</div>
-                    {corr.sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8).map((c,i) => (
-                      <div key={i} style={{ display:'grid', gridTemplateColumns:'80px 50px 1fr', gap:8, padding:'7px 0', borderBottom:'1px solid #F8F9FB', alignItems:'center' }}>
-                        <span style={{ fontSize:11, color:'#aaa' }}>{c.date.slice(5)}</span>
-                        <span style={{ fontSize:13, fontWeight:700, color:c.rank<=10?'#00B894':c.rank<=30?'#6C5CE7':'#bbb' }}>{c.rank}위</span>
-                        <div>
-                          <ProgressBar value={c.sales} max={Math.max(...corr.map(x=>x.sales))} color='#FF6B35' height={8} />
-                          <span style={{ fontSize:10, color:'#888' }}>{fmtW(c.sales)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                ) : (
-                  <div style={{ fontSize:12, color:'#bbb', textAlign:'center', padding:'16px 0' }}>이 달 순위 기록이 부족해요. 플레이스 탭에서 순위를 저장해주세요.</div>
-                )}
+                <div style={{ background:'rgba(255,107,53,.07)', borderRadius:12, padding:14, border:'1px solid rgba(255,107,53,.2)' }}>
+                  <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>주말 평균 (토/일)</div>
+                  <div style={{ fontSize:22, fontWeight:900, color:'#FF6B35' }}>{fmtW(wkndAvg)}</div>
+                  <div style={{ fontSize:11, color:'#aaa', marginTop:4 }}>{wknd.length}일 영업</div>
+                </div>
               </div>
             )
-          })}
-        </>
-      )}
+          })()}
+        </SubSection>
+      </DropSection>
+
+      {/* 플랫폼별 */}
+      <DropSection id="s-platform" title="🥧 플랫폼별 분석" summary={platforms[0]?`${platforms[0].name} 1위 ${totalSales>0?Math.round((platforms[0].amount/totalSales)*100):0}%`:'-'} summaryColor="#FF6B35">
+        <SubSection id="s-plat-share" title="💰 플랫폼별 매출 비중">
+          <div style={{ overflowX:'auto' }}>
+            <table style={tbl}>
+              <thead><tr style={{ borderBottom:'1px solid #F0F2F5' }}>
+                {['플랫폼','매출','비중','건수','객단가'].map(h=><th key={h} style={{ fontSize:10, color:'#aaa', fontWeight:700, padding:'6px 8px', textAlign:'left' }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {platforms.map(p=>(
+                  <tr key={p.name} style={{ borderBottom:'1px solid #F8F9FB' }}>
+                    <td style={{ padding:'8px 8px' }}><span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:6, background:`${p.color}18`, color:p.color }}>{p.name}</span></td>
+                    <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700 }}>{fmtW(p.amount)}</td>
+                    <td style={{ fontSize:12, padding:'8px 8px' }}>{totalSales>0?Math.round((p.amount/totalSales)*100):0}%</td>
+                    <td style={{ fontSize:12, padding:'8px 8px' }}>{p.count}건</td>
+                    <td style={{ fontSize:12, padding:'8px 8px', color:'#6C5CE7', fontWeight:700 }}>{p.count>0?fmtW(Math.round(p.amount/p.count)):'-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop:10 }}>
+            {platforms.map(p=><HBar key={p.name} label={p.name} value={p.amount} max={maxPlatform} color={p.color} />)}
+          </div>
+        </SubSection>
+        <SubSection id="s-plat-unit" title="💡 플랫폼별 객단가 비교">
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:8 }}>
+            {platforms.filter(p=>p.count>0).map(p=>{
+              const pu = Math.round(p.amount/p.count)
+              return (
+                <div key={p.name} style={{ background:'#F8F9FB', borderRadius:10, padding:'12px', border:`1px solid ${p.color}40` }}>
+                  <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{p.name}</div>
+                  <div style={{ fontSize:18, fontWeight:800, color:p.color }}>{fmtW(pu)}</div>
+                  {avgUnit>0&&<div style={{ fontSize:9, color:pu>=avgUnit?'#00B894':'#E84393', marginTop:2 }}>{pu>=avgUnit?'▲':'▼'} 종합비 {Math.abs(Math.round(((pu-avgUnit)/avgUnit)*100))}%</div>}
+                </div>
+              )
+            })}
+          </div>
+        </SubSection>
+      </DropSection>
+
+      {/* 전월/전년 비교 */}
+      <DropSection id="s-compare" title="📊 전월 / 전년 비교" summary={`전월 ${prevMonthPct>=0?'▲':'▼'}${Math.abs(prevMonthPct)}% · YoY ${prevYearPct>=0?'+':''}${prevYearPct}%`} summaryColor={prevMonthPct>=0?'#00B894':'#E84393'}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:14 }}>
+          <div style={{ background:totalSales>=prevTotal?'rgba(0,184,148,.07)':'rgba(232,67,147,.07)', borderRadius:12, padding:14, border:`1px solid ${totalSales>=prevTotal?'rgba(0,184,148,.25)':'rgba(232,67,147,.25)'}` }}>
+            <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>전월 대비 ({prevMonthLabel})</div>
+            <div style={{ fontSize:24, fontWeight:900, color:totalSales>=prevTotal?'#00B894':'#E84393' }}>{totalSales>=prevTotal?'▲':'▼'} {Math.abs(prevMonthPct)}%</div>
+            <div style={{ fontSize:11, color:'#aaa', marginTop:6 }}>{prevMonthLabel} {fmtW(prevTotal)}</div>
+            {prevTotal>0&&<div style={{ fontSize:11, fontWeight:700, marginTop:2, color:totalSales>=prevTotal?'#00B894':'#E84393' }}>{totalSales>=prevTotal?'+':''}{fmtW(Math.abs(totalSales-prevTotal))} {totalSales>=prevTotal?'증가':'감소'}</div>}
+          </div>
+          {prevYearTotal>0&&(
+            <div style={{ background:totalSales>=prevYearTotal?'rgba(0,184,148,.07)':'rgba(232,67,147,.07)', borderRadius:12, padding:14, border:`1px solid ${totalSales>=prevYearTotal?'rgba(0,184,148,.25)':'rgba(232,67,147,.25)'}` }}>
+              <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>전년 동월 ({year-1}년 {month+1}월)</div>
+              <div style={{ fontSize:24, fontWeight:900, color:totalSales>=prevYearTotal?'#00B894':'#E84393' }}>{totalSales>=prevYearTotal?'+':''}{prevYearPct}%</div>
+              <div style={{ fontSize:11, color:'#aaa', marginTop:6 }}>{year-1}년 {month+1}월 {fmtW(prevYearTotal)}</div>
+            </div>
+          )}
+        </div>
+        <SubSection id="s-cmp-tbl" title="📋 항목별 비교">
+          <table style={tbl}>
+            <thead><tr style={{ borderBottom:'1px solid #F0F2F5' }}>
+              {['항목','이번달','전월','전년동월'].map(h=><th key={h} style={{ fontSize:10, color:'#aaa', fontWeight:700, padding:'6px 8px', textAlign:'left' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {[
+                { label:'총 매출', cur:fmtW(totalSales), prev:fmtW(prevTotal), pyear:fmtW(prevYearTotal) },
+                { label:'객단가', cur:fmtW(avgUnit), prev:fmtW(prevClosings.length>0?Math.round(prevClosings.reduce((s,c)=>{const sv=prevSalesRows.filter(r=>r.closing_id===c.id);return s+sv.reduce((a,r)=>a+(r.amount||0),0)},0)/Math.max(prevClosings.reduce((s,c)=>{const sv=prevSalesRows.filter(r=>r.closing_id===c.id);return s+sv.reduce((a,r)=>a+(r.count||0),0)},0),1)):0), pyear:'-' },
+                { label:'총 건수', cur:`${totalCount}건`, prev:`${prevClosings.length>0?prevSalesRows.reduce((s,r)=>s+(r.count||0),0):0}건`, pyear:`${prevYearClosings.length>0?prevYearSalesRows.reduce((s,r)=>s+(r.count||0),0):0}건` },
+                { label:'영업일', cur:`${daily.length}일`, prev:`${prevClosings.length}일`, pyear:`${prevYearClosings.length}일` },
+              ].map(r=>(
+                <tr key={r.label} style={{ borderBottom:'1px solid #F8F9FB' }}>
+                  <td style={{ fontSize:12, padding:'8px 8px', fontWeight:600 }}>{r.label}</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:'#FF6B35' }}>{r.cur}</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', color:'#888' }}>{r.prev}</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', color:'#aaa' }}>{r.pyear}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </SubSection>
+      </DropSection>
     </div>
   )
 
-  const mainContent = (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
-      {/* 요약 카드 (overview 이외 탭에서만) */}
-      {tab !== 'overview' && (
-        <div style={{ display:'grid', gridTemplateColumns:isPC?'repeat(6,1fr)':'repeat(3,1fr)', gap:8, marginBottom:12 }}>
-          {[
-            {label:'총 매출',value:fmtW(totalSales),color:'#FF6B35'},
-            {label:'총 건수',value:`${totalCount}건`,color:'#6C5CE7'},
-            {label:'객단가',value:fmtW(avgUnit),color:'#00B894'},
-            {label:'취소/환불',value:`${totalCancel}건`,color:'#E84393'},
-            {label:'영업일',value:`${daily.length}일`,color:'#555'},
-            {label:'할인금액',value:fmtW(totalDiscount),color:'#FDC400'},
-          ].map(s => (
-            <div key={s.label} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:isPC?'12px 16px':'10px 12px', boxShadow:'0 1px 3px rgba(0,0,0,0.04)' }}>
-              <div style={{ fontSize:10, color:'#aaa', marginBottom:3 }}>{s.label}</div>
-              <div style={{ fontSize:isPC?17:14, fontWeight:800, color:s.color }}>{loading?'…':s.value}</div>
+  // ▶ 마케팅
+  const marketingContent = (
+    <div>
+      {/* 리뷰 */}
+      <DropSection id="m-review" title="⭐ 리뷰 분석" summary={`${totalReviewsMonth}건 · 답글률 ${replyRate}%`} summaryColor={replyRate>=80?'#00B894':'#E84393'}>
+        <SubSection id="m-rev-daily" title="📅 일별 리뷰 × 매출 비교">
+          <div style={{ overflowX:'auto' }}>
+            <table style={tbl}>
+              <thead><tr style={{ borderBottom:'1px solid #F0F2F5' }}>
+                {['날짜','리뷰','답글','매출','리뷰영향'].map(h=><th key={h} style={{ fontSize:10, color:'#aaa', fontWeight:700, padding:'6px 8px', textAlign:'left' }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {daily.map(d=>(
+                  <tr key={d.day} style={{ borderBottom:'1px solid #F8F9FB' }}>
+                    <td style={{ fontSize:12, padding:'8px 8px', fontWeight:600 }}>{month+1}/{d.day} {DOW[d.dow]}</td>
+                    <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:d.totalReviews>0?'#FF6B35':'#ddd' }}>{d.totalReviews>0?`${d.totalReviews}건`:'-'}</td>
+                    <td style={{ fontSize:12, padding:'8px 8px', color:d.totalReplies>0?'#00B894':'#ddd' }}>{d.totalReplies>0?`${d.totalReplies}건`:'-'}</td>
+                    <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:'#FF6B35' }}>{fmtW(d.amount)}</td>
+                    <td style={{ fontSize:12, padding:'8px 8px' }}>
+                      {d.totalReviews>0?<span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'rgba(0,184,148,.1)', color:'#00B894' }}>있음</span>
+                      :<span style={{ fontSize:10, padding:'2px 7px', borderRadius:6, background:'#F4F6F9', color:'#bbb' }}>없음</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {reviewDayAvg>0&&noReviewDayAvg>0&&(
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:10 }}>
+              <div style={{ background:'rgba(0,184,148,.07)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(0,184,148,.2)' }}>
+                <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>리뷰 있는 날 평균 ({reviewDays.length}일)</div>
+                <div style={{ fontSize:17, fontWeight:800, color:'#00B894' }}>{fmtW(reviewDayAvg)}</div>
+              </div>
+              <div style={{ background:'rgba(232,67,147,.06)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(232,67,147,.15)' }}>
+                <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>리뷰 없는 날 평균 ({noReviewDays.length}일)</div>
+                <div style={{ fontSize:17, fontWeight:800, color:'#E84393' }}>{fmtW(noReviewDayAvg)}</div>
+              </div>
             </div>
-          ))}
-        </div>
-      )}
+          )}
+        </SubSection>
+        <SubSection id="m-rev-plat" title="🏪 플랫폼별 리뷰 현황">
+          <table style={tbl}>
+            <thead><tr style={{ borderBottom:'1px solid #F0F2F5' }}>
+              {['플랫폼','리뷰','답글','답글률','평균매출'].map(h=><th key={h} style={{ fontSize:10, color:'#aaa', fontWeight:700, padding:'6px 8px', textAlign:'left' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {reviewPlatforms.map(p=>(
+                <tr key={p.name} style={{ borderBottom:'1px solid #F8F9FB' }}>
+                  <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700 }}>{p.name}</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:'#FF6B35' }}>{p.reviews}건</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', color:'#00B894' }}>{p.replies}건</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:p.replyRate>=80?'#00B894':'#E84393' }}>{p.replyRate}%</td>
+                  <td style={{ fontSize:12, padding:'8px 8px', color:'#6C5CE7' }}>{p.avgSalesPerReview>0?fmtW(p.avgSalesPerReview):'-'}</td>
+                </tr>
+              ))}
+              {reviewPlatforms.length===0&&<tr><td colSpan={5} style={{ textAlign:'center', padding:20, color:'#ccc', fontSize:12 }}>리뷰 데이터 없음</td></tr>}
+            </tbody>
+          </table>
+        </SubSection>
+      </DropSection>
 
-      {/* 탭 */}
-      <div style={{ display:'flex', gap:4, marginBottom:14, overflowX:'auto', flexShrink:0, paddingBottom:2 }}>
-        {TAB_LIST.map(t => (
+      {/* 블로그/카페/카카오 */}
+      <DropSection id="m-blog" title="📝 온라인 언급 분석" summary={`블로그 ${blogThisMonth.length}건 · 카페 ${cafeThisMonth.length}건`} summaryColor="#6C5CE7">
+        {/* 키워드 설정 */}
+        <div style={{ marginTop:14, padding:'12px 14px', background:'rgba(108,92,231,.06)', borderRadius:12, border:'1px solid rgba(108,92,231,.2)', marginBottom:12 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', marginBottom:8 }}>🔍 검색 키워드 설정</div>
+          <div style={{ display:'flex', gap:8 }}>
+            <input
+              value={searchKeyword}
+              onChange={e=>setSearchKeyword(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&saveKeyword()}
+              placeholder="예: 파스타랑 고덕"
+              style={{ flex:1, padding:'8px 12px', borderRadius:8, border:'1px solid rgba(108,92,231,.3)', fontSize:12, outline:'none', background:'#fff' }}
+            />
+            <button
+              onClick={saveKeyword}
+              disabled={keywordSaving||!searchKeyword.trim()}
+              style={{ padding:'8px 16px', borderRadius:8, border:'none', background:'#6C5CE7', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', opacity:keywordSaving?0.6:1 }}
+            >{keywordSaving?'저장 중...':'저장 · 검색'}</button>
+          </div>
+          {savedKeyword&&<div style={{ fontSize:10, color:'#aaa', marginTop:6 }}>현재 키워드: <strong style={{ color:'#6C5CE7' }}>{savedKeyword}</strong></div>}
+        </div>
+
+        {marketingLoading?(
+          <div style={{ textAlign:'center', padding:30, color:'#aaa', fontSize:12 }}>🔍 데이터 수집 중...</div>
+        ):(
+          <>
+            {/* 카카오맵 */}
+            {kakaoData&&(
+              <div style={{ padding:'12px 14px', background:'#FFF9E6', borderRadius:12, border:'1px solid rgba(253,196,0,.3)', marginBottom:10 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'#B8860B', marginBottom:6 }}>🗺️ 카카오맵 정보</div>
+                <div style={{ fontSize:13, fontWeight:800, color:'#1a1a2e', marginBottom:2 }}>{kakaoData.place_name}</div>
+                <div style={{ fontSize:11, color:'#888' }}>{kakaoData.address_name}</div>
+                <div style={{ fontSize:11, color:'#aaa', marginTop:2 }}>카테고리: {kakaoData.category_name}</div>
+              </div>
+            )}
+
+            {/* 블로그 언급 */}
+            <SubSection id="m-blog-list" title={`📝 네이버 블로그 이번 달 ${blogThisMonth.length}건`}>
+              {blogThisMonth.length===0?(
+                <div style={{ textAlign:'center', padding:16, color:'#ccc', fontSize:12 }}>{savedKeyword?'이번 달 블로그 언급 없음':'키워드를 먼저 설정해주세요'}</div>
+              ):(
+                <>
+                  {/* 주차별 차트 */}
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6, marginBottom:12 }}>
+                    {[1,2,3,4].map(w=>(
+                      <div key={w} style={{ background:'#F8F9FB', borderRadius:8, padding:'8px', textAlign:'center', border:'1px solid #E8ECF0' }}>
+                        <div style={{ fontSize:16, fontWeight:800, color:'#6C5CE7' }}>{blogByWeek[w]||0}</div>
+                        <div style={{ fontSize:9, color:'#aaa' }}>{w}주차</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* 게시물 목록 */}
+                  <div style={{ borderRadius:10, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+                    {blogThisMonth.slice(0,10).map((item,i)=>(
+                      <div key={i} style={{ padding:'10px 14px', borderBottom:i<blogThisMonth.length-1?'1px solid #F0F2F5':'none', background:i%2===0?'#fff':'#FAFBFC' }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', marginBottom:2 }}
+                          dangerouslySetInnerHTML={{ __html: item.title.replace(/<[^>]*>/g,'') }} />
+                        <div style={{ fontSize:10, color:'#aaa' }}>{item.postdate?.slice(0,4)}.{item.postdate?.slice(4,6)}.{item.postdate?.slice(6,8)}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {blogThisMonth.length>10&&<div style={{ fontSize:11, color:'#aaa', textAlign:'center', marginTop:8 }}>외 {blogThisMonth.length-10}건 더 있어요</div>}
+                </>
+              )}
+            </SubSection>
+
+            {/* 카페 언급 */}
+            <SubSection id="m-cafe-list" title={`☕ 네이버 카페 이번 달 ${cafeThisMonth.length}건`}>
+              {cafeThisMonth.length===0?(
+                <div style={{ textAlign:'center', padding:16, color:'#ccc', fontSize:12 }}>{savedKeyword?'이번 달 카페 언급 없음':'키워드를 먼저 설정해주세요'}</div>
+              ):(
+                <div style={{ borderRadius:10, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+                  {cafeThisMonth.slice(0,10).map((item,i)=>(
+                    <div key={i} style={{ padding:'10px 14px', borderBottom:i<cafeThisMonth.length-1?'1px solid #F0F2F5':'none', background:i%2===0?'#fff':'#FAFBFC' }}>
+                      <div style={{ fontSize:12, fontWeight:700, color:'#2DC6D6', marginBottom:2 }}
+                        dangerouslySetInnerHTML={{ __html: item.title.replace(/<[^>]*>/g,'') }} />
+                      <div style={{ fontSize:10, color:'#aaa' }}>{item.cafename} · {item.postdate?.slice(0,4)}.{item.postdate?.slice(4,6)}.{item.postdate?.slice(6,8)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SubSection>
+          </>
+        )}
+      </DropSection>
+
+      {/* 메모/컴플레인 */}
+      <DropSection id="m-memo" title="📌 메모 / 컴플레인 분석" summary={`${daily.filter(d=>d.note).length}건 컴플레인`} summaryColor="#E84393">
+        {(()=>{
+          const memoDays = daily.filter(d=>d.memo)
+          const noteDays = daily.filter(d=>d.note)
+          const normalDays = daily.filter(d=>!d.memo&&!d.note&&d.amount>0)
+          const memoAvg = memoDays.length>0?Math.round(memoDays.reduce((s,d)=>s+d.amount,0)/memoDays.length):0
+          const noteAvg = noteDays.length>0?Math.round(noteDays.reduce((s,d)=>s+d.amount,0)/noteDays.length):0
+          const normalAvg = normalDays.length>0?Math.round(normalDays.reduce((s,d)=>s+d.amount,0)/normalDays.length):0
+          return (
+            <>
+              <div style={{ display:'grid', gridTemplateColumns:`repeat(${[normalAvg>0,memoAvg>0,noteAvg>0].filter(Boolean).length},1fr)`, gap:8, marginTop:14, marginBottom:12 }}>
+                {normalAvg>0&&<KpiMini label={`평상시 (${normalDays.length}일)`} value={fmtW(normalAvg)} color="#555" />}
+                {memoAvg>0&&<KpiMini label={`특이사항 (${memoDays.length}일)`} value={fmtW(memoAvg)} color="#FF6B35" sub={normalAvg>0?`${memoAvg>=normalAvg?'▲':'▼'}${Math.abs(Math.round(((memoAvg-normalAvg)/normalAvg)*100))}%`:undefined} />}
+                {noteAvg>0&&<KpiMini label={`컴플레인 (${noteDays.length}일)`} value={fmtW(noteAvg)} color="#E84393" sub={normalAvg>0?`${noteAvg>=normalAvg?'▲':'▼'}${Math.abs(Math.round(((noteAvg-normalAvg)/normalAvg)*100))}%`:undefined} />}
+              </div>
+              {(memoDays.length>0||noteDays.length>0)&&(
+                <SubSection id="m-memo-list" title="📋 메모/컴플레인 목록">
+                  <table style={tbl}>
+                    <thead><tr style={{ borderBottom:'1px solid #F0F2F5' }}>
+                      {['날짜','유형','내용','매출'].map(h=><th key={h} style={{ fontSize:10, color:'#aaa', fontWeight:700, padding:'6px 8px', textAlign:'left' }}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {[...memoDays.map(d=>({...d,type:'특이'})),...noteDays.map(d=>({...d,type:'컴플레인'}))].sort((a,b)=>a.day-b.day).map(d=>(
+                        <tr key={d.day+d.type} style={{ borderBottom:'1px solid #F8F9FB' }}>
+                          <td style={{ fontSize:12, padding:'8px 8px' }}>{month+1}/{d.day}</td>
+                          <td style={{ padding:'8px 8px' }}><span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:d.type==='컴플레인'?'rgba(232,67,147,.1)':'rgba(255,107,53,.1)', color:d.type==='컴플레인'?'#E84393':'#FF6B35' }}>{d.type}</span></td>
+                          <td style={{ fontSize:11, padding:'8px 8px', color:'#666', maxWidth:160 }}>{d.type==='특이'?d.memo:d.note}</td>
+                          <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:'#FF6B35' }}>{fmtW(d.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </SubSection>
+              )}
+            </>
+          )
+        })()}
+      </DropSection>
+    </div>
+  )
+
+  // ▶ 인사이트
+  const insightContent = (
+    <div>
+      {/* 날씨 × 매출 */}
+      <DropSection id="i-weather" title="🌤️ 날씨 × 매출 분석" summary={weatherStats.length>0?`${weatherStats[0].label} 최고 ${fmtW(weatherStats[0].avg)}`:'-'} summaryColor="#2DC6D6">
+        {weatherStats.length===0?(
+          <div style={{ textAlign:'center', padding:30, color:'#ccc', fontSize:12, marginTop:14 }}>날씨 데이터가 쌓이면 분석이 나타나요</div>
+        ):(
+          <>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:8, marginTop:14 }}>
+              {weatherStats.map(w=>(
+                <div key={w.label} style={{ background:'#F8F9FB', borderRadius:12, padding:'12px', border:'1px solid #E8ECF0', textAlign:'center' }}>
+                  <div style={{ fontSize:22, marginBottom:4 }}>{w.icon}</div>
+                  <div style={{ fontSize:10, color:'#aaa', marginBottom:5, fontWeight:600 }}>{w.label}</div>
+                  <div style={{ fontSize:16, fontWeight:900, color:'#FF6B35' }}>{fmtW(w.avg)}</div>
+                  <div style={{ fontSize:9, color:'#bbb', marginTop:2 }}>{w.days}일 · {w.counts}건</div>
+                  {baseWeatherAvg>0&&w.avg!==baseWeatherAvg&&(
+                    <div style={{ fontSize:10, fontWeight:700, marginTop:4, color:w.avg>=baseWeatherAvg?'#00B894':'#E84393' }}>
+                      {w.avg>=baseWeatherAvg?'▲':'▼'} {Math.abs(Math.round(((w.avg-baseWeatherAvg)/baseWeatherAvg)*100))}%
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <SubSection id="i-wx-tbl" title="📋 일별 날씨 × 매출 대조표">
+              <div style={{ overflowX:'auto' }}>
+                <table style={tbl}>
+                  <thead><tr style={{ borderBottom:'1px solid #F0F2F5' }}>
+                    {['날짜','날씨','최고기온','최저기온','매출','건수'].map(h=><th key={h} style={{ fontSize:10, color:'#aaa', fontWeight:700, padding:'6px 8px', textAlign:'left' }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {daily.map(d=>(
+                      <tr key={d.day} style={{ borderBottom:'1px solid #F8F9FB' }}>
+                        <td style={{ fontSize:12, padding:'8px 8px', fontWeight:600 }}>{month+1}/{d.day}</td>
+                        <td style={{ fontSize:12, padding:'8px 8px' }}>{d.weatherCode!==null&&d.weatherCode!==undefined?weatherIcon(d.weatherCode):'-'}</td>
+                        <td style={{ fontSize:12, padding:'8px 8px', color:'#FF6B35' }}>{d.tempMax!=null?`${d.tempMax}°`:'-'}</td>
+                        <td style={{ fontSize:12, padding:'8px 8px', color:'#2DC6D6' }}>{d.tempMin!=null?`${d.tempMin}°`:'-'}</td>
+                        <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:'#FF6B35' }}>{fmtW(d.amount)}</td>
+                        <td style={{ fontSize:12, padding:'8px 8px' }}>{d.count}건</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </SubSection>
+          </>
+        )}
+      </DropSection>
+
+      {/* 액션 인사이트 */}
+      <DropSection id="i-action" title="⚡ 액션 인사이트" summary={`즉시조치 ${insights.filter(i=>i.priority===1).length}건 · 권고 ${insights.filter(i=>i.priority===2).length}건`} summaryColor="#E84393">
+        {daily.length===0?(
+          <div style={{ textAlign:'center', padding:30, color:'#ccc', fontSize:12, marginTop:14 }}>마감일지를 작성하면 인사이트가 나타나요</div>
+        ):(
+          <div style={{ marginTop:14 }}>
+            {insights.filter(i=>i.priority===1).length>0&&(
+              <>
+                <div style={{ fontSize:10, fontWeight:700, color:'#E84393', marginBottom:8, letterSpacing:.5 }}>🔴 즉시 조치</div>
+                {insights.filter(i=>i.priority===1).map((ins,i)=>(
+                  <div key={i} style={{ display:'flex', gap:10, padding:'12px 14px', borderRadius:12, background:'rgba(232,67,147,.07)', border:'1px solid rgba(232,67,147,.2)', marginBottom:8 }}>
+                    <span style={{ fontSize:18 }}>{ins.icon}</span>
+                    <div><div style={{ fontSize:12, fontWeight:700, marginBottom:3 }}>{ins.title}</div><div style={{ fontSize:11, color:'#777', lineHeight:1.5 }}>{ins.desc}</div>
+                    {ins.action&&<div style={{ marginTop:6, fontSize:11, fontWeight:700, color:'#E84393', padding:'3px 10px', background:'rgba(232,67,147,.1)', borderRadius:7, display:'inline-block' }}>→ {ins.action}</div>}</div>
+                  </div>
+                ))}
+              </>
+            )}
+            {insights.filter(i=>i.priority===2).length>0&&(
+              <>
+                <div style={{ fontSize:10, fontWeight:700, color:'#FDC400', marginBottom:8, letterSpacing:.5, marginTop:12 }}>🟡 개선 권고</div>
+                {insights.filter(i=>i.priority===2).map((ins,i)=>(
+                  <div key={i} style={{ display:'flex', gap:10, padding:'12px 14px', borderRadius:12, background:'rgba(253,196,0,.07)', border:'1px solid rgba(253,196,0,.3)', marginBottom:8 }}>
+                    <span style={{ fontSize:18 }}>{ins.icon}</span>
+                    <div><div style={{ fontSize:12, fontWeight:700, marginBottom:3 }}>{ins.title}</div><div style={{ fontSize:11, color:'#777', lineHeight:1.5 }}>{ins.desc}</div>
+                    {ins.action&&<div style={{ marginTop:6, fontSize:11, fontWeight:700, color:'#B8860B', padding:'3px 10px', background:'rgba(253,196,0,.12)', borderRadius:7, display:'inline-block' }}>→ {ins.action}</div>}</div>
+                  </div>
+                ))}
+              </>
+            )}
+            {insights.filter(i=>i.priority>=3).length>0&&(
+              <>
+                <div style={{ fontSize:10, fontWeight:700, color:'#00B894', marginBottom:8, letterSpacing:.5, marginTop:12 }}>✅ 잘하고 있어요</div>
+                {insights.filter(i=>i.priority>=3).map((ins,i)=>(
+                  <div key={i} style={{ display:'flex', gap:10, padding:'12px 14px', borderRadius:12, background:'rgba(0,184,148,.07)', border:'1px solid rgba(0,184,148,.2)', marginBottom:8 }}>
+                    <span style={{ fontSize:18 }}>{ins.icon}</span>
+                    <div><div style={{ fontSize:12, fontWeight:700, marginBottom:3 }}>{ins.title}</div><div style={{ fontSize:11, color:'#777', lineHeight:1.5 }}>{ins.desc}</div></div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </DropSection>
+    </div>
+  )
+
+  const TAB_LIST = [
+    { id:'overview', label:'🏠 종합', content: overviewContent },
+    { id:'sales', label:'📈 매출분석', content: salesContent },
+    { id:'marketing', label:'⭐ 마케팅', content: marketingContent },
+    { id:'insight', label:'💡 인사이트', content: insightContent },
+  ]
+
+  return (
+    <div style={{ background:'#F2F4F7', minHeight:'100vh', paddingBottom:80 }}>
+      {/* 탭 네비 */}
+      <div style={{ background:'#fff', borderBottom:'1px solid #E8ECF0', padding:'0 16px', display:'flex', gap:2, overflowX:'auto', position:'sticky', top:0, zIndex:100 }}>
+        {TAB_LIST.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id as any)}
-            style={{ padding:'7px 14px', borderRadius:20, border:tab===t.id?'none':'1px solid #E8ECF0',
-              background:tab===t.id?'linear-gradient(135deg,#FF6B35,#E84393)':'#fff',
-              color:tab===t.id?'#fff':'#888', fontSize:12, fontWeight:tab===t.id?700:500,
-              cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+            style={{ padding:'13px 16px', fontSize:12, fontWeight:700, color:tab===t.id?'#FF6B35':'#aaa', border:'none', background:'none', cursor:'pointer', whiteSpace:'nowrap', borderBottom:`3px solid ${tab===t.id?'#FF6B35':'transparent'}`, transition:'all .15s' }}>
             {t.label}
           </button>
         ))}
       </div>
 
-      <div style={{ flex:1, overflow:'auto' }}>
-        {loading && <div style={{ textAlign:'center', padding:'60px 0', color:'#aaa', fontSize:13 }}>불러오는 중…</div>}
-
-        {!loading && tab==='overview' && overviewContent}
-        {!loading && tab==='action' && actionContent}
-        {!loading && tab==='review' && reviewContent}
-        {!loading && tab==='place' && placeContent}
-
-        {!loading && tab==='sales' && (
-          <div>
-            <div style={bx}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-                <span style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>📈 일별 매출 흐름</span>
-                {prevTotal>0 && <span style={{ fontSize:10, color:'#aaa' }}>점선 = {prevMonthLabel}</span>}
-              </div>
-              {daily.length>0 ? (
-                <LineChart data={daily.map(d=>({x:d.day,y:d.amount,label:String(d.day)}))} prevData={prevDaily.map(d=>({x:d.day,y:d.amount}))} goal={goal?.weekday_goal||undefined} color="#FF6B35" height={isPC?220:160} />
-              ) : <div style={{ textAlign:'center', padding:'40px 0', color:'#ccc', fontSize:13 }}>이번 달 마감 데이터가 없어요</div>}
-            </div>
-            {daily.length>0 && (
-              <div style={bx}>
-                <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:12 }}>📋 일별 상세</div>
-                <div style={{ display:'grid', gridTemplateColumns:'68px 1fr 76px 56px 56px 30px', gap:4, paddingBottom:8, borderBottom:'1px solid #F0F2F5', marginBottom:6 }}>
-                  {['날짜','매출','건수','취소','객단가',''].map((h,i) => <span key={i} style={{ fontSize:10, color:'#aaa', fontWeight:600, textAlign:i===0?'left':'center' }}>{h}</span>)}
-                </div>
-                {[...daily].sort((a,b)=>b.day-a.day).map(d => (
-                  <div key={d.day} style={{ display:'grid', gridTemplateColumns:'68px 1fr 76px 56px 56px 30px', gap:4, padding:'8px 0', borderBottom:'1px solid #F8F9FB', alignItems:'center' }}>
-                    <span style={{ fontSize:11, color:d.dow===0||d.dow===6?'#E84393':'#888' }}>{month+1}/{d.day}({DOW[d.dow]}){d.weatherCode!=null?weatherIcon(d.weatherCode):''}</span>
-                    <span style={{ fontSize:13, fontWeight:700, color:'#FF6B35' }}>{fmtWFull(d.amount)}</span>
-                    <span style={{ fontSize:12, color:'#6C5CE7', textAlign:'center' }}>{d.count>0?`${d.count}건`:'-'}</span>
-                    <span style={{ fontSize:12, color:'#E84393', textAlign:'center' }}>{d.cancel>0?`${d.cancel}건`:'-'}</span>
-                    <span style={{ fontSize:11, color:'#aaa', textAlign:'center' }}>{d.unitPrice>0?fmtW(d.unitPrice):'-'}</span>
-                    <span style={{ fontSize:12, textAlign:'center' }}>{d.memo||d.note?'📌':''}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {!loading && tab==='unit' && (
-          <div>
-            <div style={bx}>
-              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>💡 종합 객단가 추이</div>
-              <div style={{ fontSize:11, color:'#aaa', marginBottom:14 }}>주문 1건당 평균 결제금액 — 높을수록 메뉴 구성이 좋고, 낮으면 올릴 여지가 있어요</div>
-              {daily.filter(d=>d.count>0).length>0 ? (
-                <LineChart data={daily.filter(d=>d.count>0).map(d=>({x:d.day,y:d.unitPrice,label:String(d.day)}))} prevData={prevDaily.filter(d=>d.count>0).map(d=>({x:d.day,y:d.unitPrice}))} color="#6C5CE7" height={isPC?200:150} />
-              ) : <div style={{ textAlign:'center', padding:'40px 0', color:'#ccc', fontSize:13 }}>건수를 입력하면 객단가가 계산돼요</div>}
-            </div>
-            {daily.filter(d=>d.count>0).length>0 && (
-              <div style={{ display:'grid', gridTemplateColumns:isPC?'repeat(4,1fr)':'repeat(2,1fr)', gap:10, marginBottom:12 }}>
-                {[
-                  {label:'종합 객단가',value:fmtW(avgUnit),color:'#6C5CE7'},
-                  {label:'최고 객단가',value:fmtW(Math.max(...daily.filter(d=>d.count>0).map(d=>d.unitPrice))),color:'#FF6B35'},
-                  {label:'최저 객단가',value:fmtW(Math.min(...daily.filter(d=>d.count>0).map(d=>d.unitPrice))),color:'#E84393'},
-                  {label:'객단가 수준',value:avgUnit>15000?'✅ 양호':avgUnit>10000?'⚠️ 보통':'❌ 낮음',color:avgUnit>15000?'#00B894':avgUnit>10000?'#FDC400':'#E84393'},
-                ].map(s => (
-                  <div key={s.label} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'14px 16px' }}>
-                    <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{s.label}</div>
-                    <div style={{ fontSize:18, fontWeight:800, color:s.color }}>{s.value}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 플랫폼별 객단가 */}
-            {platforms.filter(p=>p.count>0).length>0 && (
-              <div style={bx}>
-                <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>🥧 플랫폼별 객단가</div>
-                <div style={{ fontSize:11, color:'#aaa', marginBottom:14 }}>채널마다 고객이 얼마나 쓰는지 비교해요</div>
-                {(()=>{
-                  const sorted = [...platforms.filter(p=>p.count>0)].sort((a,b)=>Math.round(b.amount/b.count)-Math.round(a.amount/a.count))
-                  const maxU = Math.round(sorted[0].amount/sorted[0].count)
-                  return sorted.map(p => {
-                    const pu = Math.round(p.amount/p.count)
-                    return (
-                      <div key={p.name} style={{ marginBottom:16 }}>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                            <div style={{ width:8, height:8, borderRadius:2, background:p.color }} />
-                            <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{p.name}</span>
-                          </div>
-                          <div style={{ textAlign:'right' }}>
-                            <span style={{ fontSize:16, fontWeight:800, color:p.color }}>{fmtW(pu)}</span>
-                            <span style={{ fontSize:10, color:'#aaa', marginLeft:6 }}>{p.count}건</span>
-                          </div>
-                        </div>
-                        <ProgressBar value={pu} max={maxU} color={p.color} height={8} />
-                        <div style={{ display:'flex', justifyContent:'space-between', marginTop:4, fontSize:10, color:'#aaa' }}>
-                          <span>총 {fmtW(p.amount)}</span>
-                          <span>{avgUnit>0?`종합 대비 ${pu>=avgUnit?'▲':'▼'} ${Math.abs(Math.round(((pu-avgUnit)/avgUnit)*100))}%`:''}</span>
-                        </div>
-                      </div>
-                    )
-                  })
-                })()}
-              </div>
-            )}
-
-            {totalCancel>0 && (
-              <div style={{ ...bx, border:'1px solid rgba(232,67,147,0.25)' }}>
-                <div style={{ fontSize:13, fontWeight:700, color:'#E84393', marginBottom:12 }}>🚨 취소/환불 분석</div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
-                  {[
-                    {label:'총 취소/환불',value:`${totalCancel}건`,color:'#E84393'},
-                    {label:'취소율',value:`${totalCount>0?Math.round((totalCancel/(totalCount+totalCancel))*100):0}%`,color:'#E84393'},
-                    {label:'추정 손실',value:fmtW(totalCancel*avgUnit),color:'#E84393'},
-                  ].map(s => (
-                    <div key={s.label} style={{ background:'rgba(232,67,147,0.06)', borderRadius:10, padding:'12px 14px' }}>
-                      <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{s.label}</div>
-                      <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{s.value}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {!loading && tab==='dow' && (
-          <div>
-            <div style={bx}>
-              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>📆 요일별 평균 매출</div>
-              <div style={{ fontSize:11, color:'#aaa', marginBottom:14 }}>어느 요일에 매출이 집중되는지 파악해 직원 배치와 프로모션에 활용하세요</div>
-              <BarChart data={dowStats} height={isPC?200:150} />
-            </div>
-            {daily.length>0 && (()=>{
-              const sorted=[...dowStats].filter(d=>d.value>0).sort((a,b)=>b.value-a.value)
-              const best=sorted[0], worst=sorted[sorted.length-1]
-              const wdAvg=dowStats.filter(d=>['월','화','수','목','금'].includes(d.label)&&d.value>0)
-              const weAvg=dowStats.filter(d=>['토','일'].includes(d.label)&&d.value>0)
-              const wdMean=wdAvg.length?Math.round(wdAvg.reduce((s,d)=>s+d.value,0)/wdAvg.length):0
-              const weMean=weAvg.length?Math.round(weAvg.reduce((s,d)=>s+d.value,0)/weAvg.length):0
-              return (
-                <div style={bx}>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:12 }}>💡 요일 인사이트</div>
-                  {best && <div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', fontSize:12, color:'#00B894', marginBottom:8 }}>🏆 최고 요일: <strong>{best.label}요일</strong> 평균 {fmtW(best.value)} ({best.count}회)</div>}
-                  {worst && <div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(232,67,147,0.06)', border:'1px solid rgba(232,67,147,0.15)', fontSize:12, color:'#E84393', marginBottom:8 }}>📉 최저 요일: <strong>{worst.label}요일</strong> 평균 {fmtW(worst.value)} — 이 날 프로모션을 고려해보세요</div>}
-                  {wdMean>0&&weMean>0&&(weMean>wdMean
-                    ?<div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(108,92,231,0.06)', border:'1px solid rgba(108,92,231,0.15)', fontSize:12, color:'#6C5CE7' }}>📊 주말 강세: 주말 평균이 평일보다 {Math.round(((weMean-wdMean)/wdMean)*100)}% 높아요</div>
-                    :<div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(255,107,53,0.06)', border:'1px solid rgba(255,107,53,0.15)', fontSize:12, color:'#FF6B35' }}>📊 평일 강세: 평일 평균이 주말보다 {weMean>0?Math.round(((wdMean-weMean)/weMean)*100):100}% 높아요</div>
-                  )}
-                </div>
-              )
-            })()}
-          </div>
-        )}
-
-        {!loading && tab==='platform' && (
-          <div>
-            <div style={bx}>
-              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', marginBottom:16 }}>🥧 플랫폼별 매출 비중</div>
-              {platforms.length>0 ? (
-                <div style={{ display:'flex', gap:24, alignItems:'center', flexWrap:'wrap' }}>
-                  <PieChart data={platforms.map(p=>({label:p.name,value:p.amount,color:p.color}))} size={isPC?160:130} />
-                  <div style={{ flex:1, minWidth:180 }}>
-                    {platforms.map(p => (
-                      <div key={p.name} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-                        <div style={{ width:10, height:10, borderRadius:3, background:p.color, flexShrink:0 }} />
-                        <span style={{ fontSize:12, color:'#555', flex:1 }}>{p.name}</span>
-                        <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>{fmtW(p.amount)}</span>
-                        <span style={{ fontSize:11, color:'#aaa', width:34, textAlign:'right' }}>{totalSales>0?Math.round((p.amount/totalSales)*100):0}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : <div style={{ textAlign:'center', padding:'40px 0', color:'#ccc', fontSize:13 }}>데이터 없음</div>}
-            </div>
-            {(hallAmt>0||delivAmt>0) && (
-              <div style={bx}>
-                <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14 }}>🏠 홀 vs 🛵 배달</div>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
-                  <div style={{ background:'rgba(255,107,53,0.08)', borderRadius:12, padding:'14px 16px', border:'1px solid rgba(255,107,53,0.2)' }}>
-                    <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>🏠 홀 매출</div>
-                    <div style={{ fontSize:20, fontWeight:800, color:'#FF6B35' }}>{fmtW(hallAmt)}</div>
-                    <div style={{ fontSize:11, color:'#FF6B35', marginTop:2 }}>{totalSales>0?Math.round((hallAmt/totalSales)*100):0}%</div>
-                  </div>
-                  <div style={{ background:'rgba(108,92,231,0.08)', borderRadius:12, padding:'14px 16px', border:'1px solid rgba(108,92,231,0.2)' }}>
-                    <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>🛵 배달 매출</div>
-                    <div style={{ fontSize:20, fontWeight:800, color:'#6C5CE7' }}>{fmtW(delivAmt)}</div>
-                    <div style={{ fontSize:11, color:'#6C5CE7', marginTop:2 }}>{totalSales>0?Math.round((delivAmt/totalSales)*100):0}%</div>
-                  </div>
-                </div>
-                <ProgressBar value={hallAmt} max={totalSales} color='#FF6B35' height={12} />
-              </div>
-            )}
-          </div>
-        )}
-
-        {!loading && tab==='compare' && (
-          <div>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:12 }}>
-              {[
-                {label:'이번달',value:fmtW(totalSales),color:'#FF6B35',sub:`${daily.length}일 영업`},
-                {label:`전월`,value:fmtW(prevTotal),color:'#6C5CE7',sub:prevTotal>0?`${totalSales>=prevTotal?'▲':'▼'}${Math.abs(Math.round(((totalSales-prevTotal)/prevTotal)*100))}%`:'데이터없음'},
-                {label:`전년 동월`,value:fmtW(prevYearTotal),color:'#00B894',sub:prevYearTotal>0?`${totalSales>=prevYearTotal?'▲':'▼'}${Math.abs(Math.round(((totalSales-prevYearTotal)/prevYearTotal)*100))}%`:'데이터없음'},
-              ].map(s => (
-                <div key={s.label} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'12px 14px' }}>
-                  <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{s.label}</div>
-                  <div style={{ fontSize:isPC?16:13, fontWeight:800, color:s.color }}>{s.value}</div>
-                  <div style={{ fontSize:10, color:s.color, marginTop:3, opacity:0.8 }}>{s.sub}</div>
-                </div>
-              ))}
-            </div>
-            <div style={bx}>
-              <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>🔄 전월 비교 차트</div>
-              {(()=>{
-                const days=[...new Set([...daily.map(d=>d.day),...prevDaily.map(d=>d.day)])].sort((a,b)=>a-b)
-                const cd=days.map(day=>({day,curr:daily.find(d=>d.day===day)?.amount||0,prev:prevDaily.find(d=>d.day===day)?.amount||0})).filter(d=>d.curr>0||d.prev>0)
-                if(!cd.length) return <div style={{ textAlign:'center', padding:'30px 0', color:'#ccc', fontSize:13 }}>비교 데이터 없음</div>
-                const maxV=Math.max(...cd.map(d=>Math.max(d.curr,d.prev)),1), barH=isPC?140:110
-                return (
-                  <div style={{ overflowX:'auto' }}>
-                    <div style={{ display:'flex', alignItems:'flex-end', gap:3, minWidth:cd.length*28, height:barH+20, paddingBottom:18 }}>
-                      {cd.map(d => (
-                        <div key={d.day} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', height:'100%' }}>
-                          <div style={{ display:'flex', alignItems:'flex-end', gap:1, width:'100%' }}>
-                            <div style={{ flex:1, height:Math.max(Math.round((d.curr/maxV)*barH),d.curr>0?3:0), background:'rgba(255,107,53,0.75)', borderRadius:'3px 3px 0 0' }} />
-                            <div style={{ flex:1, height:Math.max(Math.round((d.prev/maxV)*barH),d.prev>0?3:0), background:'rgba(108,92,231,0.45)', borderRadius:'3px 3px 0 0' }} />
-                          </div>
-                          <div style={{ fontSize:8, color:'#bbb', marginTop:3 }}>{d.day}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })()}
-            </div>
-          </div>
-        )}
-
-        {!loading && tab==='yearcmp' && (
-          <div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
-              <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'14px 16px' }}>
-                <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{year}년 {month+1}월</div>
-                <div style={{ fontSize:18, fontWeight:800, color:'#FF6B35' }}>{fmtW(totalSales)}</div>
-              </div>
-              <div style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'14px 16px' }}>
-                <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{year-1}년 {month+1}월</div>
-                <div style={{ fontSize:18, fontWeight:800, color:'#00B894' }}>{prevYearTotal>0?fmtW(prevYearTotal):'데이터없음'}</div>
-              </div>
-            </div>
-            {prevYearTotal>0 && (
-              <div style={{ ...bx, border:`1px solid ${totalSales>=prevYearTotal?'rgba(0,184,148,0.3)':'rgba(232,67,147,0.3)'}` }}>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
-                  {[
-                    {label:'YoY 성장률',value:`${totalSales>=prevYearTotal?'+':''}${Math.round(((totalSales-prevYearTotal)/prevYearTotal)*100)}%`,color:totalSales>=prevYearTotal?'#00B894':'#E84393'},
-                    {label:'매출 증감',value:`${totalSales>=prevYearTotal?'+':''}${fmtW(totalSales-prevYearTotal)}`,color:totalSales>=prevYearTotal?'#00B894':'#E84393'},
-                    {label:'일평균',value:fmtW(daily.length>0?Math.round(totalSales/daily.length):0),color:'#FF6B35'},
-                  ].map(s => (
-                    <div key={s.label}>
-                      <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>{s.label}</div>
-                      <div style={{ fontSize:16, fontWeight:800, color:s.color }}>{s.value}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {!loading && tab==='memo' && (
-          <div>
-            <div style={bx}>
-              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>📌 특이사항 타임라인</div>
-              <div style={{ fontSize:11, color:'#aaa', marginBottom:16 }}>이벤트·날씨·행사가 매출에 어떤 영향을 줬는지 확인하세요</div>
-              {memoData.length>0 ? memoData.sort((a,b)=>b.day-a.day).map(d => (
-                <div key={d.day} style={{ borderRadius:12, border:'1px solid #E8ECF0', padding:'14px 16px', marginBottom:10, background:'#FAFBFC' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, flexWrap:'wrap', gap:6 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      <span style={{ fontSize:12, fontWeight:700, color:d.dow===0||d.dow===6?'#E84393':'#888' }}>{month+1}월 {d.day}일 ({DOW[d.dow]}){d.weatherCode!=null?' '+weatherIcon(d.weatherCode):''}</span>
-                      <span style={{ fontSize:14, fontWeight:800, color:'#FF6B35' }}>{fmtWFull(d.amount)}</span>
-                    </div>
-                    {d.count>0&&<span style={{ fontSize:11, color:'#6C5CE7', fontWeight:600 }}>{d.count}건 · {fmtW(d.unitPrice)}</span>}
-                  </div>
-                  {d.memo && <div style={{ padding:'8px 12px', background:'rgba(255,107,53,0.06)', borderRadius:8, marginBottom:6, border:'1px solid rgba(255,107,53,0.15)' }}><div style={{ fontSize:10, color:'#FF6B35', fontWeight:700, marginBottom:2 }}>📌 특이사항</div><div style={{ fontSize:12, color:'#555', lineHeight:1.6 }}>{d.memo}</div></div>}
-                  {d.note && <div style={{ padding:'8px 12px', background:'rgba(232,67,147,0.05)', borderRadius:8, border:'1px solid rgba(232,67,147,0.15)' }}><div style={{ fontSize:10, color:'#E84393', fontWeight:700, marginBottom:2 }}>📝 클레임</div><div style={{ fontSize:12, color:'#555', lineHeight:1.6 }}>{d.note}</div></div>}
-                </div>
-              )) : <div style={{ textAlign:'center', padding:'40px 0', color:'#ccc' }}><div style={{ fontSize:32, marginBottom:10 }}>📌</div><div style={{ fontSize:13 }}>이번 달 특이사항 메모가 없어요</div></div>}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-
-  if (isPC) return (
-    <div style={{ padding:'20px 28px' }}>
-      <div style={{ marginBottom:16 }}>
+      {/* 월 선택 */}
+      <div style={{ padding:'12px 16px', background:'#fff', borderBottom:'1px solid #E8ECF0' }}>
         <MonthNav year={year} month={month} onChange={(y,m)=>{setYear(y);setMonth(m)}} />
       </div>
-      {mainContent}
-    </div>
-  )
 
-  return (
-    <div>
-      <div style={{ marginBottom:16 }}>
-        <MonthNav year={year} month={month} onChange={(y,m)=>{setYear(y);setMonth(m)}} />
+      {/* 콘텐츠 */}
+      <div style={{ padding:'12px 16px', maxWidth:860, margin:'0 auto' }}>
+        {loading?(
+          <div style={{ textAlign:'center', padding:60, color:'#ccc' }}>
+            <div style={{ fontSize:32, marginBottom:12 }}>📊</div>
+            <div style={{ fontSize:14 }}>데이터 로딩 중...</div>
+          </div>
+        ):(
+          TAB_LIST.find(t=>t.id===tab)?.content
+        )}
       </div>
-      {mainContent}
     </div>
   )
 }
