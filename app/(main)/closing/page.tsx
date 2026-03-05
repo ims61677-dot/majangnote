@@ -674,30 +674,30 @@ export default function ClosingPage() {
         <div style={{ display:'grid', gridTemplateColumns: isPC ? '1fr 1fr 1fr 80px 80px' : '1fr 1fr', gap:8 }}>
           <div>
             <span style={lbl}>작성자</span>
-            <input value={writer} onChange={e => aw(setWriter)(e.target.value)} placeholder="작성자" disabled={disabled}
+            <input value={writer} onChange={e => aw(setWriter)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="작성자" disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
           <div>
             <span style={lbl}>마감 담당자</span>
-            <input value={closeStaff} onChange={e => aw(setCloseStaff)(e.target.value)} placeholder="마감 담당자" disabled={disabled}
+            <input value={closeStaff} onChange={e => aw(setCloseStaff)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="마감 담당자" disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
           <div>
             <span style={lbl}>근무 직원 수</span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <input type="number" value={staffCount||''} onChange={e => aw(setStaffCount)(Number(e.target.value))} placeholder="0" disabled={disabled}
+              <input type="number" value={staffCount||''} onChange={e => aw(setStaffCount)(Number(e.target.value))} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="0" disabled={disabled}
                 style={{ ...inp, textAlign:'center', background: disabled?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>명</span>
             </div>
           </div>
           <div>
             <span style={lbl}>오픈</span>
-            <input type="time" value={openTime} onChange={e => aw(setOpenTime)(e.target.value)} disabled={disabled}
+            <input type="time" value={openTime} onChange={e => aw(setOpenTime)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
           <div>
             <span style={lbl}>마감</span>
-            <input type="time" value={closeTime} onChange={e => aw(setCloseTime)(e.target.value)} disabled={disabled}
+            <input type="time" value={closeTime} onChange={e => aw(setCloseTime)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} disabled={disabled}
               style={{ ...inp, background: disabled?'#F4F6F9':'#F8F9FB' }} />
           </div>
         </div>
@@ -721,14 +721,17 @@ export default function ClosingPage() {
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
               <input type="number" value={sales[p.name]||''} placeholder="0" disabled={disabled}
                 onChange={e => { const v = Number(e.target.value); setSales(prev => ({...prev,[p.name]:v})); if(selectedDate===todayStr) triggerAutoSave() }}
+                onBlur={() => { if(selectedDate===todayStr) performSave(true) }}
                 style={{ ...inp, textAlign:'right', padding:'6px 8px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:10, color:'#aaa', flexShrink:0 }}>원</span>
             </div>
             <input type="number" value={counts[p.name]||''} placeholder="0" disabled={disabled}
               onChange={e => { const v = Number(e.target.value); setCounts(prev => ({...prev,[p.name]:v})); if(selectedDate===todayStr) triggerAutoSave() }}
+              onBlur={() => { if(selectedDate===todayStr) performSave(true) }}
               style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
             <input type="number" value={cancelCounts[p.name]||''} placeholder="0" disabled={disabled}
               onChange={e => { const v = Number(e.target.value); setCancelCounts(prev => ({...prev,[p.name]:v})); if(selectedDate===todayStr) triggerAutoSave() }}
+              onBlur={() => { if(selectedDate===todayStr) performSave(true) }}
               style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'rgba(232,67,147,0.04)', border:'1px solid rgba(232,67,147,0.2)' }} />
           </div>
         ))}
@@ -761,7 +764,7 @@ export default function ClosingPage() {
           <div style={{ flex:1 }}>
             <span style={lbl}>할인/프로모션 금액</span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <input type="number" value={discountAmount||''} onChange={e => aw(setDiscountAmount)(Number(e.target.value))} placeholder="0" disabled={disabled}
+              <input type="number" value={discountAmount||''} onChange={e => aw(setDiscountAmount)(Number(e.target.value))} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="0" disabled={disabled}
                 style={{ ...inp, textAlign:'right', background: disabled?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
             </div>
@@ -773,7 +776,7 @@ export default function ClosingPage() {
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>💵 시재</div>
         <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-          <input type="number" value={cashAmount||''} onChange={e => aw(setCashAmount)(Number(e.target.value))} placeholder="마감 시재 금액 입력" disabled={disabled}
+          <input type="number" value={cashAmount||''} onChange={e => aw(setCashAmount)(Number(e.target.value))} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="마감 시재 금액 입력" disabled={disabled}
             style={{ ...inp, textAlign:'right', background: disabled?'#F4F6F9':'#F8F9FB' }} />
           <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
         </div>
@@ -818,7 +821,7 @@ export default function ClosingPage() {
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📌 특이사항 메모</div>
         <div style={{ fontSize:10, color:'#aaa', marginBottom:8 }}>이벤트, 행사, 날씨, 특이 상황 등 — 분석탭에서 매출과 연결됩니다</div>
-        <textarea value={memo} onChange={e => aw(setMemo)(e.target.value)} placeholder="오늘의 특이사항을 기록하세요 (이벤트, 날씨, 행사 등)" disabled={disabled}
+        <textarea value={memo} onChange={e => aw(setMemo)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder="오늘의 특이사항을 기록하세요 (이벤트, 날씨, 행사 등)" disabled={disabled}
           style={{ ...inp, minHeight:70, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
       </div>
 
@@ -888,7 +891,7 @@ export default function ClosingPage() {
       {/* 클레임/특이사항 */}
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📝 클레임/특이사항</div>
-        <textarea value={note} onChange={e => aw(setNote)(e.target.value)} placeholder={disabled?'':'오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={disabled}
+        <textarea value={note} onChange={e => aw(setNote)(e.target.value)} onBlur={() => { if(selectedDate===todayStr) performSave(true) }} placeholder={disabled?'':'오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={disabled}
           style={{ ...inp, minHeight:80, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
       </div>
 
