@@ -1,5 +1,5 @@
 ﻿'use client'
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const DOW = ['일','월','화','수','목','금','토']
@@ -461,7 +461,7 @@ export default function AnalyticsPage() {
     fetchMarketingData(searchKeyword.trim())
   }
 
-  async function fetchMarketingData(kw: string) {
+  const fetchMarketingData = useCallback(async (kw: string) => {
     if (!kw) return
     setMarketingLoading(true)
     try {
@@ -475,11 +475,11 @@ export default function AnalyticsPage() {
       if (kakaoRes.ok) { const d = await kakaoRes.json(); setKakaoData(d.documents?.[0] || null) }
     } catch {}
     setMarketingLoading(false)
-  }
+  }, [])
 
   useEffect(() => {
     if (savedKeyword) fetchMarketingData(savedKeyword)
-  }, [savedKeyword, year, month])
+  }, [savedKeyword, year, month, fetchMarketingData])
 
   function toggleDrop(key: string) {
     setOpenDrops(prev => ({ ...prev, [key]: !prev[key] }))
