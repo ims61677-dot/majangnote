@@ -1206,32 +1206,225 @@ export default function AnalyticsPage() {
     { id:'insight', label:'💡 인사이트', content: insightContent },
   ]
 
+  const [showMonthPicker, setShowMonthPicker] = useState(false)
+  const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
+  const now2 = new Date()
+  const years = Array.from({length:6}, (_,i) => now2.getFullYear()-2+i)
+
   return (
-    <div style={{ background:'#F2F4F7', minHeight:'100vh', paddingBottom:80 }}>
-      {/* 탭 네비 */}
-      <div style={{ background:'#fff', borderBottom:'1px solid #E8ECF0', padding:'0 16px', display:'flex', gap:2, overflowX:'auto', position:'sticky', top:0, zIndex:100 }}>
-        {TAB_LIST.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id as any)}
-            style={{ padding:'13px 16px', fontSize:12, fontWeight:700, color:tab===t.id?'#FF6B35':'#aaa', border:'none', background:'none', cursor:'pointer', whiteSpace:'nowrap', borderBottom:`3px solid ${tab===t.id?'#FF6B35':'transparent'}`, transition:'all .15s' }}>
-            {t.label}
+    <div style={{ background:'#F2F4F7', minHeight:'100vh', paddingBottom: isPC ? 0 : 80 }}>
+
+      {/* ── 상단 네비바: 탭 + 월선택 한줄 ── */}
+      <div style={{
+        background:'#fff', borderBottom:'1px solid #E8ECF0',
+        display:'flex', alignItems:'center', justifyContent:'space-between',
+        padding:'0 16px', position:'sticky', top:0, zIndex:200,
+        gap:8
+      }}>
+        {/* 탭 버튼들 */}
+        <div style={{ display:'flex', gap:2, overflowX:'auto', flexShrink:0 }}>
+          {TAB_LIST.map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id as any)}
+              style={{ padding: isPC?'13px 20px':'12px 14px', fontSize: isPC?13:12, fontWeight:700,
+                color:tab===t.id?'#FF6B35':'#aaa', border:'none', background:'none',
+                cursor:'pointer', whiteSpace:'nowrap',
+                borderBottom:`3px solid ${tab===t.id?'#FF6B35':'transparent'}`,
+                transition:'all .15s' }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* 월 선택 드롭다운 버튼 */}
+        <div style={{ position:'relative', flexShrink:0 }}>
+          <button
+            onClick={()=>setShowMonthPicker(p=>!p)}
+            style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 12px',
+              borderRadius:10, border:'1px solid #E8ECF0', background:'#F8F9FB',
+              cursor:'pointer', fontSize: isPC?14:13, fontWeight:800, color:'#1a1a2e' }}>
+            {year}년 {month+1}월
+            <span style={{ fontSize:10, color:'#bbb', transform:showMonthPicker?'rotate(180deg)':'none', transition:'transform .2s', display:'inline-block' }}>▼</span>
           </button>
-        ))}
+
+          {showMonthPicker&&(
+            <div style={{
+              position:'absolute', right:0, top:'calc(100% + 6px)',
+              background:'#fff', border:'1px solid #E8ECF0', borderRadius:14,
+              boxShadow:'0 8px 32px rgba(0,0,0,0.12)', zIndex:300, padding:14,
+              width: isPC ? 280 : 240
+            }}>
+              {/* 연도 */}
+              <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginBottom:10 }}>
+                {years.map(y=>(
+                  <button key={y} onClick={()=>setYear(y)}
+                    style={{ padding:'4px 9px', borderRadius:8, border:'none',
+                      background:y===year?'linear-gradient(135deg,#FF6B35,#E84393)':'#F8F9FB',
+                      color:y===year?'#fff':'#888', fontSize:12, fontWeight:700, cursor:'pointer' }}>{y}</button>
+                ))}
+              </div>
+              {/* 월 */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:4 }}>
+                {months.map((ml,mi)=>(
+                  <button key={mi} onClick={()=>{ setMonth(mi); setShowMonthPicker(false) }}
+                    style={{ padding:'7px 4px', borderRadius:8, border:'none', textAlign:'center',
+                      background:mi===month?'linear-gradient(135deg,#FF6B35,#E84393)':'#F8F9FB',
+                      color:mi===month?'#fff':'#888', fontSize:12, fontWeight:600, cursor:'pointer' }}>{ml}</button>
+                ))}
+              </div>
+              {/* 이번달 버튼 */}
+              {!(year===now2.getFullYear()&&month===now2.getMonth())&&(
+                <button onClick={()=>{ setYear(now2.getFullYear()); setMonth(now2.getMonth()); setShowMonthPicker(false) }}
+                  style={{ width:'100%', marginTop:8, padding:'7px', borderRadius:8, border:'none',
+                    background:'rgba(255,107,53,.1)', color:'#FF6B35', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                  이번달로
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* 월 선택 */}
-      <div style={{ padding:'12px 16px', background:'#fff', borderBottom:'1px solid #E8ECF0' }}>
-        <MonthNav year={year} month={month} onChange={(y,m)=>{setYear(y);setMonth(m)}} />
-      </div>
-
-      {/* 콘텐츠 */}
-      <div style={{ padding:'12px 16px', maxWidth:860, margin:'0 auto' }}>
+      {/* ── 콘텐츠 ── */}
+      <div style={{
+        padding: isPC ? '20px 32px' : '12px 16px',
+        maxWidth: isPC ? '100%' : 860,
+        margin: '0 auto',
+        // PC: 2컬럼 레이아웃
+        display: isPC ? 'grid' : 'block',
+        gridTemplateColumns: isPC ? '1fr 1fr' : undefined,
+        gap: isPC ? 20 : undefined,
+        alignItems: 'start',
+      }}>
         {loading?(
-          <div style={{ textAlign:'center', padding:60, color:'#ccc' }}>
+          <div style={{ gridColumn: isPC?'1 / -1':undefined, textAlign:'center', padding:60, color:'#ccc' }}>
             <div style={{ fontSize:32, marginBottom:12 }}>📊</div>
             <div style={{ fontSize:14 }}>데이터 로딩 중...</div>
           </div>
         ):(
-          TAB_LIST.find(t=>t.id===tab)?.content
+          // PC: 콘텐츠를 왼쪽/오른쪽으로 분할
+          isPC ? (
+            <div style={{ display:'contents' }}>
+              {/* PC 왼쪽 컬럼 */}
+              <div>
+                {tab==='overview' && (
+                  <>
+                    {/* KPI 카드 */}
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
+                      <div style={{ background:'linear-gradient(135deg,rgba(255,107,53,.05),#fff)', borderRadius:14, padding:'18px 20px', border:'1px solid rgba(255,107,53,.25)' }}>
+                        <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>총 매출</div>
+                        <div style={{ fontSize:30, fontWeight:900, color:'#FF6B35', lineHeight:1 }}>{fmtW(totalSales)}</div>
+                        {prevTotal>0&&<div style={{ fontSize:12, fontWeight:700, marginTop:7, color:totalSales>=prevTotal?'#00B894':'#E84393' }}>{totalSales>=prevTotal?'▲':'▼'} {Math.abs(prevMonthPct)}% 전월비</div>}
+                        <div style={{ fontSize:12, color:'#aaa', marginTop:4 }}>일평균 {fmtW(daily.length>0?Math.round(totalSales/daily.length):0)} · {daily.length}일</div>
+                      </div>
+                      <div style={{ background:'linear-gradient(135deg,rgba(108,92,231,.05),#fff)', borderRadius:14, padding:'18px 20px', border:'1px solid rgba(108,92,231,.25)' }}>
+                        <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>종합 객단가</div>
+                        <div style={{ fontSize:30, fontWeight:900, color:'#6C5CE7', lineHeight:1 }}>{fmtW(avgUnit)}</div>
+                        <div style={{ fontSize:12, color:'#aaa', marginTop:7 }}>총 {totalCount}건 · 취소 {totalCancel}건</div>
+                      </div>
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, marginBottom:12 }}>
+                      {[
+                        { label:'목표달성률', value: goalAmt>0?`${goalPct}%`:'-', color:'#FF6B35' },
+                        { label:'최고 매출일', value: daily.length>0?`${daily.reduce((a,b)=>b.amount>a.amount?b:a,daily[0]).day}일`:'–', color:'#00B894' },
+                        { label:'블로그 언급', value: blogThisMonth.length>0?`${blogThisMonth.length}건`:'–', color:'#6C5CE7' },
+                        { label:'리뷰 답글률', value: totalReviewsMonth>0?`${replyRate}%`:'–', color:replyRate>=80?'#00B894':replyRate>=50?'#FDC400':'#E84393' },
+                      ].map(s=>(
+                        <div key={s.label} style={{ background:'#fff', borderRadius:12, padding:'12px 14px', border:'1px solid #E8ECF0' }}>
+                          <div style={{ fontSize:10, color:'#aaa', marginBottom:3, fontWeight:600 }}>{s.label}</div>
+                          <div style={{ fontSize:20, fontWeight:800, color:s.color }}>{loading?'…':s.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {goalAmt>0&&(
+                      <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:'14px 18px', marginBottom:12 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                          <span style={{ fontSize:13, fontWeight:700 }}>🎯 월 목표 달성률</span>
+                          <span style={{ fontSize:20, fontWeight:900, color:goalPct>=100?'#00B894':'#FF6B35' }}>{goalPct}%</span>
+                        </div>
+                        <div style={{ background:'#F0F2F5', borderRadius:99, height:10, overflow:'hidden', marginBottom:6 }}>
+                          <div style={{ width:`${goalPct}%`, height:'100%', background:goalPct>=100?'#00B894':'linear-gradient(90deg,#FF6B35,#E84393)', borderRadius:99 }} />
+                        </div>
+                        <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#aaa' }}>
+                          <span>현재 {fmtW(totalSales)}</span><span>목표 {fmtW(goalAmt)}</span>
+                        </div>
+                        {goalPct<100&&<div style={{ marginTop:8, padding:'7px 12px', background:'rgba(108,92,231,.07)', borderRadius:8, fontSize:11, color:'#6C5CE7' }}>
+                          남은 금액 {fmtW(goalAmt-totalSales)} · 하루 {daily.length>0?fmtW(Math.round((goalAmt-totalSales)/Math.max(new Date(year,month+1,0).getDate()-daily[daily.length-1]?.day,1))):'-'} 필요
+                        </div>}
+                      </div>
+                    )}
+                    <DropSection id="ov-sales-pc" title="📈 매출분석 요약" summary={`${fmtW(totalSales)} ${prevMonthPct>=0?'▲':'▼'}${Math.abs(prevMonthPct)}%`} summaryColor="#FF6B35">
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginTop:14 }}>
+                        <KpiMini label="최고 매출일" value={daily.length>0?`${daily.reduce((a,b)=>b.amount>a.amount?b:a,daily[0]).day}일`:'-'} color="#FF6B35" sub={daily.length>0?fmtW(Math.max(...daily.map(d=>d.amount))):''} />
+                        <KpiMini label="최저 매출일" value={daily.filter(d=>d.amount>0).length>0?`${daily.filter(d=>d.amount>0).reduce((a,b)=>b.amount<a.amount?b:a,daily.filter(d=>d.amount>0)[0]).day}일`:'-'} color="#E84393" />
+                        <KpiMini label="주말 비중" value={totalSales>0?`${Math.round((daily.filter(d=>d.dow===0||d.dow===6).reduce((s,d)=>s+d.amount,0)/totalSales)*100)}%`:'-'} color="#6C5CE7" />
+                      </div>
+                      <div style={{ marginTop:10 }}>
+                        {platforms.slice(0,3).map(p=><HBar key={p.name} label={p.name} value={p.amount} max={maxPlatform} color={p.color} />)}
+                      </div>
+                    </DropSection>
+                  </>
+                )}
+                {tab!=='overview' && <div style={{ gridColumn:'1/-1' }}>{TAB_LIST.find(t=>t.id===tab)?.content}</div>}
+              </div>
+
+              {/* PC 오른쪽 컬럼 */}
+              {tab==='overview' && (
+                <div>
+                  <DropSection id="ov-mkt-pc" title="⭐ 마케팅 요약" summary={`리뷰 ${totalReviewsMonth}건 · 블로그 ${blogThisMonth.length}건`} summaryColor="#E84393">
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginTop:14 }}>
+                      <KpiMini label="총 리뷰" value={`${totalReviewsMonth}건`} color="#FF6B35" />
+                      <KpiMini label="답글률" value={totalReviewsMonth>0?`${replyRate}%`:'-'} color={replyRate>=80?'#00B894':'#E84393'} />
+                      <KpiMini label="블로그+카페" value={`${blogThisMonth.length+cafeThisMonth.length}건`} color="#6C5CE7" />
+                    </div>
+                    {reviewDayAvg>0&&noReviewDayAvg>0&&(
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:10 }}>
+                        <div style={{ background:'rgba(0,184,148,.07)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(0,184,148,.2)' }}>
+                          <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>리뷰 있는 날 평균</div>
+                          <div style={{ fontSize:16, fontWeight:800, color:'#00B894' }}>{fmtW(reviewDayAvg)}</div>
+                        </div>
+                        <div style={{ background:'rgba(108,92,231,.07)', borderRadius:10, padding:'10px 14px', border:'1px solid rgba(108,92,231,.2)' }}>
+                          <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>리뷰 없는 날 평균</div>
+                          <div style={{ fontSize:16, fontWeight:800, color:'#6C5CE7' }}>{fmtW(noReviewDayAvg||0)}</div>
+                        </div>
+                      </div>
+                    )}
+                  </DropSection>
+                  <DropSection id="ov-ins-pc" title="💡 인사이트 요약" summary={`즉시조치 ${insights.filter(i=>i.priority===1).length}건`} summaryColor="#E84393">
+                    <div style={{ marginTop:14 }}>
+                      {insights.slice(0,4).map((ins,i)=>(
+                        <div key={i} style={{ display:'flex', gap:10, padding:'10px 12px', borderRadius:12, background:i===0?`${ins.color}10`:'#F8F9FB', border:`1px solid ${i===0?ins.color+'30':'#E8ECF0'}`, marginBottom:8 }}>
+                          <span style={{ fontSize:18 }}>{ins.icon}</span>
+                          <div>
+                            <div style={{ fontSize:12, fontWeight:700, marginBottom:2 }}>{ins.title}</div>
+                            <div style={{ fontSize:11, color:'#777', lineHeight:1.5 }}>{ins.desc}</div>
+                          </div>
+                        </div>
+                      ))}
+                      {insights.length===0&&<div style={{ textAlign:'center', padding:'20px', color:'#ccc', fontSize:12 }}>데이터가 쌓이면 인사이트가 나타나요</div>}
+                    </div>
+                  </DropSection>
+                  <DropSection id="ov-wx-pc" title="🌤️ 날씨 요약" summary={weatherStats.length>0?`${weatherStats[0].label} 최고`:'-'} summaryColor="#2DC6D6">
+                    {weatherStats.length===0?(
+                      <div style={{ textAlign:'center', padding:20, color:'#ccc', fontSize:12, marginTop:14 }}>날씨 데이터 없음</div>
+                    ):(
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:8, marginTop:14 }}>
+                        {weatherStats.map(w=>(
+                          <div key={w.label} style={{ background:'#F8F9FB', borderRadius:12, padding:'12px', border:'1px solid #E8ECF0', textAlign:'center' }}>
+                            <div style={{ fontSize:22, marginBottom:4 }}>{w.icon}</div>
+                            <div style={{ fontSize:10, color:'#aaa', marginBottom:5 }}>{w.label}</div>
+                            <div style={{ fontSize:16, fontWeight:900, color:'#FF6B35' }}>{fmtW(w.avg)}</div>
+                            <div style={{ fontSize:9, color:'#bbb', marginTop:2 }}>{w.days}일</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </DropSection>
+                </div>
+              )}
+            </div>
+          ) : (
+            TAB_LIST.find(t=>t.id===tab)?.content
+          )
         )}
       </div>
     </div>
