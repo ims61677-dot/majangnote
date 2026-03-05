@@ -348,33 +348,47 @@ function LogTab({ storeId, items }: { storeId: string; items: any[] }) {
   )
 }
 
-// ─── 통계 탭 ───
-function StatsTab({ storeId, items }: { storeId: string; items: any[] }) {
+// ─── 통계 탭 (고도화) ───
+function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; stock: Record<string, any> }) {
   const supabase = createSupabaseBrowserClient()
-  const [logs, setLogs] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
+  const [logs, setLogs] = useState<any[]>([])
+  const [lastYearLogs, setLastYearLogs] = useState<any[]>([])
+  const [trendLogs, setTrendLogs] = useState<any[]>([]) // 최근 6개월
+  const [loading, setLoading] = useState(true)
+  const [activeSection, setActiveSection] = useState<'summary' | 'trend' | 'depletion' | 'staff'>('summary')
 
   useEffect(() => {
     if (!items.length || !storeId) return
-    loadLogs()
+    loadAll()
   }, [items, year, month])
 
-  async function loadLogs() {
+  async function loadAll() {
     setLoading(true)
+    const itemIds = items.map(x => x.id)
+
+    // 이번달
     const from = `${year}-${String(month).padStart(2, '0')}-01`
-    const toDate = new Date(year, month, 1)
-    const to = toDate.toISOString().split('T')[0]
-    const { data } = await supabase
-      .from('inventory_logs')
-      .select('*, inventory_items(name, unit)')
-      .in('item_id', items.map(x => x.id))
-      .gte('created_at', from)
-      .lt('created_at', to)
-      .order('created_at', { ascending: false })
-    setLogs(data || [])
+    const to = new Date(year, month, 1).toISOString().split('T')[0]
+
+    // 작년 같은달
+    const lyFrom = `${year - 1}-${String(month).padStart(2, '0')}-01`
+    const lyTo = new Date(year - 1, month, 1).toISOString().split('T')[0]
+
+    // 최근 6개월 트렌드
+    const trendFrom = new Date(year, month - 7, 1).toISOString().split('T')[0]
+
+    const [cur, ly, trend] = await Promise.all([
+      supabase.from('inventory_logs').select('*, inventory_items(name,unit)').in('item_id', itemIds).gte('created_at', from).lt('created_at', to),
+      supabase.from('inventory_logs').select('*, inventory_items(name,unit)').in('item_id', itemIds).gte('created_at', lyFrom).lt('created_at', lyTo),
+      supabase.from('inventory_logs').select('*, inventory_items(name,unit)').in('item_id', itemIds).gte('created_at', trendFrom).lt('created_at', to),
+    ])
+
+    setLogs(cur.data || [])
+    setLastYearLogs(ly.data || [])
+    setTrendLogs(trend.data || [])
     setLoading(false)
   }
 
@@ -382,27 +396,34 @@ function StatsTab({ storeId, items }: { storeId: string; items: any[] }) {
     if (month === 1) { setYear(y => y - 1); setMonth(12) } else setMonth(m => m - 1)
   }
   function nextMonth() {
-    const n = new Date(); const cy = n.getFullYear(); const cm = n.getMonth() + 1
+    const cy = now.getFullYear(); const cm = now.getMonth() + 1
     if (year === cy && month === cm) return
     if (month === 12) { setYear(y => y + 1); setMonth(1) } else setMonth(m => m + 1)
   }
 
+  // 소모 계산 헬퍼
+  function calcConsume(logList: any[]) {
+    const map: Record<string, { name: string; unit: string; total: number; itemId: string }> = {}
+    logList.filter(l => l.after_qty < l.before_qty).forEach(l => {
+      if (!map[l.item_id]) map[l.item_id] = { name: l.inventory_items?.name || '', unit: l.inventory_items?.unit || '', total: 0, itemId: l.item_id }
+      map[l.item_id].total += (l.before_qty - l.after_qty)
+    })
+    return map
+  }
+
   const consumed = logs.filter(l => l.after_qty < l.before_qty)
   const stocked = logs.filter(l => l.after_qty > l.before_qty)
+  const totalConsumed = consumed.reduce((s, l) => s + (l.before_qty - l.after_qty), 0)
+  const totalStocked = stocked.reduce((s, l) => s + (l.after_qty - l.before_qty), 0)
 
-  const consumeByItem: Record<string, { name: string; unit: string; total: number }> = {}
-  consumed.forEach(l => {
-    const id = l.item_id
-    if (!consumeByItem[id]) consumeByItem[id] = { name: l.inventory_items?.name || '', unit: l.inventory_items?.unit || '', total: 0 }
-    consumeByItem[id].total += (l.before_qty - l.after_qty)
-  })
-  const consumeRank = Object.values(consumeByItem).sort((a, b) => b.total - a.total).slice(0, 10)
+  const consumeMap = calcConsume(logs)
+  const lyConsumeMap = calcConsume(lastYearLogs)
+  const consumeRank = Object.values(consumeMap).sort((a, b) => b.total - a.total).slice(0, 10)
 
   const stockByItem: Record<string, { name: string; unit: string; total: number }> = {}
   stocked.forEach(l => {
-    const id = l.item_id
-    if (!stockByItem[id]) stockByItem[id] = { name: l.inventory_items?.name || '', unit: l.inventory_items?.unit || '', total: 0 }
-    stockByItem[id].total += (l.after_qty - l.before_qty)
+    if (!stockByItem[l.item_id]) stockByItem[l.item_id] = { name: l.inventory_items?.name || '', unit: l.inventory_items?.unit || '', total: 0 }
+    stockByItem[l.item_id].total += (l.after_qty - l.before_qty)
   })
   const stockRank = Object.values(stockByItem).sort((a, b) => b.total - a.total).slice(0, 10)
 
@@ -410,83 +431,244 @@ function StatsTab({ storeId, items }: { storeId: string; items: any[] }) {
   logs.forEach(l => { if (l.changed_by) byStaff[l.changed_by] = (byStaff[l.changed_by] || 0) + 1 })
   const staffRank = Object.entries(byStaff).sort((a, b) => b[1] - a[1])
 
-  const totalConsumed = consumed.reduce((s, l) => s + (l.before_qty - l.after_qty), 0)
-  const totalStocked = stocked.reduce((s, l) => s + (l.after_qty - l.before_qty), 0)
+  // 월별 트렌드 (최근 6개월)
+  const monthlyTrend: Record<string, number> = {}
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(year, month - 1 - i, 1)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    monthlyTrend[key] = 0
+  }
+  trendLogs.filter(l => l.after_qty < l.before_qty).forEach(l => {
+    const key = l.created_at.slice(0, 7)
+    if (key in monthlyTrend) monthlyTrend[key] += (l.before_qty - l.after_qty)
+  })
+  const trendEntries = Object.entries(monthlyTrend)
+  const trendMax = Math.max(...Object.values(monthlyTrend), 1)
+
+  // 소진 예상일 (현재재고 ÷ 작년같은달 일평균 or 이번달 일평균)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const todayDay = year === now.getFullYear() && month === now.getMonth() + 1 ? now.getDate() : daysInMonth
+  const depletionList = items.map(item => {
+    const currentStock = Object.keys(stock).filter(k => k.startsWith(item.id + '-')).reduce((s, k) => s + (stock[k]?.quantity ?? 0), 0)
+    const thisMonthConsume = consumeMap[item.id]?.total ?? 0
+    const lyConsume = lyConsumeMap[item.id]?.total ?? 0
+
+    // 작년 데이터 있으면 작년 기준, 없으면 이번달 기준
+    const refConsume = lyConsume > 0 ? lyConsume : thisMonthConsume
+    const dailyAvg = refConsume > 0 ? refConsume / daysInMonth : 0
+
+    if (dailyAvg <= 0 || currentStock <= 0) return null
+    const daysLeft = Math.floor(currentStock / dailyAvg)
+    const depletionDate = new Date(now)
+    depletionDate.setDate(depletionDate.getDate() + daysLeft)
+
+    // 작년 vs 이번달 비교
+    const lyDailyAvg = lyConsume / daysInMonth
+    const thisDailyAvg = thisMonthConsume > 0 ? thisMonthConsume / todayDay : 0
+    const changeRate = lyDailyAvg > 0 ? ((thisDailyAvg - lyDailyAvg) / lyDailyAvg) * 100 : null
+
+    return { id: item.id, name: item.name, unit: item.unit, currentStock, daysLeft, depletionDate, changeRate, hasLastYear: lyConsume > 0 }
+  }).filter(Boolean).sort((a: any, b: any) => a.daysLeft - b.daysLeft).slice(0, 15) as any[]
 
   const card = { background: '#fff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
+  const tabBtn = (key: typeof activeSection, label: string) => (
+    <button onClick={() => setActiveSection(key)} style={{
+      flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 11,
+      fontWeight: activeSection === key ? 700 : 400,
+      background: activeSection === key ? '#fff' : 'transparent',
+      color: activeSection === key ? '#1a1a2e' : '#aaa',
+      boxShadow: activeSection === key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none'
+    }}>{label}</button>
+  )
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 20 }}>
+      {/* 월 선택 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 16 }}>
         <button onClick={prevMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 14, color: '#888' }}>‹</button>
         <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', minWidth: 90, textAlign: 'center' }}>{year}년 {month}월</span>
         <button onClick={nextMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 14, color: '#888' }}>›</button>
       </div>
 
+      {/* 섹션 탭 */}
+      <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 16, gap: 2 }}>
+        {tabBtn('summary', '📊 요약')}
+        {tabBtn('trend', '📈 트렌드')}
+        {tabBtn('depletion', '⏳ 소진예상')}
+        {tabBtn('staff', '👤 직원')}
+      </div>
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>불러오는 중...</div>
-      ) : logs.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>이 달 데이터가 없습니다</div>
       ) : (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
-            <div style={{ ...card, marginBottom: 0, textAlign: 'center' }}>
-              <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>총 변경</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e' }}>{logs.length}</div>
-              <div style={{ fontSize: 10, color: '#bbb' }}>건</div>
-            </div>
-            <div style={{ ...card, marginBottom: 0, textAlign: 'center' }}>
-              <div style={{ fontSize: 11, color: '#E84393', marginBottom: 4 }}>📉 소모</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#E84393' }}>{totalConsumed}</div>
-              <div style={{ fontSize: 10, color: '#bbb' }}>합산</div>
-            </div>
-            <div style={{ ...card, marginBottom: 0, textAlign: 'center' }}>
-              <div style={{ fontSize: 11, color: '#00B894', marginBottom: 4 }}>📦 입고</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#00B894' }}>{totalStocked}</div>
-              <div style={{ fontSize: 10, color: '#bbb' }}>합산</div>
-            </div>
-          </div>
+          {/* ── 요약 ── */}
+          {activeSection === 'summary' && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+                <div style={{ ...card, marginBottom: 0, textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>총 변경</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1a2e' }}>{logs.length}</div>
+                  <div style={{ fontSize: 10, color: '#bbb' }}>건</div>
+                </div>
+                <div style={{ ...card, marginBottom: 0, textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#E84393', marginBottom: 4 }}>📉 소모</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#E84393' }}>{totalConsumed}</div>
+                  <div style={{ fontSize: 10, color: '#bbb' }}>합산</div>
+                </div>
+                <div style={{ ...card, marginBottom: 0, textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#00B894', marginBottom: 4 }}>📦 입고</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#00B894' }}>{totalStocked}</div>
+                  <div style={{ fontSize: 10, color: '#bbb' }}>합산</div>
+                </div>
+              </div>
 
-          {consumeRank.length > 0 && (
-            <div style={card}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📉 소모량 TOP {consumeRank.length}</div>
-              {consumeRank.map((item, i) => (
-                <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: i < 3 ? '#E84393' : '#bbb', width: 18 }}>#{i + 1}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</div>
-                    <div style={{ height: 4, borderRadius: 2, background: '#F4F6F9', marginTop: 4 }}>
-                      <div style={{ height: 4, borderRadius: 2, background: 'linear-gradient(90deg,#E84393,#FF6B35)', width: `${Math.min(100, (item.total / consumeRank[0].total) * 100)}%` }} />
+              {/* 작년 비교 요약 */}
+              {lastYearLogs.length > 0 && (
+                <div style={{ ...card, background: 'linear-gradient(135deg,rgba(108,92,231,0.06),rgba(45,198,214,0.06))', border: '1px solid rgba(108,92,231,0.15)' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', marginBottom: 10 }}>🗓️ 작년 {month}월 vs 이번 {month}월</div>
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <div style={{ flex: 1, textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, color: '#aaa', marginBottom: 4 }}>작년 소모</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: '#6C5CE7' }}>{lastYearLogs.filter(l => l.after_qty < l.before_qty).reduce((s, l) => s + (l.before_qty - l.after_qty), 0)}</div>
+                    </div>
+                    <div style={{ width: 1, background: '#E8ECF0' }} />
+                    <div style={{ flex: 1, textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, color: '#aaa', marginBottom: 4 }}>이번 소모</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: '#E84393' }}>{totalConsumed}</div>
+                    </div>
+                    <div style={{ width: 1, background: '#E8ECF0' }} />
+                    <div style={{ flex: 1, textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, color: '#aaa', marginBottom: 4 }}>증감</div>
+                      {(() => {
+                        const ly = lastYearLogs.filter(l => l.after_qty < l.before_qty).reduce((s, l) => s + (l.before_qty - l.after_qty), 0)
+                        const rate = ly > 0 ? Math.round(((totalConsumed - ly) / ly) * 100) : null
+                        return rate !== null
+                          ? <div style={{ fontSize: 18, fontWeight: 700, color: rate > 0 ? '#E84393' : '#00B894' }}>{rate > 0 ? '+' : ''}{rate}%</div>
+                          : <div style={{ fontSize: 12, color: '#bbb' }}>-</div>
+                      })()}
                     </div>
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#E84393', minWidth: 40, textAlign: 'right' }}>{item.total}{item.unit}</span>
                 </div>
-              ))}
+              )}
+
+              {consumeRank.length > 0 && (
+                <div style={card}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📉 소모량 TOP {consumeRank.length}</div>
+                  {consumeRank.map((item, i) => {
+                    const lyItem = lyConsumeMap[item.itemId]
+                    const rate = lyItem && lyItem.total > 0 ? Math.round(((item.total - lyItem.total) / lyItem.total) * 100) : null
+                    return (
+                      <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: i < 3 ? '#E84393' : '#bbb', width: 18 }}>#{i + 1}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                            {rate !== null && <span style={{ fontSize: 10, fontWeight: 700, color: rate > 0 ? '#E84393' : '#00B894' }}>작년比 {rate > 0 ? '+' : ''}{rate}%</span>}
+                          </div>
+                          <div style={{ height: 4, borderRadius: 2, background: '#F4F6F9', marginTop: 4 }}>
+                            <div style={{ height: 4, borderRadius: 2, background: 'linear-gradient(90deg,#E84393,#FF6B35)', width: `${Math.min(100, (item.total / consumeRank[0].total) * 100)}%` }} />
+                          </div>
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#E84393', minWidth: 44, textAlign: 'right' }}>{item.total}{item.unit}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {stockRank.length > 0 && (
+                <div style={card}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📦 입고량 TOP {stockRank.length}</div>
+                  {stockRank.map((item, i) => (
+                    <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: i < 3 ? '#00B894' : '#bbb', width: 18 }}>#{i + 1}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</div>
+                        <div style={{ height: 4, borderRadius: 2, background: '#F4F6F9', marginTop: 4 }}>
+                          <div style={{ height: 4, borderRadius: 2, background: 'linear-gradient(90deg,#00B894,#2DC6D6)', width: `${Math.min(100, (item.total / stockRank[0].total) * 100)}%` }} />
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#00B894', minWidth: 44, textAlign: 'right' }}>{item.total}{item.unit}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── 트렌드 ── */}
+          {activeSection === 'trend' && (
+            <div style={card}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 16 }}>📈 월별 소모량 추이 (최근 6개월)</div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 120, marginBottom: 8 }}>
+                {trendEntries.map(([key, val]) => {
+                  const [y, m] = key.split('-')
+                  const isCurrent = parseInt(y) === year && parseInt(m) === month
+                  return (
+                    <div key={key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: 9, color: '#888', fontWeight: isCurrent ? 700 : 400 }}>{val}</span>
+                      <div style={{
+                        width: '100%', borderRadius: '4px 4px 0 0',
+                        background: isCurrent ? 'linear-gradient(180deg,#E84393,#FF6B35)' : 'linear-gradient(180deg,#a29bfe,#6C5CE7)',
+                        height: `${Math.max(4, (val / trendMax) * 100)}px`,
+                        opacity: isCurrent ? 1 : 0.5
+                      }} />
+                      <span style={{ fontSize: 9, color: isCurrent ? '#E84393' : '#aaa', fontWeight: isCurrent ? 700 : 400 }}>{m}월</span>
+                    </div>
+                  )
+                })}
+              </div>
+              <div style={{ fontSize: 10, color: '#bbb', textAlign: 'center', marginTop: 8 }}>현재 월 강조 표시</div>
             </div>
           )}
 
-          {stockRank.length > 0 && (
+          {/* ── 소진 예상 ── */}
+          {activeSection === 'depletion' && (
             <div style={card}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📦 입고량 TOP {stockRank.length}</div>
-              {stockRank.map((item, i) => (
-                <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: i < 3 ? '#00B894' : '#bbb', width: 18 }}>#{i + 1}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</div>
-                    <div style={{ height: 4, borderRadius: 2, background: '#F4F6F9', marginTop: 4 }}>
-                      <div style={{ height: 4, borderRadius: 2, background: 'linear-gradient(90deg,#00B894,#2DC6D6)', width: `${Math.min(100, (item.total / stockRank[0].total) * 100)}%` }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>⏳ 소진 예상일</div>
+              <div style={{ fontSize: 10, color: '#aaa', marginBottom: 14 }}>작년 같은달 소모 기준 · 데이터 없으면 이번달 기준</div>
+              {depletionList.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 24, color: '#bbb', fontSize: 12 }}>소진 예상 데이터가 없습니다</div>
+              ) : depletionList.map((item: any) => {
+                const isUrgent = item.daysLeft <= 3
+                const isWarn = item.daysLeft <= 7
+                const color = isUrgent ? '#E84393' : isWarn ? '#B8860B' : '#1a1a2e'
+                return (
+                  <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #F4F6F9' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        {isUrgent && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>🔴 긴급</span>}
+                        {!isUrgent && isWarn && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(253,196,0,0.15)', color: '#B8860B', fontWeight: 700 }}>🟡 주의</span>}
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                        {item.hasLastYear && <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.08)', padding: '1px 5px', borderRadius: 4 }}>작년기준</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#aaa' }}>
+                        현재 {item.currentStock}{item.unit} · {item.depletionDate.getMonth() + 1}/{item.depletionDate.getDate()} 소진예상
+                        {item.changeRate !== null && (
+                          <span style={{ marginLeft: 6, color: item.changeRate > 0 ? '#E84393' : '#00B894', fontWeight: 600 }}>
+                            작년比 {item.changeRate > 0 ? '+' : ''}{Math.round(item.changeRate)}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 16, fontWeight: 800, color }}>{item.daysLeft}일</div>
+                      <div style={{ fontSize: 9, color: '#bbb' }}>남음</div>
                     </div>
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#00B894', minWidth: 40, textAlign: 'right' }}>{item.total}{item.unit}</span>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
-          {staffRank.length > 0 && (
+          {/* ── 직원 ── */}
+          {activeSection === 'staff' && (
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>👤 직원별 업데이트</div>
-              {staffRank.map(([name, cnt], i) => (
+              {staffRank.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 24, color: '#bbb', fontSize: 12 }}>데이터가 없습니다</div>
+              ) : staffRank.map(([name, cnt], i) => (
                 <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: i < 3 ? '#6C5CE7' : '#bbb', width: 18 }}>#{i + 1}</span>
                   <div style={{ flex: 1 }}>
@@ -666,7 +848,7 @@ export default function InventoryPage() {
   async function updateQty(itemId: string, place: string, newVal: number) {
     const old = getQty(itemId, place)
     const val = Math.max(0, newVal)
-    setStock(p => ({ ...p, [itemId + '-' + place]: { ...(p[itemId + '-' + place] || {}), item_id: itemId, place, quantity: val, updated_by: userName, updated_at: new Date().toISOString() } }))
+    setStock(p => ({ ...p, [itemId + '-' + place]: { ...(p[itemId + '-' + place] || {}), item_id: itemId, place, quantity: val, updated_by: userName, updated_at: new Date().toISOString(), before_qty: old, after_qty: val } }))
     await supabase.from('inventory_stock').upsert({ item_id: itemId, place, quantity: val, updated_by: userName, updated_at: new Date().toISOString() }, { onConflict: 'item_id,place' })
     if (old >= 0 && old !== val) {
       await supabase.from('inventory_logs').insert({ item_id: itemId, place, before_qty: old, after_qty: val, changed_by: userName })
@@ -752,7 +934,7 @@ export default function InventoryPage() {
         <button onClick={() => setShowStats(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16 }}>←</button>
         <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>📊 재고 통계</span>
       </div>
-      <StatsTab storeId={storeId} items={items} />
+      <StatsTab storeId={storeId} items={items} stock={stock} />
     </div>
   )
 
@@ -983,7 +1165,12 @@ export default function InventoryPage() {
                       </div>
                       {logEntry?.updated_by && (
                         <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
-                          ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                          ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                          {logEntry.before_qty !== undefined && logEntry.after_qty !== undefined && (
+                            <span style={{ marginLeft: 4, color: logEntry.after_qty > logEntry.before_qty ? '#00B894' : '#E84393', fontWeight: 700 }}>
+                              · {logEntry.before_qty}→{logEntry.after_qty}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1242,7 +1429,12 @@ export default function InventoryPage() {
                 </div>
                 {logEntry?.updated_by && (
                   <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
-                    ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                    ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                    {logEntry.before_qty !== undefined && logEntry.after_qty !== undefined && (
+                      <span style={{ marginLeft: 4, color: logEntry.after_qty > logEntry.before_qty ? '#00B894' : '#E84393', fontWeight: 700 }}>
+                        · {logEntry.before_qty}→{logEntry.after_qty}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
