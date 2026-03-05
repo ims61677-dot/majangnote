@@ -761,7 +761,7 @@ export default function ClosingPage() {
       {/* 작성자 */}
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>👤 작성자 / 영업 정보</div>
-        <div style={{ display:'grid', gridTemplateColumns: isPC ? '1fr 1fr 1fr 80px 80px' : '1fr 1fr', gap:8 }}>
+        <div style={{ display:'grid', gridTemplateColumns: isPC ? '1fr 1fr 100px 120px 120px' : '1fr 1fr', gap:8 }}>
           <div>
             <span style={lbl}>작성자</span>
             <input value={writer} onChange={e => sr(setWriter, writerRef)(e.target.value)} onBlur={saveNow} placeholder="작성자" disabled={disabled}
