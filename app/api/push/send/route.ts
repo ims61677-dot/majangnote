@@ -17,7 +17,6 @@ export async function POST(req: NextRequest) {
   try {
     const { title, body, url, userIds } = await req.json()
 
-    // 대상 구독 조회
     let query = supabase.from('push_subscriptions').select('*')
     if (userIds && userIds.length > 0) {
       query = query.in('user_id', userIds)
@@ -34,7 +33,7 @@ export async function POST(req: NextRequest) {
       url: url || '/login',
     })
 
-    // 모든 구독자에게 발송
+    const errors: string[] = []
     const results = await Promise.allSettled(
       subscriptions.map((sub) =>
         webpush.sendNotification(
@@ -47,8 +46,14 @@ export async function POST(req: NextRequest) {
     const success = results.filter((r) => r.status === 'fulfilled').length
     const failed = results.filter((r) => r.status === 'rejected').length
 
-    return NextResponse.json({ success, failed })
+    results.forEach((r) => {
+      if (r.status === 'rejected') {
+        errors.push(String(r.reason))
+      }
+    })
+
+    return NextResponse.json({ success, failed, errors })
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to send notification' }, { status: 500 })
+    return NextResponse.json({ error: String(error) }, { status: 500 })
   }
 }
