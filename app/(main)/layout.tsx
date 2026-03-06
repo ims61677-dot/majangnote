@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import BottomNav from '@/components/BottomNav'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import PushSetup from '@/components/PushSetup'
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -57,7 +58,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   const isOwner = user?.role === 'owner'
 
-  // 풀스크린 페이지 목록 (PC에서 maxWidth 제한 없이 전체 너비 사용)
   const isFullWidth = pathname === '/attendance' || pathname === '/schedule' || pathname === '/analytics' || pathname === '/inventory' || pathname === '/closing'
 
   return (
@@ -161,6 +161,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         {children}
       </main>
 
+      <PushSetup />
       <BottomNav current={pathname} />
     </div>
   )
