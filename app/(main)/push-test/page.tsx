@@ -17,13 +17,9 @@ export default function PushTestPage() {
         body: JSON.stringify({ title, body, url: '/login' }),
       })
       const data = await res.json()
-      if (data.success !== undefined) {
-        setResult(`전송 성공: ${data.success}명 / 실패: ${data.failed}명`)
-      } else {
-        setResult(`오류: ${data.error}`)
-      }
+      setResult(JSON.stringify(data, null, 2))
     } catch (err) {
-      setResult('전송 실패')
+      setResult('전송 실패: ' + String(err))
     }
     setLoading(false)
   }
@@ -62,19 +58,15 @@ export default function PushTestPage() {
           </button>
 
           {result && (
-            <div style={{
+            <pre style={{
               marginTop: 16, padding: '10px 14px', borderRadius: 8,
-              background: result.includes('성공') ? '#F0FFF4' : '#FFF0F0',
-              color: result.includes('성공') ? '#22C55E' : '#E84393',
-              fontSize: 13, fontWeight: 600, textAlign: 'center',
+              background: '#f5f5f5', fontSize: 11, color: '#333',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+              maxHeight: 300, overflow: 'auto',
             }}>
               {result}
-            </div>
+            </pre>
           )}
-        </div>
-
-        <div style={{ marginTop: 16, fontSize: 12, color: '#aaa', textAlign: 'center' }}>
-          등록된 모든 사용자에게 알림이 전송됩니다
         </div>
       </div>
     </div>
