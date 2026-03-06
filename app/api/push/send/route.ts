@@ -17,14 +17,20 @@ export async function POST(req: NextRequest) {
   try {
     const { title, body, url, userIds } = await req.json()
 
-    let query = supabase.from('push_subscriptions').select('*')
-    if (userIds && userIds.length > 0) {
-      query = query.in('user_id', userIds)
+    const { data: subscriptions, error: dbError } = await supabase
+      .from('push_subscriptions')
+      .select('*')
+
+    // 디버그 정보 표시
+    if (dbError) {
+      return NextResponse.json({ error: 'DB Error', detail: dbError }, { status: 500 })
     }
-    const { data: subscriptions } = await query
 
     if (!subscriptions || subscriptions.length === 0) {
-      return NextResponse.json({ error: 'No subscriptions found' }, { status: 404 })
+      return NextResponse.json({ 
+        error: 'No subscriptions found',
+        debug: { data: subscriptions, dbError }
+      }, { status: 404 })
     }
 
     const payload = JSON.stringify({
@@ -45,11 +51,8 @@ export async function POST(req: NextRequest) {
 
     const success = results.filter((r) => r.status === 'fulfilled').length
     const failed = results.filter((r) => r.status === 'rejected').length
-
     results.forEach((r) => {
-      if (r.status === 'rejected') {
-        errors.push(String(r.reason))
-      }
+      if (r.status === 'rejected') errors.push(String(r.reason))
     })
 
     return NextResponse.json({ success, failed, errors })
