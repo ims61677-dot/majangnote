@@ -1,11 +1,11 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const SESSION_KEY = 'mj_user'
 const SESSION_EXPIRE_KEY = 'mj_user_expire'
-const KEEP_DAYS = 30 // 로그인 유지 기간 (일)
+const KEEP_DAYS = 30
 
 export default function LoginPage() {
   const supabase = createSupabaseBrowserClient()
@@ -15,6 +15,23 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [keepLogin, setKeepLogin] = useState(true)
+  const [checking, setChecking] = useState(true)
+
+  // 앱 열릴 때 저장된 세션 확인
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SESSION_KEY)
+      const expire = localStorage.getItem(SESSION_EXPIRE_KEY)
+      if (saved && expire && Date.now() < Number(expire)) {
+        router.push('/select-store')
+        return
+      }
+      // 만료됐으면 삭제
+      localStorage.removeItem(SESSION_KEY)
+      localStorage.removeItem(SESSION_EXPIRE_KEY)
+    } catch (e) {}
+    setChecking(false)
+  }, [router])
 
   async function handleLogin() {
     if (!nm.trim()) { setError('이름을 입력하세요'); return }
@@ -31,18 +48,19 @@ export default function LoginPage() {
     localStorage.setItem(SESSION_KEY, JSON.stringify(user))
 
     if (keepLogin) {
-      // 만료일 설정 (30일 후)
       const expire = Date.now() + KEEP_DAYS * 24 * 60 * 60 * 1000
       localStorage.setItem(SESSION_EXPIRE_KEY, String(expire))
     } else {
-      // 로그인 유지 안 함 → 만료일 없음 (탭 닫으면 유지되나 세션 체크에서 당일 만료)
-      const expire = Date.now() + 24 * 60 * 60 * 1000 // 24시간
+      const expire = Date.now() + 24 * 60 * 60 * 1000
       localStorage.setItem(SESSION_EXPIRE_KEY, String(expire))
     }
 
     router.push('/select-store')
     setLoading(false)
   }
+
+  // 세션 체크 중일 때 빈 화면
+  if (checking) return <div style={{ minHeight: '100vh', background: '#F4F6F9' }} />
 
   const inp = {
     width: '100%', padding: '12px 14px', borderRadius: 10,
@@ -82,7 +100,6 @@ export default function LoginPage() {
               style={{ ...inp, textAlign: 'center', letterSpacing: 12, fontSize: 22 }} />
           </div>
 
-          {/* 로그인 유지 체크박스 */}
           <div
             onClick={() => setKeepLogin(v => !v)}
             style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, cursor: 'pointer', userSelect: 'none' }}>
