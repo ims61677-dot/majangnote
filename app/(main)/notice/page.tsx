@@ -426,7 +426,17 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [showMemo, setShowMemo] = useState(false)
   const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set())
 
-  useEffect(() => { loadAdminData() }, [storeId])
+  // 공지 관련
+  const [adminNotices, setAdminNotices] = useState<any[]>([])
+  const [selectedAdminNotice, setSelectedAdminNotice] = useState<any>(null)
+  const [showAdminNoticeForm, setShowAdminNoticeForm] = useState(false)
+  const [adminNoticeTitle, setAdminNoticeTitle] = useState('')
+  const [adminNoticeContent, setAdminNoticeContent] = useState('')
+  const [adminNoticePinned, setAdminNoticePinned] = useState(false)
+  const [savingAdminNotice, setSavingAdminNotice] = useState(false)
+  const [adminNoticeStore, setAdminNoticeStore] = useState('')
+
+  useEffect(() => { loadAdminData(); loadAdminNotices() }, [storeId])
   useEffect(() => { setMemoText(personalMemos[selectedCalDate] || '') }, [selectedCalDate, personalMemos])
 
   async function loadAdminData() {
@@ -519,6 +529,37 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     setLoading(false)
   }
 
+  // 공지 로드/저장/삭제
+  async function loadAdminNotices() {
+    if (!storeId) return
+    const { data } = await supabase.from('notices').select('*, notice_todos(id)')
+      .eq('store_id', storeId).eq('is_from_closing', false)
+      .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
+    const pure = (data || []).filter((n: any) => (!n.notice_todos || n.notice_todos.length === 0) && n.title !== '__PERSONAL_MEMO__')
+    setAdminNotices(pure)
+  }
+
+  async function saveAdminNotice() {
+    if (!adminNoticeTitle.trim()) return
+    setSavingAdminNotice(true)
+    const sid = adminNoticeStore || storeId
+    try {
+      await supabase.from('notices').insert({
+        store_id: sid, title: adminNoticeTitle.trim(), content: adminNoticeContent || null,
+        notice_date: today, created_by: userName, is_from_closing: false, is_pinned: adminNoticePinned
+      })
+      setAdminNoticeTitle(''); setAdminNoticeContent(''); setAdminNoticePinned(false)
+      setShowAdminNoticeForm(false)
+      loadAdminNotices()
+    } finally { setSavingAdminNotice(false) }
+  }
+
+  async function deleteAdminNotice(id: string) {
+    await supabase.from('notices').delete().eq('id', id)
+    if (selectedAdminNotice?.id === id) setSelectedAdminNotice(null)
+    loadAdminNotices()
+  }
+
   async function quickAddTodo(sId: string, sName: string) {
     const content = (quickInputs[sId] || '').trim()
     if (!content) return
@@ -526,11 +567,11 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     try {
       // 오늘 날짜 notice 찾거나 생성
       const { data: existing } = await supabase.from('notices').select('id')
-        .eq('store_id', sId).eq('notice_date', today).eq('title', '관리자 할일').eq('is_from_closing', false).maybeSingle()
+        .eq('store_id', sId).eq('notice_date', today).eq('title', '전체 할일').eq('is_from_closing', false).maybeSingle()
       let noticeId = existing?.id
       if (!noticeId) {
         const { data: newNotice } = await supabase.from('notices').insert({
-          store_id: sId, title: '관리자 할일', content: null,
+          store_id: sId, title: '전체 할일', content: null,
           notice_date: today, created_by: userName, is_from_closing: false, is_pinned: false
         }).select().single()
         noticeId = newNotice.id
@@ -645,6 +686,72 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     </div>
   )
 
+
+  // ── 관리탭 공지 섹션 ──
+  const adminNoticeSection = (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>📢 공지 관리</div>
+        <button onClick={() => { setShowAdminNoticeForm(p => !p); setAdminNoticeTitle(''); setAdminNoticeContent(''); setAdminNoticePinned(false) }}
+          style={{ padding: '5px 12px', borderRadius: 8, background: showAdminNoticeForm ? '#F4F6F9' : 'rgba(108,92,231,0.1)', border: showAdminNoticeForm ? '1px solid #E8ECF0' : '1px solid rgba(108,92,231,0.3)', color: showAdminNoticeForm ? '#888' : '#6C5CE7', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+          {showAdminNoticeForm ? '✕ 취소' : '+ 공지 작성'}
+        </button>
+      </div>
+      {showAdminNoticeForm && (
+        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E8ECF0', padding: 14, marginBottom: 12 }}>
+          {stores.length > 1 && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>지점 선택</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button onClick={() => setAdminNoticeStore('')}
+                  style={{ padding: '4px 10px', borderRadius: 8, border: adminNoticeStore==='' ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0', background: adminNoticeStore==='' ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: adminNoticeStore==='' ? '#6C5CE7' : '#aaa', fontSize: 10, fontWeight: adminNoticeStore==='' ? 700 : 400, cursor: 'pointer' }}>현재 매장</button>
+                {stores.map(s => (
+                  <button key={s.id} onClick={() => setAdminNoticeStore(s.id)}
+                    style={{ padding: '4px 10px', borderRadius: 8, border: adminNoticeStore===s.id ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0', background: adminNoticeStore===s.id ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: adminNoticeStore===s.id ? '#6C5CE7' : '#aaa', fontSize: 10, fontWeight: adminNoticeStore===s.id ? 700 : 400, cursor: 'pointer' }}>{s.name}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          <input value={adminNoticeTitle} onChange={e => setAdminNoticeTitle(e.target.value)} placeholder="공지 제목"
+            style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid #E8ECF0', fontSize: 13, marginBottom: 8, boxSizing: 'border-box', outline: 'none' }} />
+          <textarea value={adminNoticeContent} onChange={e => setAdminNoticeContent(e.target.value)} placeholder="내용 (선택)"
+            style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid #E8ECF0', fontSize: 12, minHeight: 70, resize: 'vertical', boxSizing: 'border-box', outline: 'none', marginBottom: 8 }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <button onClick={() => setAdminNoticePinned(p => !p)}
+              style={{ padding: '5px 12px', borderRadius: 8, border: adminNoticePinned ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0', background: adminNoticePinned ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: adminNoticePinned ? '#6C5CE7' : '#aaa', fontSize: 11, cursor: 'pointer' }}>
+              📌 {adminNoticePinned ? '고정됨' : '고정 안함'}
+            </button>
+            <button onClick={saveAdminNotice} disabled={savingAdminNotice || !adminNoticeTitle.trim()}
+              style={{ padding: '7px 18px', borderRadius: 10, background: 'linear-gradient(135deg,#6C5CE7,#00B894)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: !adminNoticeTitle.trim() ? 0.5 : 1 }}>
+              {savingAdminNotice ? '저장 중...' : '공지 등록'}
+            </button>
+          </div>
+        </div>
+      )}
+      {/* 공지 목록 (3열 그리드) */}
+      {adminNotices.length === 0 ? (
+        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E8ECF0', padding: '20px', textAlign: 'center', color: '#bbb', fontSize: 12 }}>등록된 공지 없음</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          {adminNotices.map(notice => (
+            <div key={notice.id} onClick={() => setSelectedAdminNotice(selectedAdminNotice?.id===notice.id ? null : notice)}
+              style={{ background: '#fff', borderRadius: 12, border: selectedAdminNotice?.id===notice.id ? '2px solid #6C5CE7' : notice.is_pinned ? '1px solid rgba(108,92,231,0.25)' : '1px solid #E8ECF0', padding: 12, cursor: 'pointer' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', flex: 1, lineHeight: 1.3 }}>{notice.is_pinned ? '📌 ' : ''}{notice.title}</div>
+                <button onClick={e => { e.stopPropagation(); deleteAdminNotice(notice.id) }} style={{ fontSize: 10, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: '0 0 0 4px' }}>✕</button>
+              </div>
+              {notice.content && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{notice.content}</div>}
+              <div style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
+              {selectedAdminNotice?.id===notice.id && notice.content && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #F4F6F9', fontSize: 12, color: '#444', lineHeight: 1.6 }}>{notice.content}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
   // ── 전체 할일 목록 ──
   const allTodosList = (
     <div style={{ display: isPC ? 'grid' : 'block', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
@@ -747,11 +854,9 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         {/* 우: 현황 그리드 + 빠른 추가 + 전체 할일 */}
         <div>
           {statusGrid}
+          {adminNoticeSection}
           {quickAddSection}
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-            📋 전 지점 할일
-            <span style={{ fontSize: 10, color: '#bbb', fontWeight: 400 }}>클릭하면 펼쳐져요</span>
-          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>📋 전 지점 할일</div>
           {allTodosList}
         </div>
       </div>
@@ -921,7 +1026,9 @@ export default function NoticePage() {
 
   async function loadDayTodos(sid: string, date: string) {
     const { data } = await supabase.from('notices').select('*, notice_todos(*)').eq('store_id', sid).eq('notice_date', date).eq('is_from_closing', false).order('created_at')
-    setDayNotices(data || [])
+    // 할일이 있는 것만, __PERSONAL_MEMO__ 제외
+    const filtered = (data || []).filter((n: any) => (n.notice_todos && n.notice_todos.length > 0) && n.title !== '__PERSONAL_MEMO__')
+    setDayNotices(filtered)
     const allIds = (data || []).flatMap((n: any) => (n.notice_todos||[]).map((t: any) => t.id))
     if (allIds.length > 0) {
       const { data: chks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', allIds)
