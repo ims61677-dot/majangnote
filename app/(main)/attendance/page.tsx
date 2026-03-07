@@ -350,7 +350,13 @@ export default function AttendancePage() {
   const [attendance,    setAttendance]       = useState<any>(null)
   const [attLoading,    setAttLoading]       = useState(true)
   const [boardList,     setBoardList]        = useState<any[]>([])
-  const [tab,           setTab]              = useState<'today'|'history'|'all'>('today')
+  const [tab, setTab] = useState<'today'|'history'|'all'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('att_tab')
+      if (saved === 'today' || saved === 'history' || saved === 'all') return saved as 'today'|'history'|'all'
+    }
+    return 'today'
+  })
 
   // ★ 전지점 현황 (대표용)
   const [allStores,     setAllStores]        = useState<any[]>([])   // [{id, name}]
@@ -396,6 +402,10 @@ export default function AttendancePage() {
   useEffect(() => {
     if (storeId) loadAllAttendance(storeId, histYear, histMonth)
   }, [histYear, histMonth, storeId])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') localStorage.setItem('att_tab', tab)
+  }, [tab])
 
   useEffect(() => {
     if (tab === 'all' && allStores.length > 0) loadAllStoresBoard(allStores)
