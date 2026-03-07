@@ -398,7 +398,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   // 매장 데이터
   const [stores, setStores] = useState<any[]>([])
-  const [allTodosMap, setAllTodosMap] = useState<{store: any; todos: any[]}[]>([])
+  const [allTodosMap, setAllTodosMap] = useState<{store: any; todos: any[]; closingTodos: any[]}[]>([])
   const [loading, setLoading] = useState(true)
 
   // 빠른 할일 추가
@@ -432,68 +432,90 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   async function loadAdminData() {
     setLoading(true)
     try {
-      // 전체 매장 로드
+      // 매장 목록
       const { data: memberData } = await supabase
         .from('store_members')
         .select('store_id, role, stores(id, name)')
         .eq('role', 'owner')
       const storeList = (memberData || [])
-        .map((m: any) => m.stores)
-        .filter(Boolean)
+        .map((m: any) => m.stores).filter(Boolean)
         .filter((s: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === s.id) === i)
-
       if (storeList.length === 0) {
-        const { data: storeData } = await supabase.from('stores').select('id, name').eq('id', storeId).maybeSingle()
-        if (storeData) storeList.push(storeData)
+        const { data: sd } = await supabase.from('stores').select('id, name').eq('id', storeId).maybeSingle()
+        if (sd) storeList.push(sd)
       }
       setStores(storeList)
 
-      // 최근 7일 + 오늘 할일 로드
-      const results = []
-      const allDates = new Set<string>()
-      for (const store of storeList) {
-        const storeResults: any[] = []
-        for (let i = 0; i <= 6; i++) {
-          const d = new Date(); d.setDate(d.getDate() - i)
-          const dateStr = toDateStr(d)
+      const sevenDaysAgo = toDateStr(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000))
+      const yesterday = toDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000))
+
+      // ★ 모든 매장 동시에 병렬 로드
+      const [storeResults, memosResult] = await Promise.all([
+        Promise.all(storeList.map(async (store: any) => {
+          // 7일치 공지+할일 한번에 조회
           const { data: notices } = await supabase
-            .from('notices')
-            .select('*, notice_todos(*)')
+            .from('notices').select('*, notice_todos(*)')
             .eq('store_id', store.id)
-            .eq('notice_date', dateStr)
-            .eq('is_from_closing', false)
-          if (!notices) continue
-          const allTodoIds = notices.flatMap((n: any) => (n.notice_todos || []).map((t: any) => t.id))
-          if (allTodoIds.length === 0) continue
-          allDates.add(dateStr)
-          const { data: chks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', allTodoIds)
+            .gte('notice_date', sevenDaysAgo).lte('notice_date', today)
+            .eq('is_from_closing', false).neq('title', '__PERSONAL_MEMO__')
+
+          const allTodoIds = (notices || []).flatMap((n: any) => (n.notice_todos || []).map((t: any) => t.id))
+
+          // 마감 전달사항 (어제)도 병렬로 로드
+          const [checksResult, closingResult] = await Promise.all([
+            allTodoIds.length > 0
+              ? supabase.from('notice_todo_checks').select('*').in('todo_id', allTodoIds)
+              : Promise.resolve({ data: [] }),
+            supabase.from('closings').select('id').eq('store_id', store.id).eq('closing_date', yesterday).maybeSingle()
+          ])
+
           const checkMap: Record<string, any[]> = {}
-          if (chks) chks.forEach((c: any) => { if (!checkMap[c.todo_id]) checkMap[c.todo_id] = []; checkMap[c.todo_id].push(c) })
-          for (const notice of notices) {
+          ;(checksResult.data || []).forEach((c: any) => {
+            if (!checkMap[c.todo_id]) checkMap[c.todo_id] = []
+            checkMap[c.todo_id].push(c)
+          })
+
+          const todos: any[] = []
+          const allDates = new Set<string>()
+          for (const notice of (notices || [])) {
+            const noticeDate = notice.notice_date
+            const dayCount = Math.round((new Date(today).getTime() - new Date(noticeDate).getTime()) / 86400000)
+            allDates.add(noticeDate)
             for (const todo of (notice.notice_todos || [])) {
               const todoChecks = checkMap[todo.id] || []
-              storeResults.push({ ...todo, origin_date: dateStr, day_count: i, notice_title: notice.title, checks: todoChecks, isToday: dateStr === today, isDone: todoChecks.length > 0 })
+              todos.push({ ...todo, origin_date: noticeDate, day_count: dayCount, notice_title: notice.title, checks: todoChecks, isToday: noticeDate === today, isDone: todoChecks.length > 0 })
             }
           }
-        }
-        results.push({ store, todos: storeResults })
-      }
-      setAllTodosMap(results)
+
+          // 마감 전달사항 처리
+          let closingTodos: any[] = []
+          if (closingResult.data?.id) {
+            const { data: ctodos } = await supabase.from('closing_next_todos').select('*').eq('closing_id', closingResult.data.id)
+            if (ctodos && ctodos.length > 0) {
+              const ctodoIds = ctodos.map((t: any) => t.id)
+              const { data: cchks } = await supabase.from('closing_next_todo_checks').select('*').in('todo_id', ctodoIds)
+              const cchkMap: Record<string, any[]> = {}
+              ;(cchks || []).forEach((c: any) => { if (!cchkMap[c.todo_id]) cchkMap[c.todo_id] = []; cchkMap[c.todo_id].push(c) })
+              closingTodos = ctodos.map((t: any) => ({ ...t, checks: cchkMap[t.id] || [], isDone: (cchkMap[t.id] || []).length > 0 }))
+            }
+          }
+
+          return { store, todos, closingTodos, allDates }
+        })),
+        supabase.from('notices').select('notice_date, content').eq('store_id', storeId).eq('is_from_closing', false).eq('title', '__PERSONAL_MEMO__')
+      ])
+
+      setAllTodosMap(storeResults.map(({ store, todos, closingTodos }) => ({ store, todos, closingTodos })))
+
+      const allDates = new Set<string>()
+      storeResults.forEach(({ allDates: sd }) => sd.forEach((d: string) => allDates.add(d)))
       setAllTodoDates(allDates)
 
-      // 개인 메모
-      const { data: memos } = await supabase
-        .from('notices')
-        .select('notice_date, content')
-        .eq('store_id', storeId)
-        .eq('is_from_closing', false)
-        .eq('title', '__PERSONAL_MEMO__')
       const memoMap: Record<string, string> = {}
-      if (memos) memos.forEach((m: any) => { memoMap[m.notice_date] = m.content || '' })
+      if (memosResult.data) memosResult.data.forEach((m: any) => { memoMap[m.notice_date] = m.content || '' })
       setPersonalMemos(memoMap)
-    } catch (e) {
-      console.error('Admin data load error:', e)
-    }
+
+    } catch (e) { console.error('Admin data load error:', e) }
     setLoading(false)
   }
 
@@ -626,20 +648,22 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // ── 전체 할일 목록 ──
   const allTodosList = (
     <div>
-      {allTodosMap.map(({ store, todos }) => {
+      {allTodosMap.map(({ store, todos, closingTodos }) => {
         const incompleteTodos = todos.filter(t => !t.isDone)
         const completedTodos = todos.filter(t => t.isDone)
+        const incompleteClosing = closingTodos.filter((t: any) => !t.isDone)
         const isExpanded = expandedStores.has(store.id)
+        const totalAlert = incompleteTodos.length + incompleteClosing.length
         return (
           <div key={store.id} style={{ ...bx, marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isExpanded ? 12 : 0 }}>
               <button onClick={() => setExpandedStores(p => { const n = new Set(p); n.has(store.id) ? n.delete(store.id) : n.add(store.id); return n })}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0, flex: 1, textAlign: 'left' }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>🏪 {store.name}</span>
-                {incompleteTodos.length > 0 && (
-                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>{incompleteTodos.length}개 미완료</span>
+                {totalAlert > 0 && (
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>{totalAlert}개 미완료</span>
                 )}
-                {incompleteTodos.length === 0 && todos.length > 0 && (
+                {totalAlert === 0 && (todos.length > 0 || closingTodos.length > 0) && (
                   <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(0,184,148,0.1)', color: '#00B894', fontWeight: 700 }}>✅ 모두 완료</span>
                 )}
                 <span style={{ fontSize: 10, color: '#bbb', marginLeft: 'auto' }}>{isExpanded ? '▲' : '▼'}</span>
@@ -647,13 +671,29 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
             </div>
             {isExpanded && (
               <>
-                {todos.length === 0 ? (
+                {/* 마감 전달사항 */}
+                {closingTodos.length > 0 && (
+                  <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,107,53,0.03)', border: '1px solid rgba(255,107,53,0.2)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35', marginBottom: 8 }}>📢 마감 전달사항</div>
+                    {closingTodos.map((todo: any) => (
+                      <div key={todo.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid rgba(255,107,53,0.08)' }}>
+                        <span style={{ fontSize: 12, color: todo.isDone ? '#00B894' : '#FF6B35' }}>{todo.isDone ? '✓' : '○'}</span>
+                        <span style={{ fontSize: 12, color: todo.isDone ? '#00B894' : '#444', textDecoration: todo.isDone ? 'line-through' : 'none', flex: 1 }}>{todo.content}</span>
+                        {todo.isDone && todo.checks?.[0] && (
+                          <span style={{ fontSize: 9, color: '#00B894' }}>{todo.checks[0].checked_by}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {todos.length === 0 && closingTodos.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '16px 0', color: '#bbb', fontSize: 12 }}>최근 7일간 등록된 할일 없음</div>
                 ) : (
                   <>
                     {incompleteTodos.length > 0 && (
                       <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#E84393', marginBottom: 6 }}>⚠️ 미완료</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#E84393', marginBottom: 6 }}>⚠️ 미완료 할일</div>
                         {incompleteTodos.map(todo => {
                           const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : todo.isToday ? '#6C5CE7' : '#FDC400'
                           return (
@@ -1389,16 +1429,7 @@ export default function NoticePage() {
   // ══ PC 레이아웃 ══
   if (isPC) {
     return (
-      <div style={{
-        position: 'relative',
-        left: '50%',
-        right: '50%',
-        marginLeft: '-50vw',
-        marginRight: '-50vw',
-        width: '100vw',
-        padding: '0 32px',
-        boxSizing: 'border-box' as const,
-      }}>
+      <div style={{ width: '100%' }}>
         {/* 헤더 */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -1423,7 +1454,7 @@ export default function NoticePage() {
 
         {/* 할일 탭: 캘린더 + 콘텐츠 */}
         {subTab === 'todo' && (
-          <div style={{ display:'grid', gridTemplateColumns:'300px 1fr', gap:20, alignItems:'start' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'280px 1fr', gap:20, alignItems:'start' }}>
             <div style={{ position:'sticky', top:80 }}>
               <MiniCalendar
                 year={calYear} month={calMonth}
@@ -1431,8 +1462,73 @@ export default function NoticePage() {
                 onSelectDate={d => { setSelectedDate(d); const [y,m]=d.split('-').map(Number); setCalYear(y); setCalMonth(m-1) }}
                 onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }}
               />
+              {/* 미완료 이월 - 캘린더 아래 컴팩트하게 */}
+              {overdueTodos.length > 0 && (
+                <div style={{ ...bx, border:'1px solid rgba(232,67,147,0.25)', background:'rgba(232,67,147,0.02)' }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#E84393', marginBottom:8 }}>⚠️ 미완료 이월 {overdueCount}개</div>
+                  {overdueTodos.map(todo => {
+                    const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : '#FDC400'
+                    return (
+                      <div key={`${todo.id}-${todo.origin_date}`} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:'1px solid #F4F6F9' }}>
+                        <span style={{ fontSize:9, fontWeight:700, color:urgentColor, background:`${urgentColor}15`, padding:'1px 5px', borderRadius:5, flexShrink:0 }}>{todo.day_count}일째</span>
+                        <span style={{ fontSize:11, color:'#444', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</span>
+                        {isManager && (
+                          <button onClick={() => moveTodoToToday(todo)} style={{ fontSize:9, padding:'2px 6px', borderRadius:5, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', cursor:'pointer', flexShrink:0 }}>이동</button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-            <div>{todoTabContent}</div>
+            {/* 우: 마감전달사항 + 오늘 할일 */}
+            <div>
+              <div style={{ ...bx, border: closingTodos.length>0?'1px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0', background: closingTodos.length>0?'rgba(255,107,53,0.02)':'#fff', marginBottom:12 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:closingTodos.length>0?12:0 }}>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#FF6B35' }}>📢 마감 전달사항</span>
+                  <span style={{ fontSize:10, color:'#bbb' }}>{closingDateLabel} 마감</span>
+                  {closingTodos.length === 0 && <span style={{ fontSize:11, color:'#bbb', marginLeft:'auto' }}>전달사항 없음 ✓</span>}
+                </div>
+                {closingTodos.map((todo: any) => (
+                  <TodoItem key={todo.id} todo={todo} checks={closingChecks[todo.id]||[]} onToggle={() => toggleClosingTodo(todo.id)} canCheck={canCheckDate(selectedDate)} myName={userName} userRole={userRole} />
+                ))}
+              </div>
+              {todoForm}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>
+                  {selectedDate.replace(/-/g,'.')} 할일
+                  {selectedDate === today && <span style={{ fontSize:10, color:'#FF6B35', background:'rgba(255,107,53,0.1)', padding:'1px 7px', borderRadius:6, marginLeft:6 }}>오늘</span>}
+                </div>
+                {!canCheckDate(selectedDate) && <span style={{ fontSize:10, color:'#bbb' }}>당일만 체크 가능</span>}
+              </div>
+              {dayNotices.length === 0 ? (
+                <div style={{ ...bx, textAlign:'center', padding:24, color:'#bbb' }}>
+                  <div style={{ fontSize:18, marginBottom:6 }}>✅</div>
+                  <div style={{ fontSize:13 }}>이 날짜에 등록된 할일이 없습니다</div>
+                  {isManager && <div style={{ fontSize:11, marginTop:4, color:'#aaa' }}>상단 "+ 할일 추가"로 등록하세요</div>}
+                </div>
+              ) : dayNotices.map(notice => (
+                <div key={notice.id} style={bx}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{notice.title}</div>
+                      <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{notice.created_by}</div>
+                    </div>
+                    {isManager && <button onClick={() => deleteTodoNotice(notice.id)} style={{ fontSize:11, color:'#E84393', background:'none', border:'none', cursor:'pointer' }}>삭제</button>}
+                  </div>
+                  {(notice.notice_todos||[])
+                    .filter((todo: any) => canViewByVisibility(todo.visibility, userRole))
+                    .map((todo: any) => (
+                      <TodoItem
+                        key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]}
+                        onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date, todo)}
+                        canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole}
+                        onMissionComplete={(todoId) => setMissionModal({ todoId, content: todo.content, noticeDate: notice.notice_date })}
+                      />
+                    ))}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
