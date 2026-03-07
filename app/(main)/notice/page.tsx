@@ -1389,7 +1389,16 @@ export default function NoticePage() {
   // ══ PC 레이아웃 ══
   if (isPC) {
     return (
-      <div style={{ padding: '0 8px' }}>
+      <div style={{
+        position: 'relative',
+        left: '50%',
+        right: '50%',
+        marginLeft: '-50vw',
+        marginRight: '-50vw',
+        width: '100vw',
+        padding: '0 32px',
+        boxSizing: 'border-box' as const,
+      }}>
         {/* 헤더 */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
