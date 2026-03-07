@@ -899,9 +899,11 @@ export default function NoticePage() {
 
   // ── 로드 함수들 ──
   async function loadNotices(sid: string) {
-    const { data } = await supabase.from('notices').select('*').eq('store_id', sid).eq('is_from_closing', false)
+    const { data } = await supabase.from('notices').select('*, notice_todos(id)').eq('store_id', sid).eq('is_from_closing', false)
       .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
-    setNotices(data || [])
+    // 순수 공지만: notice_todos가 없고 __PERSONAL_MEMO__ 아닌 것
+    const pureNotices = (data || []).filter((n: any) => (!n.notice_todos || n.notice_todos.length === 0) && n.title !== '__PERSONAL_MEMO__')
+    setNotices(pureNotices)
     if (data && data.length > 0) {
       const { data: reads } = await supabase.from('notice_reads').select('*').in('notice_id', data.map((n: any) => n.id))
       const rm: Record<string, any[]> = {}
@@ -1332,7 +1334,7 @@ export default function NoticePage() {
           <div style={{ fontSize:13 }}>이 날짜에 등록된 할일이 없습니다</div>
           {isManager && <div style={{ fontSize:11, marginTop:4, color:'#aaa' }}>상단 "+ 할일 추가"로 등록하세요</div>}
         </div>
-      ) : dayNotices.map(notice => (
+      ) : dayNotices.filter((notice: any) => notice.title !== '__PERSONAL_MEMO__' || isOwner).map(notice => (
         <div key={notice.id} style={bx}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
             <div>
@@ -1519,13 +1521,23 @@ export default function NoticePage() {
           </div>
         )}
 
-        {/* 할일 탭: 균등 3단 - 미완료이월 | 마감전달사항 | 오늘 할일 */}
+        {/* 할일 탭: 3단 - 캘린더 | 미완료+마감전달사항 | 오늘 할일 */}
         {subTab === 'todo' && (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16, alignItems:'start' }}>
-            {/* 1열: 미완료이월(상단 강조) + 캘린더 */}
+          <div style={{ display:'grid', gridTemplateColumns:'220px 1fr 1fr', gap:16, alignItems:'start' }}>
+            {/* 1열: 캘린더 */}
             <div style={{ position:'sticky', top:80 }}>
+              <MiniCalendar
+                year={calYear} month={calMonth}
+                todoDates={todoDates} selectedDate={selectedDate}
+                onSelectDate={d => { setSelectedDate(d); const [y,m]=d.split('-').map(Number); setCalYear(y); setCalMonth(m-1) }}
+                onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }}
+              />
+            </div>
+            {/* 2열: 미완료 이월 + 마감 전달사항 (세로 스택) */}
+            <div style={{ position:'sticky', top:80, display:'flex', flexDirection:'column', gap:12 }}>
+              {/* 미완료 이월 */}
               {overdueTodos.length > 0 ? (
-                <div style={{ borderRadius:14, border:'2px solid rgba(232,67,147,0.4)', background:'rgba(232,67,147,0.04)', padding:14, marginBottom:12 }}>
+                <div style={{ borderRadius:14, border:'2px solid rgba(232,67,147,0.4)', background:'rgba(232,67,147,0.04)', padding:14 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
                     <span style={{ fontSize:13, fontWeight:800, color:'#E84393' }}>⚠️ 미완료 이월</span>
                     <span style={{ fontSize:11, padding:'2px 8px', borderRadius:8, background:'rgba(232,67,147,0.15)', color:'#E84393', fontWeight:700 }}>{overdueCount}개</span>
@@ -1544,27 +1556,19 @@ export default function NoticePage() {
                   })}
                 </div>
               ) : (
-                <div style={{ borderRadius:14, border:'1px solid rgba(0,184,148,0.25)', background:'rgba(0,184,148,0.04)', padding:14, marginBottom:12, textAlign:'center' }}>
+                <div style={{ borderRadius:14, border:'1px solid rgba(0,184,148,0.25)', background:'rgba(0,184,148,0.04)', padding:14, textAlign:'center' }}>
                   <div style={{ fontSize:20, marginBottom:4 }}>✅</div>
                   <div style={{ fontSize:12, color:'#00B894', fontWeight:600 }}>이월 할일 없음</div>
                 </div>
               )}
-              <MiniCalendar
-                year={calYear} month={calMonth}
-                todoDates={todoDates} selectedDate={selectedDate}
-                onSelectDate={d => { setSelectedDate(d); const [y,m]=d.split('-').map(Number); setCalYear(y); setCalMonth(m-1) }}
-                onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }}
-              />
-            </div>
-            {/* 2열: 마감 전달사항 */}
-            <div style={{ position:'sticky', top:80 }}>
+              {/* 마감 전달사항 */}
               <div style={{ borderRadius:14, border: closingTodos.length>0?'2px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0', background: closingTodos.length>0?'rgba(255,107,53,0.03)':'#fff', padding:14 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
                   <span style={{ fontSize:13, fontWeight:700, color:'#FF6B35' }}>📢 마감 전달사항</span>
                   <span style={{ fontSize:10, color:'#bbb' }}>{closingDateLabel}</span>
                 </div>
                 {closingTodos.length === 0
-                  ? <div style={{ textAlign:'center', padding:'20px 0', color:'#bbb', fontSize:12 }}>전달사항 없음 ✓</div>
+                  ? <div style={{ textAlign:'center', padding:'12px 0', color:'#bbb', fontSize:12 }}>전달사항 없음 ✓</div>
                   : closingTodos.map((todo: any) => (
                     <TodoItem key={todo.id} todo={todo} checks={closingChecks[todo.id]||[]} onToggle={() => toggleClosingTodo(todo.id)} canCheck={canCheckDate(selectedDate)} myName={userName} userRole={userRole} />
                   ))
@@ -1587,7 +1591,7 @@ export default function NoticePage() {
                   <div style={{ fontSize:13 }}>이 날짜에 등록된 할일이 없습니다</div>
                   {isManager && <div style={{ fontSize:11, marginTop:4, color:'#aaa' }}>상단 "+ 할일 추가"로 등록하세요</div>}
                 </div>
-              ) : dayNotices.map(notice => (
+              ) : dayNotices.filter((notice: any) => notice.title !== '__PERSONAL_MEMO__' || isOwner).map(notice => (
                 <div key={notice.id} style={bx}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                     <div>
@@ -1703,7 +1707,7 @@ export default function NoticePage() {
               <div style={{ fontSize:13 }}>이 날짜에 등록된 할일이 없습니다</div>
               {isManager && <div style={{ fontSize:11, marginTop:4, color:'#aaa' }}>상단 "+ 할일 추가"로 등록하세요</div>}
             </div>
-          ) : dayNotices.map(notice => (
+          ) : dayNotices.filter((notice: any) => notice.title !== '__PERSONAL_MEMO__' || isOwner).map(notice => (
             <div key={notice.id} style={bx}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                 <div>
