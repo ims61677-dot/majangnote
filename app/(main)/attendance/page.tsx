@@ -350,7 +350,12 @@ export default function AttendancePage() {
   const [attendance,    setAttendance]       = useState<any>(null)
   const [attLoading,    setAttLoading]       = useState(true)
   const [boardList,     setBoardList]        = useState<any[]>([])
-  const [tab,           setTab]              = useState<'today'|'history'>('today')
+  const [tab,           setTab]              = useState<'today'|'history'|'all'>('today')
+
+  // ★ 전지점 현황 (대표용)
+  const [allStores,     setAllStores]        = useState<any[]>([])   // [{id, name}]
+  const [allStoresBoard,setAllStoresBoard]   = useState<Record<string, any[]>>({})  // storeId → boardList
+  const [allStoresLoading, setAllStoresLoading] = useState(false)
 
   const [histYear,          setHistYear]          = useState(nowDate.getFullYear())
   const [histMonth,         setHistMonth]          = useState(nowDate.getMonth())
@@ -385,11 +390,16 @@ export default function AttendancePage() {
     loadStaffList(s.id)
     loadMyMonthData(u.id, s.id)
     if (u.role==='owner'||u.role==='manager') loadPendingCount(s.id)
+    if (u.role==='owner') loadAllStores(u.id)
   }, [])
 
   useEffect(() => {
     if (storeId) loadAllAttendance(storeId, histYear, histMonth)
   }, [histYear, histMonth, storeId])
+
+  useEffect(() => {
+    if (tab === 'all' && allStores.length > 0) loadAllStoresBoard(allStores)
+  }, [tab, allStores])
 
   async function fetchCurrentIp() {
     try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); setCurrentIp(d.ip) }
@@ -552,6 +562,61 @@ export default function AttendancePage() {
         lateCount:lateMap[pid]||0, noClockOutCount:noClockOutMap[pid]||0, noClockInCount:noClockInMap[pid]||0,
       }
     }))
+  }
+
+  // ★ 대표 전지점 현황
+  async function loadAllStores(pid: string) {
+    const { data: memberships } = await supabase.from('store_members')
+      .select('store_id').eq('profile_id', pid).eq('active', true)
+    if (!memberships || memberships.length === 0) return
+    const sids = memberships.map((m: any) => m.store_id)
+    const { data: stores } = await supabase.from('stores').select('id, name').in('id', sids)
+    setAllStores(stores || [])
+  }
+
+  async function loadAllStoresBoard(stores: any[]) {
+    if (stores.length === 0) return
+    setAllStoresLoading(true)
+    const result: Record<string, any[]> = {}
+    await Promise.all(stores.map(async (store: any) => {
+      const sid = store.id
+      const { data: todaySchedules } = await supabase.from('schedules')
+        .select('staff_name').eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half'])
+      const { data: members } = await supabase.from('store_members')
+        .select('profile_id, expected_clock_in, expected_clock_out').eq('store_id', sid).eq('active', true)
+      const memberPids = (members||[]).map((m: any) => m.profile_id)
+      const { data: memberProfs } = await supabase.from('profiles').select('id, nm').in('id', memberPids)
+      const profNameMap: Record<string, string> = {}
+      ;(memberProfs||[]).forEach((p: any) => { profNameMap[p.id] = p.nm })
+      const nameToInfo: Record<string, { id:string; expected_in?:string; expected_out?:string }> = {}
+      ;(members||[]).forEach((m: any) => {
+        const nm = profNameMap[m.profile_id]
+        if (nm) nameToInfo[nm] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out }
+      })
+      const { data: attRecords } = await supabase.from('attendance')
+        .select('*').eq('store_id', sid).eq('work_date', today)
+      const attMap: Record<string, any> = {}
+      ;(attRecords||[]).forEach((a: any) => { attMap[a.profile_id] = a })
+      result[sid] = (todaySchedules||[]).map((s: any) => {
+        const info = nameToInfo[s.staff_name] || {}
+        const pid  = info.id || ''
+        const att  = attMap[pid] || null
+        let status = 'pending'
+        if (att) {
+          const isLate  = info.expected_in  && att.clock_in  ? tsToMinutes(att.clock_in)  > timeToMinutes(info.expected_in)  : false
+          const isEarly = info.expected_out && att.clock_out ? tsToMinutes(att.clock_out) < timeToMinutes(info.expected_out) : false
+          if (att.clock_out) {
+            if (isLate && isEarly) status='late_early'
+            else if (isLate)  status='late'
+            else if (isEarly) status='early'
+            else status='normal'
+          } else if (att.clock_in) status='working'
+        }
+        return { pid, nm: s.staff_name, att, status, expected_in: info.expected_in, expected_out: info.expected_out }
+      })
+    }))
+    setAllStoresBoard(result)
+    setAllStoresLoading(false)
   }
 
   async function loadPendingCount(sid: string) {
@@ -755,7 +820,11 @@ export default function AttendancePage() {
 
         {/* 탭 */}
         <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16 }}>
-          {([{v:'today',l:'오늘'},{v:'history',l:'📋 기록 조회'}] as const).map(t => (
+          {([
+            {v:'today',l:'오늘'},
+            {v:'history',l:'📋 기록 조회'},
+            ...(role==='owner' ? [{v:'all',l:'🏪 전지점'}] : [])
+          ] as const).map((t: any) => (
             <button key={t.v} onClick={() => setTab(t.v)}
               style={{ flex:1, padding:'9px 0', borderRadius:10, border:'none', cursor:'pointer',
                 fontSize:13, fontWeight:tab===t.v?700:400,
@@ -1342,6 +1411,104 @@ export default function AttendancePage() {
                 })}
               </div>
             </div>
+          </>
+        )}
+
+        {/* ════ 전지점 탭 (대표 전용) ════ */}
+        {tab==='all' && (
+          <>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+              <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>🏪 전지점 오늘 출근 현황</div>
+              <button onClick={() => loadAllStoresBoard(allStores)}
+                style={{ background:'#f0f4ff', border:'1px solid #d0d8f0', borderRadius:8,
+                  padding:'6px 12px', fontSize:12, fontWeight:600, color:'#4a6cf7', cursor:'pointer' }}>
+                🔄 새로고침
+              </button>
+            </div>
+
+            {allStoresLoading ? (
+              <div style={{ textAlign:'center', padding:40, color:'#aaa', fontSize:14 }}>불러오는 중...</div>
+            ) : allStores.length === 0 ? (
+              <div style={{ textAlign:'center', padding:40, color:'#aaa', fontSize:14 }}>등록된 지점이 없습니다</div>
+            ) : (
+              allStores.map((store: any) => {
+                const board = allStoresBoard[store.id] || []
+                const working   = board.filter(b => b.status==='working').length
+                const done      = board.filter(b => ['normal','late','early','late_early'].includes(b.status)).length
+                const problem   = board.filter(b => ['late','late_early','early','no_clockout','no_clockin','absent'].includes(b.status)).length
+                const pending   = board.filter(b => b.status==='pending').length
+                const total     = board.length
+
+                return (
+                  <div key={store.id} style={{ ...bx, marginBottom:14 }}>
+                    {/* 지점 헤더 */}
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                      <div style={{ fontSize:14, fontWeight:800, color:'#1a1a2e' }}>🏪 {store.name}</div>
+                      <div style={{ display:'flex', gap:6 }}>
+                        {working>0 && <span style={{ background:'rgba(255,107,53,0.12)', color:'#FF6B35',
+                          borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:700 }}>💼 근무중 {working}</span>}
+                        {problem>0 && <span style={{ background:'rgba(232,67,147,0.1)', color:'#E84393',
+                          borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:700 }}>⚠️ 이슈 {problem}</span>}
+                        <span style={{ background:'#f4f6f8', color:'#888',
+                          borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600 }}>전체 {total}</span>
+                      </div>
+                    </div>
+
+                    {/* 직원 목록 */}
+                    {board.length === 0 ? (
+                      <div style={{ textAlign:'center', padding:'16px 0', color:'#ccc', fontSize:13 }}>오늘 스케줄 없음</div>
+                    ) : (
+                      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                        {board.map((b: any) => {
+                          const st = STATUS_MAP[b.status] || STATUS_MAP.pending
+                          return (
+                            <div key={b.pid || b.nm} style={{ display:'flex', alignItems:'center',
+                              background:st.bg, borderRadius:10, padding:'8px 12px', gap:10 }}>
+                              <div style={{ fontSize:16 }}>{st.icon}</div>
+                              <div style={{ flex:1 }}>
+                                <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{b.nm}</div>
+                                <div style={{ fontSize:11, color:'#888', marginTop:1 }}>
+                                  {b.expected_in ? `예정 ${b.expected_in}` : '시간 미설정'}
+                                  {b.expected_out ? ` ~ ${b.expected_out}` : ''}
+                                </div>
+                              </div>
+                              <div style={{ textAlign:'right' }}>
+                                {b.att?.clock_in ? (
+                                  <div style={{ fontSize:12, fontWeight:700, color:st.color }}>
+                                    {fmtTime(b.att.clock_in)}
+                                    {b.att.clock_out ? ` → ${fmtTime(b.att.clock_out)}` : ' ~'}
+                                  </div>
+                                ) : (
+                                  <div style={{ fontSize:12, color:'#bbb' }}>미출근</div>
+                                )}
+                                <div style={{ fontSize:10, color:st.color, fontWeight:700, marginTop:2 }}>{st.label}</div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* 요약 바 */}
+                    {total > 0 && (
+                      <div style={{ display:'flex', gap:4, marginTop:10, borderTop:'1px solid #f0f0f0', paddingTop:10 }}>
+                        {[
+                          { label:'출근완료', val:done,    color:'#00B894' },
+                          { label:'근무중',   val:working, color:'#FF6B35' },
+                          { label:'대기중',   val:pending, color:'#bbb'    },
+                        ].map(item => (
+                          <div key={item.label} style={{ flex:1, textAlign:'center',
+                            background:`${item.color}10`, borderRadius:8, padding:'5px 0' }}>
+                            <div style={{ fontSize:14, fontWeight:800, color:item.color }}>{item.val}</div>
+                            <div style={{ fontSize:10, color:'#999' }}>{item.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            )}
           </>
         )}
 
