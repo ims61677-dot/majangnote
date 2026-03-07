@@ -664,11 +664,11 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     const content = (quickInputs[sId] || '').trim()
     if (!content) return
     setSavingStore(sId)
+    const targetDate = selectedCalDate  // 캘린더에서 선택한 날짜
     try {
-      // 오늘 날짜 notice 찾거나 생성
-      // 오늘 '전체 할일' 또는 '관리자 할일' 컨테이너 찾기 (limit 사용으로 여러개 있어도 안전)
+      // 선택한 날짜 '전체 할일' 또는 '관리자 할일' 컨테이너 찾기
       const { data: existingRows } = await supabase.from('notices').select('id, title')
-        .eq('store_id', sId).eq('notice_date', today).eq('is_from_closing', false)
+        .eq('store_id', sId).eq('notice_date', targetDate).eq('is_from_closing', false)
         .in('title', ['전체 할일', '관리자 할일']).limit(1)
       let noticeId = existingRows?.[0]?.id
       if (noticeId && existingRows?.[0]?.title === '관리자 할일') {
@@ -677,7 +677,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       if (!noticeId) {
         const { data: newNotice } = await supabase.from('notices').insert({
           store_id: sId, title: '전체 할일', content: null,
-          notice_date: today, created_by: userName, is_from_closing: false, is_pinned: false
+          notice_date: targetDate, created_by: userName, is_from_closing: false, is_pinned: false
         }).select().single()
         noticeId = newNotice?.id
       }
@@ -787,7 +787,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           </button>
         </div>
       ))}
-      <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>오늘 날짜({today.replace(/-/g,'.')})로 각 지점에 바로 등록됩니다</div>
+      <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>{selectedCalDate === today ? `오늘(${today.replace(/-/g,'.')})` : `선택 날짜(${selectedCalDate.replace(/-/g,'.')})`}로 각 지점에 바로 등록됩니다</div>
     </div>
   )
 
