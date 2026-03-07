@@ -12,9 +12,9 @@ function toDateStr(d: Date) {
 
 // ── 직급별 보기 옵션 ──
 const VISIBILITY_OPTIONS = [
-  { value: 'all',     label: '👥 전체 보이기',    color: '#6C5CE7', desc: '모든 직원 열람 가능' },
-  { value: 'manager', label: '👔 관리자만 보이기', color: '#FF6B35', desc: '관리자·대표만 열람' },
-  { value: 'owner',   label: '👑 대표자만 보이기', color: '#E84393', desc: '대표만 열람' },
+  { value: 'all',     label: '👥 전체',    color: '#6C5CE7', desc: '모든 직원 열람 가능' },
+  { value: 'manager', label: '👔 관리자만', color: '#FF6B35', desc: '관리자·대표만 열람' },
+  { value: 'owner',   label: '👑 대표만',  color: '#E84393', desc: '대표만 열람' },
 ]
 function canViewByVisibility(v: string | undefined, role: string) {
   if (!v || v === 'all') return true
@@ -27,6 +27,20 @@ function VisibilityBadge({ value }: { value?: string }) {
   const opt = VISIBILITY_OPTIONS.find(o => o.value === value)
   if (!opt) return null
   return <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: `${opt.color}18`, color: opt.color, fontWeight: 700 }}>{opt.label}</span>
+}
+
+// ── 반복 옵션 ──
+const REPEAT_OPTIONS = [
+  { value: 'none',    label: '반복 없음', icon: '' },
+  { value: 'daily',   label: '매일',      icon: '📅' },
+  { value: 'weekly',  label: '매주',      icon: '📆' },
+  { value: 'monthly', label: '매월',      icon: '🗓' },
+]
+function RepeatBadge({ value }: { value?: string }) {
+  if (!value || value === 'none') return null
+  const opt = REPEAT_OPTIONS.find(o => o.value === value)
+  if (!opt) return null
+  return <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(0,184,148,0.12)', color: '#00B894', fontWeight: 700 }}>{opt.icon} {opt.label}</span>
 }
 
 // ── 첨부파일 미리보기 ──
@@ -82,10 +96,53 @@ function AttachmentForm({ attachType, setAttachType, attachUrl, setAttachUrl, is
   )
 }
 
-// ── 미니 캘린더 ──
-function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onChangeMonth }: {
+// ── 미션 사진 인증 모달 ──
+function MissionPhotoModal({ todoContent, onComplete, onCancel, onUpload, isUploading, photoUrl }: {
+  todoContent: string
+  onComplete: () => void
+  onCancel: () => void
+  onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
+  isUploading: boolean
+  photoUrl: string
+}) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>📸</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>미션 완료 인증</div>
+          <div style={{ fontSize: 12, color: '#888', background: '#F8F9FB', borderRadius: 8, padding: '8px 12px' }}>"{todoContent}"</div>
+        </div>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>완료 사진을 찍어서 올려주세요</div>
+        <input type="file" accept="image/*" capture="environment" onChange={onUpload} disabled={isUploading}
+          style={{ ...inp, marginBottom: 8, cursor: 'pointer' }} />
+        {isUploading && <div style={{ fontSize: 11, color: '#6C5CE7', marginBottom: 8 }}>⏳ 업로드 중...</div>}
+        {photoUrl && (
+          <div style={{ marginBottom: 12 }}>
+            <img src={photoUrl} alt="완료 사진" style={{ width: '100%', borderRadius: 10, maxHeight: 200, objectFit: 'cover' }} />
+            <div style={{ fontSize: 11, color: '#00B894', marginTop: 4 }}>✅ 사진 업로드 완료</div>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: '11px 0', borderRadius: 12, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>취소</button>
+          <button onClick={onComplete} disabled={!photoUrl || isUploading}
+            style={{ flex: 2, padding: '11px 0', borderRadius: 12, background: photoUrl ? 'linear-gradient(135deg,#6C5CE7,#00B894)' : '#ddd', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: photoUrl ? 'pointer' : 'not-allowed' }}>
+            {photoUrl ? '✓ 미션 완료!' : '사진을 먼저 올려주세요'}
+          </button>
+        </div>
+        <button onClick={onComplete} style={{ width: '100%', marginTop: 8, padding: '8px 0', borderRadius: 10, background: 'none', border: '1px dashed #ddd', color: '#bbb', fontSize: 11, cursor: 'pointer' }}>
+          사진 없이 완료 처리
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── 미니 캘린더 (멀티 닷 지원) ──
+function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onChangeMonth, memoDates, storeDotColor }: {
   year: number; month: number; todoDates: Set<string>
   selectedDate: string; onSelectDate: (d: string) => void; onChangeMonth: (y: number, m: number) => void
+  memoDates?: Set<string>; storeDotColor?: string
 }) {
   const today = toDateStr(new Date())
   const firstDay = new Date(year, month, 1).getDay()
@@ -114,6 +171,7 @@ function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onCh
             if (!day) return <div key={di} />
             const dateStr = `${monthStr}-${String(day).padStart(2,'0')}`
             const hasTodo = todoDates.has(dateStr)
+            const hasMemo = memoDates?.has(dateStr)
             const isSelected = dateStr === selectedDate
             const isToday = dateStr === today
             return (
@@ -124,35 +182,61 @@ function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onCh
                 background: isSelected?'rgba(108,92,231,0.1)':hasTodo?'rgba(108,92,231,0.04)':'transparent',
               }}>
                 <span style={{ fontSize:12, fontWeight:isSelected||isToday?700:400, color:isSelected?'#6C5CE7':di===0?'#E84393':di===6?'#2DC6D6':'#1a1a2e' }}>{day}</span>
-                {hasTodo && <span style={{ width:4, height:4, borderRadius:'50%', background:'#6C5CE7', marginTop:2 }} />}
+                <div style={{ display:'flex', gap:2, marginTop:2 }}>
+                  {hasTodo && <span style={{ width:4, height:4, borderRadius:'50%', background: storeDotColor || '#6C5CE7' }} />}
+                  {hasMemo && <span style={{ width:4, height:4, borderRadius:'50%', background:'#E84393' }} />}
+                </div>
               </button>
             )
           })}
         </div>
       ))}
-      <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:8, paddingTop:8, borderTop:'1px solid #F0F0F0' }}>
-        <span style={{ width:6, height:6, borderRadius:'50%', background:'#6C5CE7', display:'inline-block' }} />
-        <span style={{ fontSize:9, color:'#aaa' }}>할일 있는 날</span>
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:8, paddingTop:8, borderTop:'1px solid #F0F0F0', flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+          <span style={{ width:6, height:6, borderRadius:'50%', background: storeDotColor || '#6C5CE7', display:'inline-block' }} />
+          <span style={{ fontSize:9, color:'#aaa' }}>할일</span>
+        </div>
+        {memoDates && (
+          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+            <span style={{ width:6, height:6, borderRadius:'50%', background:'#E84393', display:'inline-block' }} />
+            <span style={{ fontSize:9, color:'#aaa' }}>메모</span>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 // ── 할일 아이템 ──
-function TodoItem({ todo, checks, onToggle, canCheck, myName, userRole }: {
+function TodoItem({ todo, checks, onToggle, canCheck, myName, userRole, onMissionComplete }: {
   todo: any; checks: any[]; onToggle: () => void; canCheck: boolean; myName: string; userRole: string
+  onMissionComplete?: (todoId: string, photoUrl: string) => void
 }) {
   const myChecked = checks.find((c: any) => c.checked_by === myName)
   if (!canViewByVisibility(todo.visibility, userRole)) return null
+
+  function handleClick() {
+    if (!canCheck) return
+    if (todo.is_mission && !myChecked && onMissionComplete) {
+      onMissionComplete(todo.id, '')
+    } else {
+      onToggle()
+    }
+  }
+
   return (
     <div style={{ borderRadius:10, border:myChecked?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0', background:myChecked?'rgba(0,184,148,0.04)':'#F8F9FB', marginBottom:6, overflow:'hidden' }}>
-      <button onClick={onToggle} style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'none', border:'none', cursor:canCheck?'pointer':'not-allowed', textAlign:'left' }}>
+      <button onClick={handleClick} style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'none', border:'none', cursor:canCheck?'pointer':'not-allowed', textAlign:'left' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <span style={{ fontSize:17, color:myChecked?'#00B894':'#ddd', lineHeight:1, flexShrink:0 }}>{myChecked?'✓':'○'}</span>
+          <span style={{ fontSize:17, color:todo.is_mission&&!myChecked?'#FDC400':myChecked?'#00B894':'#ddd', lineHeight:1, flexShrink:0 }}>
+            {todo.is_mission && !myChecked ? '📸' : myChecked ? '✓' : '○'}
+          </span>
           <div>
             <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
               <div style={{ fontSize:13, color:myChecked?'#00B894':canCheck?'#444':'#bbb', textDecoration:myChecked?'line-through':'none' }}>{todo.content}</div>
               <VisibilityBadge value={todo.visibility} />
+              <RepeatBadge value={todo.repeat_type} />
+              {todo.is_mission && <span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(253,196,0,0.15)', color:'#FDC400', fontWeight:700 }}>📸 미션</span>}
             </div>
             {todo.created_by && <div style={{ fontSize:10, color:'#bbb', marginTop:1 }}>작성: {todo.created_by}</div>}
           </div>
@@ -162,6 +246,14 @@ function TodoItem({ todo, checks, onToggle, canCheck, myName, userRole }: {
       {todo.attachment_url && (
         <div style={{ padding:'0 14px 10px' }}>
           <AttachmentView url={todo.attachment_url} type={todo.attachment_type} />
+        </div>
+      )}
+      {todo.completion_photo_url && myChecked && (
+        <div style={{ padding:'0 14px 10px' }}>
+          <div style={{ fontSize:10, color:'#00B894', marginBottom:4, fontWeight:700 }}>📸 완료 인증 사진</div>
+          <img src={todo.completion_photo_url} alt="완료 인증"
+            style={{ width:'100%', maxHeight:200, borderRadius:8, objectFit:'cover', cursor:'pointer' }}
+            onClick={() => window.open(todo.completion_photo_url, '_blank')} />
         </div>
       )}
       {checks.length > 0 && (
@@ -197,6 +289,7 @@ function OverdueTodoItem({ todo, checks, onToggle, onMove, onDelete, myName, day
             <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
               <span style={{ fontSize:10, color:'#bbb' }}>원래: {todo.origin_date?.replace(/-/g,'.')}</span>
               <span style={{ fontSize:10, fontWeight:700, color: urgentColor, background:`${urgentColor}15`, padding:'1px 6px', borderRadius:6 }}>{dayCount}일째 미완료</span>
+              <RepeatBadge value={todo.repeat_type} />
             </div>
           </div>
         </div>
@@ -296,33 +389,50 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
   )
 }
 
-// ── 관리 탭 (대표 전용) ──
-function AdminTab({ storeId, userName }: { storeId: string; userName: string }) {
+// ══════════════════════════════════════════
+// 관리 탭 (대표 전용) — 완전 개편
+// ══════════════════════════════════════════
+function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: string; isPC: boolean }) {
   const supabase = createSupabaseBrowserClient()
+  const today = toDateStr(new Date())
+
+  // 매장 데이터
   const [stores, setStores] = useState<any[]>([])
-  const [selectedStoreId, setSelectedStoreId] = useState(storeId)
-  const [allTodos, setAllTodos] = useState<{store: any; todos: any[]; checks: Record<string, any[]>}[]>([])
+  const [allTodosMap, setAllTodosMap] = useState<{store: any; todos: any[]}[]>([])
   const [loading, setLoading] = useState(true)
-  // 개인 메모 (캘린더)
+
+  // 빠른 할일 추가
+  const [quickInputs, setQuickInputs] = useState<Record<string, string>>({})
+  const [quickVisibility, setQuickVisibility] = useState('all')
+  const [quickRepeat, setQuickRepeat] = useState('none')
+  const [quickMission, setQuickMission] = useState(false)
+  const [savingStore, setSavingStore] = useState<string | null>(null)
+  const [addedStore, setAddedStore] = useState<string | null>(null)
+
+  // 통합 캘린더
   const nowD = new Date()
-  const [memoYear, setMemoYear] = useState(nowD.getFullYear())
-  const [memoMonth, setMemoMonth] = useState(nowD.getMonth())
-  const [memoSelectedDate, setMemoSelectedDate] = useState(toDateStr(nowD))
+  const [calYear, setCalYear] = useState(nowD.getFullYear())
+  const [calMonth, setCalMonth] = useState(nowD.getMonth())
+  const [selectedCalDate, setSelectedCalDate] = useState(today)
+  const [allTodoDates, setAllTodoDates] = useState<Set<string>>(new Set())
+
+  // 개인 메모
   const [personalMemos, setPersonalMemos] = useState<Record<string, string>>({})
   const [memoText, setMemoText] = useState('')
   const [savingMemo, setSavingMemo] = useState(false)
-  const [activeSection, setActiveSection] = useState<'todos' | 'memo'>('todos')
+  const memoDates = new Set(Object.keys(personalMemos).filter(d => personalMemos[d]))
+
+  // 보기 섹션
+  const [showMemo, setShowMemo] = useState(false)
+  const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set())
 
   useEffect(() => { loadAdminData() }, [storeId])
-  useEffect(() => {
-    // 날짜 변경 시 해당 날 메모 로드
-    setMemoText(personalMemos[memoSelectedDate] || '')
-  }, [memoSelectedDate, personalMemos])
+  useEffect(() => { setMemoText(personalMemos[selectedCalDate] || '') }, [selectedCalDate, personalMemos])
 
   async function loadAdminData() {
     setLoading(true)
     try {
-      // 현재 유저가 소속된 모든 매장 로드 (store_members를 통해 접근)
+      // 전체 매장 로드
       const { data: memberData } = await supabase
         .from('store_members')
         .select('store_id, role, stores(id, name)')
@@ -333,15 +443,14 @@ function AdminTab({ storeId, userName }: { storeId: string; userName: string }) 
         .filter((s: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === s.id) === i)
 
       if (storeList.length === 0) {
-        // fallback: 현재 매장만
         const { data: storeData } = await supabase.from('stores').select('id, name').eq('id', storeId).maybeSingle()
         if (storeData) storeList.push(storeData)
       }
       setStores(storeList)
 
-      // 각 매장의 최근 7일 미완료 할일 로드
+      // 최근 7일 + 오늘 할일 로드
       const results = []
-      const today = toDateStr(new Date())
+      const allDates = new Set<string>()
       for (const store of storeList) {
         const storeResults: any[] = []
         for (let i = 0; i <= 6; i++) {
@@ -356,12 +465,10 @@ function AdminTab({ storeId, userName }: { storeId: string; userName: string }) 
           if (!notices) continue
           const allTodoIds = notices.flatMap((n: any) => (n.notice_todos || []).map((t: any) => t.id))
           if (allTodoIds.length === 0) continue
+          allDates.add(dateStr)
           const { data: chks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', allTodoIds)
           const checkMap: Record<string, any[]> = {}
-          if (chks) chks.forEach((c: any) => {
-            if (!checkMap[c.todo_id]) checkMap[c.todo_id] = []
-            checkMap[c.todo_id].push(c)
-          })
+          if (chks) chks.forEach((c: any) => { if (!checkMap[c.todo_id]) checkMap[c.todo_id] = []; checkMap[c.todo_id].push(c) })
           for (const notice of notices) {
             for (const todo of (notice.notice_todos || [])) {
               const todoChecks = checkMap[todo.id] || []
@@ -369,11 +476,12 @@ function AdminTab({ storeId, userName }: { storeId: string; userName: string }) 
             }
           }
         }
-        results.push({ store, todos: storeResults, checks: {} })
+        results.push({ store, todos: storeResults })
       }
-      setAllTodos(results)
+      setAllTodosMap(results)
+      setAllTodoDates(allDates)
 
-      // 개인 메모 로드 (notices 테이블에서 type='personal_memo'로 저장)
+      // 개인 메모
       const { data: memos } = await supabase
         .from('notices')
         .select('notice_date, content')
@@ -389,30 +497,50 @@ function AdminTab({ storeId, userName }: { storeId: string; userName: string }) 
     setLoading(false)
   }
 
+  async function quickAddTodo(sId: string, sName: string) {
+    const content = (quickInputs[sId] || '').trim()
+    if (!content) return
+    setSavingStore(sId)
+    try {
+      // 오늘 날짜 notice 찾거나 생성
+      const { data: existing } = await supabase.from('notices').select('id')
+        .eq('store_id', sId).eq('notice_date', today).eq('title', '관리자 할일').eq('is_from_closing', false).maybeSingle()
+      let noticeId = existing?.id
+      if (!noticeId) {
+        const { data: newNotice } = await supabase.from('notices').insert({
+          store_id: sId, title: '관리자 할일', content: null,
+          notice_date: today, created_by: userName, is_from_closing: false, is_pinned: false
+        }).select().single()
+        noticeId = newNotice.id
+      }
+      await supabase.from('notice_todos').insert({
+        notice_id: noticeId, content, created_by: userName,
+        visibility: quickVisibility, repeat_type: quickRepeat,
+        is_mission: quickMission, attachment_url: null, attachment_type: null
+      })
+      setQuickInputs(p => ({ ...p, [sId]: '' }))
+      setAddedStore(sId)
+      setTimeout(() => setAddedStore(null), 1500)
+      await loadAdminData()
+    } catch (e: any) { alert('추가 실패: ' + e?.message) }
+    setSavingStore(null)
+  }
+
   async function saveMemo() {
-    if (!memoSelectedDate) return
+    if (!selectedCalDate) return
     setSavingMemo(true)
     try {
-      const existing = await supabase.from('notices').select('id').eq('store_id', storeId).eq('notice_date', memoSelectedDate).eq('title', '__PERSONAL_MEMO__').maybeSingle()
+      const existing = await supabase.from('notices').select('id')
+        .eq('store_id', storeId).eq('notice_date', selectedCalDate).eq('title', '__PERSONAL_MEMO__').maybeSingle()
       if (existing.data) {
         await supabase.from('notices').update({ content: memoText }).eq('id', existing.data.id)
       } else {
-        await supabase.from('notices').insert({ store_id: storeId, title: '__PERSONAL_MEMO__', content: memoText, notice_date: memoSelectedDate, created_by: userName, is_from_closing: false, is_pinned: false })
+        await supabase.from('notices').insert({ store_id: storeId, title: '__PERSONAL_MEMO__', content: memoText, notice_date: selectedCalDate, created_by: userName, is_from_closing: false, is_pinned: false })
       }
-      setPersonalMemos(p => ({ ...p, [memoSelectedDate]: memoText }))
+      setPersonalMemos(p => ({ ...p, [selectedCalDate]: memoText }))
     } catch (e) { console.error(e) }
     setSavingMemo(false)
   }
-
-  const memoDates = new Set(Object.keys(personalMemos).filter(d => personalMemos[d]))
-
-  const sectionBtn = (key: typeof activeSection, label: string) => ({
-    flex: 1, padding: '9px 0', borderRadius: 10, border: 'none', cursor: 'pointer' as const,
-    fontSize: 13, fontWeight: activeSection === key ? 700 : 400,
-    background: activeSection === key ? '#fff' : 'transparent',
-    color: activeSection === key ? '#1a1a2e' : '#aaa',
-    boxShadow: activeSection === key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-  })
 
   if (loading) return (
     <div style={{ textAlign: 'center', padding: 48, color: '#bbb' }}>
@@ -421,50 +549,104 @@ function AdminTab({ storeId, userName }: { storeId: string; userName: string }) 
     </div>
   )
 
-  return (
-    <div>
-      {/* 섹션 탭 */}
-      <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 12, padding: 4, marginBottom: 16 }}>
-        <button style={sectionBtn('todos', '📋 전 지점 할일')} onClick={() => setActiveSection('todos')}>📋 전 지점 할일</button>
-        <button style={sectionBtn('memo', '📅 내 스케줄 메모')} onClick={() => setActiveSection('memo')}>📅 내 스케줄 메모</button>
-      </div>
-
-      {/* 전 지점 할일 */}
-      {activeSection === 'todos' && (
-        <>
-          {/* 매장 필터 */}
-          {stores.length > 1 && (
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-              <button onClick={() => setSelectedStoreId('')}
-                style={{ padding: '6px 14px', borderRadius: 9, border: !selectedStoreId ? '1px solid rgba(108,92,231,0.4)' : '1px solid #E8ECF0', background: !selectedStoreId ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: !selectedStoreId ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: !selectedStoreId ? 700 : 400, cursor: 'pointer' }}>
-                전체 매장
-              </button>
-              {stores.map(s => (
-                <button key={s.id} onClick={() => setSelectedStoreId(s.id)}
-                  style={{ padding: '6px 14px', borderRadius: 9, border: selectedStoreId === s.id ? '1px solid rgba(108,92,231,0.4)' : '1px solid #E8ECF0', background: selectedStoreId === s.id ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: selectedStoreId === s.id ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: selectedStoreId === s.id ? 700 : 400, cursor: 'pointer' }}>
-                  {s.name}
-                </button>
-              ))}
+  // ── 오늘 현황 그리드 ──
+  const statusGrid = (
+    <div style={{ ...bx, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📊 오늘 현황</div>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(stores.length, 3)}, 1fr)`, gap: 8 }}>
+        {allTodosMap.map(({ store, todos }) => {
+          const todayTodos = todos.filter(t => t.isToday)
+          const done = todayTodos.filter(t => t.isDone).length
+          const total = todayTodos.length
+          const allDone = total > 0 && done === total
+          const noneYet = total === 0
+          return (
+            <div key={store.id} style={{ borderRadius: 12, padding: '10px 12px', background: allDone ? 'rgba(0,184,148,0.06)' : noneYet ? '#F8F9FB' : 'rgba(255,107,53,0.05)', border: `1px solid ${allDone ? 'rgba(0,184,148,0.2)' : noneYet ? '#E8ECF0' : 'rgba(255,107,53,0.2)'}` }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#1a1a2e', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store.name}</div>
+              <div style={{ fontSize: 20, marginBottom: 2 }}>{allDone ? '✅' : noneYet ? '—' : '⚠️'}</div>
+              <div style={{ fontSize: 11, color: allDone ? '#00B894' : noneYet ? '#bbb' : '#FF6B35', fontWeight: 600 }}>
+                {noneYet ? '할일 없음' : `${done}/${total} 완료`}
+              </div>
             </div>
-          )}
+          )
+        })}
+      </div>
+    </div>
+  )
 
-          {allTodos.filter(sd => !selectedStoreId || sd.store.id === selectedStoreId).map(({ store, todos }) => {
-            const incompleteTodos = todos.filter(t => !t.isDone)
-            const completedTodos = todos.filter(t => t.isDone)
-            return (
-              <div key={store.id} style={{ ...bx, marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>🏪 {store.name}</span>
-                    {incompleteTodos.length > 0 && (
-                      <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>{incompleteTodos.length}개 미완료</span>
-                    )}
-                    {incompleteTodos.length === 0 && todos.length > 0 && (
-                      <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(0,184,148,0.1)', color: '#00B894', fontWeight: 700 }}>✅ 모두 완료</span>
-                    )}
-                  </div>
-                </div>
+  // ── 빠른 할일 추가 ──
+  const quickAddSection = (
+    <div style={{ ...bx, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>⚡ 빠른 할일 추가</div>
+      {/* 공통 옵션 */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+        {VISIBILITY_OPTIONS.map(opt => (
+          <button key={opt.value} onClick={() => setQuickVisibility(opt.value)}
+            style={{ padding: '4px 10px', borderRadius: 8, border: quickVisibility === opt.value ? `1.5px solid ${opt.color}` : '1px solid #E8ECF0', background: quickVisibility === opt.value ? `${opt.color}12` : '#F4F6F9', color: quickVisibility === opt.value ? opt.color : '#aaa', fontSize: 10, fontWeight: quickVisibility === opt.value ? 700 : 400, cursor: 'pointer' }}>
+            {opt.label}
+          </button>
+        ))}
+        <div style={{ width: '100%', height: 0 }} />
+        {REPEAT_OPTIONS.filter(r => r.value !== 'none').map(opt => (
+          <button key={opt.value} onClick={() => setQuickRepeat(r => r === opt.value ? 'none' : opt.value)}
+            style={{ padding: '4px 10px', borderRadius: 8, border: quickRepeat === opt.value ? '1.5px solid #00B894' : '1px solid #E8ECF0', background: quickRepeat === opt.value ? 'rgba(0,184,148,0.1)' : '#F4F6F9', color: quickRepeat === opt.value ? '#00B894' : '#aaa', fontSize: 10, fontWeight: quickRepeat === opt.value ? 700 : 400, cursor: 'pointer' }}>
+            {opt.icon} {opt.label}
+          </button>
+        ))}
+        <button onClick={() => setQuickMission(p => !p)}
+          style={{ padding: '4px 10px', borderRadius: 8, border: quickMission ? '1.5px solid #FDC400' : '1px solid #E8ECF0', background: quickMission ? 'rgba(253,196,0,0.12)' : '#F4F6F9', color: quickMission ? '#d4a800' : '#aaa', fontSize: 10, fontWeight: quickMission ? 700 : 400, cursor: 'pointer' }}>
+          📸 미션 {quickMission ? 'ON' : 'OFF'}
+        </button>
+      </div>
+      {/* 지점별 입력 */}
+      {stores.map(store => (
+        <div key={store.id} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#6C5CE7', background: 'rgba(108,92,231,0.08)', borderRadius: 8, padding: '0 8px', height: 36, display: 'flex', alignItems: 'center', minWidth: 0, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {store.name.length > 7 ? store.name.slice(0,7)+'…' : store.name}
+          </div>
+          <input
+            value={quickInputs[store.id] || ''}
+            onChange={e => setQuickInputs(p => ({ ...p, [store.id]: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && quickAddTodo(store.id, store.name)}
+            placeholder="할일 입력 후 엔터"
+            style={{ ...inp, flex: 1, height: 36, padding: '0 10px' }}
+          />
+          <button
+            onClick={() => quickAddTodo(store.id, store.name)}
+            disabled={savingStore === store.id || !(quickInputs[store.id] || '').trim()}
+            style={{ padding: '0 14px', height: 36, borderRadius: 9, background: addedStore === store.id ? '#00B894' : savingStore === store.id ? '#ddd' : 'rgba(108,92,231,0.1)', border: `1px solid ${addedStore === store.id ? '#00B894' : 'rgba(108,92,231,0.3)'}`, color: addedStore === store.id ? '#fff' : '#6C5CE7', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0, transition: 'all 0.2s', whiteSpace: 'nowrap' }}>
+            {addedStore === store.id ? '✓ 추가됨' : savingStore === store.id ? '...' : '+ 추가'}
+          </button>
+        </div>
+      ))}
+      <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>오늘 날짜({today.replace(/-/g,'.')})로 각 지점에 바로 등록됩니다</div>
+    </div>
+  )
 
+  // ── 전체 할일 목록 ──
+  const allTodosList = (
+    <div>
+      {allTodosMap.map(({ store, todos }) => {
+        const incompleteTodos = todos.filter(t => !t.isDone)
+        const completedTodos = todos.filter(t => t.isDone)
+        const isExpanded = expandedStores.has(store.id)
+        return (
+          <div key={store.id} style={{ ...bx, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isExpanded ? 12 : 0 }}>
+              <button onClick={() => setExpandedStores(p => { const n = new Set(p); n.has(store.id) ? n.delete(store.id) : n.add(store.id); return n })}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0, flex: 1, textAlign: 'left' }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>🏪 {store.name}</span>
+                {incompleteTodos.length > 0 && (
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>{incompleteTodos.length}개 미완료</span>
+                )}
+                {incompleteTodos.length === 0 && todos.length > 0 && (
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(0,184,148,0.1)', color: '#00B894', fontWeight: 700 }}>✅ 모두 완료</span>
+                )}
+                <span style={{ fontSize: 10, color: '#bbb', marginLeft: 'auto' }}>{isExpanded ? '▲' : '▼'}</span>
+              </button>
+            </div>
+            {isExpanded && (
+              <>
                 {todos.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '16px 0', color: '#bbb', fontSize: 12 }}>최근 7일간 등록된 할일 없음</div>
                 ) : (
@@ -481,9 +663,15 @@ function AdminTab({ storeId, userName }: { storeId: string; userName: string }) 
                               </span>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 12, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.content}</div>
-                                <div style={{ fontSize: 10, color: '#bbb', marginTop: 1 }}>{todo.notice_title} · {todo.origin_date?.replace(/-/g,'.')}</div>
+                                <div style={{ fontSize: 10, color: '#bbb', marginTop: 1, display: 'flex', gap: 6 }}>
+                                  <span>{todo.notice_title} · {todo.origin_date?.replace(/-/g,'.')}</span>
+                                  {todo.is_mission && <span style={{ color: '#FDC400' }}>📸 미션</span>}
+                                </div>
                               </div>
-                              <VisibilityBadge value={todo.visibility} />
+                              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                <VisibilityBadge value={todo.visibility} />
+                                <RepeatBadge value={todo.repeat_type} />
+                              </div>
                             </div>
                           )
                         })}
@@ -503,55 +691,83 @@ function AdminTab({ storeId, userName }: { storeId: string; userName: string }) 
                     )}
                   </>
                 )}
-              </div>
-            )
-          })}
+              </>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 
-          {/* 제안사항 */}
-          <div style={{ ...bx, background: 'rgba(108,92,231,0.03)', border: '1px dashed rgba(108,92,231,0.2)', marginTop: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', marginBottom: 8 }}>💡 관리 탭 고도화 제안</div>
-            <div style={{ fontSize: 11, color: '#888', lineHeight: 1.8 }}>
-              • <strong>매출 비교</strong>: 전 지점 오늘 매출을 한눈에 비교<br/>
-              • <strong>공지 발송</strong>: 전 지점에 공지를 일괄 발송<br/>
-              • <strong>직원 현황</strong>: 전 지점 오늘 출근 현황 통합 보기<br/>
-              • <strong>재고 알림</strong>: 전 지점 부족 재고 통합 알림<br/>
-              필요한 기능 추가 요청 주시면 반영해드릴게요! 😊
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* 스케줄 메모 */}
-      {activeSection === 'memo' && (
-        <div>
-          <div style={{ fontSize: 12, color: '#888', marginBottom: 12, padding: '8px 12px', background: 'rgba(108,92,231,0.05)', borderRadius: 10, border: '1px solid rgba(108,92,231,0.1)' }}>
-            📅 날짜를 선택하고 개인 스케줄 메모를 남겨보세요. 대표님만 볼 수 있습니다.
-          </div>
-          <MiniCalendar
-            year={memoYear} month={memoMonth}
-            todoDates={memoDates}
-            selectedDate={memoSelectedDate}
-            onSelectDate={d => setMemoSelectedDate(d)}
-            onChangeMonth={(y, m) => { setMemoYear(y); setMemoMonth(m) }}
-          />
-          <div style={{ ...bx }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#6C5CE7', marginBottom: 10 }}>
-              📝 {memoSelectedDate.replace(/-/g,'.')} 메모
-            </div>
-            <textarea
-              value={memoText}
-              onChange={e => setMemoText(e.target.value)}
-              placeholder="이 날의 스케줄, 미팅, 할일 등을 자유롭게 기록하세요..."
-              rows={5}
-              style={{ ...inp, resize: 'none', lineHeight: 1.7, marginBottom: 10 }}
-            />
-            <button onClick={saveMemo} disabled={savingMemo}
-              style={{ width: '100%', padding: '11px 0', borderRadius: 12, background: savingMemo ? '#ddd' : 'linear-gradient(135deg,#6C5CE7,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: savingMemo ? 'not-allowed' : 'pointer' }}>
-              {savingMemo ? '저장 중...' : '💾 메모 저장'}
-            </button>
-          </div>
+  // ── 캘린더 + 메모 섹션 ──
+  const calendarMemoSection = (
+    <div>
+      <MiniCalendar
+        year={calYear} month={calMonth}
+        todoDates={allTodoDates}
+        memoDates={memoDates}
+        selectedDate={selectedCalDate}
+        onSelectDate={d => setSelectedCalDate(d)}
+        onChangeMonth={(y, m) => { setCalYear(y); setCalMonth(m) }}
+      />
+      <div style={{ ...bx }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#E84393' }}>📝 {selectedCalDate.replace(/-/g,'.')} 메모</div>
+          {selectedCalDate !== today && (
+            <span style={{ fontSize: 10, color: '#bbb' }}>대표님만 열람</span>
+          )}
         </div>
-      )}
+        <textarea
+          value={memoText}
+          onChange={e => setMemoText(e.target.value)}
+          placeholder="이 날의 스케줄, 미팅, 할일 등을 자유롭게..."
+          rows={4}
+          style={{ ...inp, resize: 'none', lineHeight: 1.7, marginBottom: 10 }}
+        />
+        <button onClick={saveMemo} disabled={savingMemo}
+          style={{ width: '100%', padding: '10px 0', borderRadius: 12, background: savingMemo ? '#ddd' : 'linear-gradient(135deg,#E84393,#6C5CE7)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: savingMemo ? 'not-allowed' : 'pointer' }}>
+          {savingMemo ? '저장 중...' : '💾 메모 저장'}
+        </button>
+      </div>
+    </div>
+  )
+
+  // ── PC vs 모바일 레이아웃 ──
+  if (isPC) {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 20, alignItems: 'start' }}>
+        {/* 좌: 캘린더 + 메모 (sticky) */}
+        <div style={{ position: 'sticky', top: 80 }}>
+          {calendarMemoSection}
+        </div>
+        {/* 우: 현황 그리드 + 빠른 추가 + 전체 할일 */}
+        <div>
+          {statusGrid}
+          {quickAddSection}
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            📋 전 지점 할일
+            <span style={{ fontSize: 10, color: '#bbb', fontWeight: 400 }}>클릭하면 펼쳐져요</span>
+          </div>
+          {allTodosList}
+        </div>
+      </div>
+    )
+  }
+
+  // 모바일
+  return (
+    <div>
+      {statusGrid}
+      {quickAddSection}
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>📋 전 지점 할일</div>
+      {allTodosList}
+      <div style={{ marginTop: 16 }}>
+        <button onClick={() => setShowMemo(p => !p)}
+          style={{ width: '100%', padding: '10px 0', borderRadius: 12, background: showMemo ? 'rgba(232,67,147,0.1)' : '#F4F6F9', border: showMemo ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0', color: showMemo ? '#E84393' : '#888', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: showMemo ? 12 : 0 }}>
+          📅 내 스케줄 메모 {showMemo ? '▲' : '▼'}
+        </button>
+        {showMemo && calendarMemoSection}
+      </div>
     </div>
   )
 }
@@ -595,6 +811,8 @@ export default function NoticePage() {
   const [formTodoTitle, setFormTodoTitle] = useState('')
   const [formTodos, setFormTodos] = useState<string[]>([''])
   const [formTodoVisibility, setFormTodoVisibility] = useState('all')
+  const [formTodoRepeat, setFormTodoRepeat] = useState('none')
+  const [formTodoMission, setFormTodoMission] = useState(false)
   const [formTodoAttachType, setFormTodoAttachType] = useState<'none'|'link'|'image'>('none')
   const [formTodoAttachUrl, setFormTodoAttachUrl] = useState('')
   const [isUploadingTodoAttach, setIsUploadingTodoAttach] = useState(false)
@@ -606,6 +824,14 @@ export default function NoticePage() {
 
   const [overdueTodos, setOverdueTodos] = useState<any[]>([])
   const [overdueChecks, setOverdueChecks] = useState<Record<string, any[]>>({})
+
+  // ── 미션 모달 ──
+  const [missionModal, setMissionModal] = useState<{ todoId: string; content: string; noticeDate: string } | null>(null)
+  const [missionPhotoUrl, setMissionPhotoUrl] = useState('')
+  const [isUploadingMissionPhoto, setIsUploadingMissionPhoto] = useState(false)
+
+  // ── 반복 할일 복사 제안 ──
+  const [repeatSuggest, setRepeatSuggest] = useState<{ todoId: string; content: string; repeatType: string } | null>(null)
 
   const isManager = userRole === 'owner' || userRole === 'manager'
   const isOwner = userRole === 'owner'
@@ -643,25 +869,27 @@ export default function NoticePage() {
   }
 
   async function handleNoticeImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const file = e.target.files?.[0]; if (!file) return
     setIsUploadingNoticeAttach(true)
-    try {
-      const url = await uploadImage(file)
-      setFormNoticeAttachUrl(url)
-    } catch { alert('이미지 업로드 실패. 스토리지 버킷 설정을 확인해주세요.') }
+    try { const url = await uploadImage(file); setFormNoticeAttachUrl(url) }
+    catch { alert('이미지 업로드 실패. 스토리지 버킷 설정을 확인해주세요.') }
     setIsUploadingNoticeAttach(false)
   }
 
   async function handleTodoImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const file = e.target.files?.[0]; if (!file) return
     setIsUploadingTodoAttach(true)
-    try {
-      const url = await uploadImage(file)
-      setFormTodoAttachUrl(url)
-    } catch { alert('이미지 업로드 실패. 스토리지 버킷 설정을 확인해주세요.') }
+    try { const url = await uploadImage(file); setFormTodoAttachUrl(url) }
+    catch { alert('이미지 업로드 실패.') }
     setIsUploadingTodoAttach(false)
+  }
+
+  async function handleMissionPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return
+    setIsUploadingMissionPhoto(true)
+    try { const url = await uploadImage(file); setMissionPhotoUrl(url) }
+    catch { alert('사진 업로드 실패.') }
+    setIsUploadingMissionPhoto(false)
   }
 
   // ── 로드 함수들 ──
@@ -782,9 +1010,68 @@ export default function NoticePage() {
       const { data: newNotice } = await supabase.from('notices').insert({ store_id: storeId, title: `[이월] ${todo.notice_title}`, content: null, notice_date: today, created_by: userName, is_from_closing: false, is_pinned: false }).select().single()
       noticeId = newNotice.id
     }
-    await supabase.from('notice_todos').insert({ notice_id: noticeId, content: todo.content, created_by: todo.created_by })
+    await supabase.from('notice_todos').insert({ notice_id: noticeId, content: todo.content, created_by: todo.created_by, visibility: todo.visibility, repeat_type: todo.repeat_type, is_mission: todo.is_mission })
     loadDayTodos(storeId, today); loadTodoDates(storeId); loadOverdueTodos(storeId)
     alert('오늘 날짜로 이동됐어요!')
+  }
+
+  async function toggleNoticeTodo(todoId: string, noticeDate: string, todo?: any) {
+    if (!canCheckDate(noticeDate)) { alert('당일 할일만 체크할 수 있습니다.'); return }
+    const myCheck = (noticeTodoChecks[todoId]||[]).find((c: any) => c.checked_by === userName)
+    if (myCheck) {
+      await supabase.from('notice_todo_checks').delete().eq('id', myCheck.id)
+      setNoticeTodoChecks(p => ({ ...p, [todoId]: (p[todoId]||[]).filter((c: any) => c.id !== myCheck.id) }))
+    } else {
+      const { data } = await supabase.from('notice_todo_checks').insert({ todo_id: todoId, checked_by: userName, checked_at: new Date().toISOString() }).select().single()
+      setNoticeTodoChecks(p => ({ ...p, [todoId]: [...(p[todoId]||[]), data] }))
+      // 반복 할일 제안
+      if (todo?.repeat_type && todo.repeat_type !== 'none') {
+        setRepeatSuggest({ todoId, content: todo.content, repeatType: todo.repeat_type })
+      }
+    }
+  }
+
+  async function completeMissionTodo(todoId: string, noticeDate: string, photoUrl: string) {
+    // update completion_photo_url on todo
+    if (photoUrl) {
+      await supabase.from('notice_todos').update({ completion_photo_url: photoUrl }).eq('id', todoId)
+    }
+    const { data } = await supabase.from('notice_todo_checks').insert({ todo_id: todoId, checked_by: userName, checked_at: new Date().toISOString() }).select().single()
+    setNoticeTodoChecks(p => ({ ...p, [todoId]: [...(p[todoId]||[]), data] }))
+    loadDayTodos(storeId, noticeDate)
+    setMissionModal(null); setMissionPhotoUrl('')
+  }
+
+  async function copyRepeatTodo(content: string, repeatType: string) {
+    // 다음 날짜 계산
+    const nextDate = new Date(selectedDate)
+    if (repeatType === 'daily') nextDate.setDate(nextDate.getDate() + 1)
+    else if (repeatType === 'weekly') nextDate.setDate(nextDate.getDate() + 7)
+    else if (repeatType === 'monthly') nextDate.setMonth(nextDate.getMonth() + 1)
+    const nextDateStr = toDateStr(nextDate)
+
+    const { data: existing } = await supabase.from('notices').select('id').eq('store_id', storeId).eq('notice_date', nextDateStr).eq('title', '반복 할일').maybeSingle()
+    let noticeId = existing?.id
+    if (!noticeId) {
+      const { data: newNotice } = await supabase.from('notices').insert({ store_id: storeId, title: '반복 할일', content: null, notice_date: nextDateStr, created_by: userName, is_from_closing: false, is_pinned: false }).select().single()
+      noticeId = newNotice.id
+    }
+    await supabase.from('notice_todos').insert({ notice_id: noticeId, content, created_by: userName, repeat_type: repeatType, visibility: 'all', is_mission: false })
+    loadTodoDates(storeId)
+    setRepeatSuggest(null)
+    alert(`${nextDateStr.replace(/-/g,'.')}에 반복 할일이 추가됐어요!`)
+  }
+
+  async function toggleClosingTodo(todoId: string) {
+    if (!canCheckDate(selectedDate)) { alert('당일 전달사항만 체크할 수 있습니다.'); return }
+    const myCheck = (closingChecks[todoId]||[]).find((c: any) => c.checked_by === userName)
+    if (myCheck) {
+      await supabase.from('closing_next_todo_checks').delete().eq('id', myCheck.id)
+      setClosingChecks(p => ({ ...p, [todoId]: (p[todoId]||[]).filter((c: any) => c.id !== myCheck.id) }))
+    } else {
+      const { data } = await supabase.from('closing_next_todo_checks').insert({ todo_id: todoId, checked_by: userName, checked_at: new Date().toISOString() }).select().single()
+      setClosingChecks(p => ({ ...p, [todoId]: [...(p[todoId]||[]), data] }))
+    }
   }
 
   async function saveNotice() {
@@ -828,12 +1115,15 @@ export default function NoticePage() {
         validTodos.map(content => ({
           notice_id: data.id, content, created_by: userName,
           visibility: formTodoVisibility,
+          repeat_type: formTodoRepeat,
+          is_mission: formTodoMission,
           attachment_url: attachUrl,
           attachment_type: attachType,
         }))
       )
       setShowTodoForm(false); setFormTodoTitle(''); setFormTodos([''])
-      setFormTodoVisibility('all'); setFormTodoAttachType('none'); setFormTodoAttachUrl('')
+      setFormTodoVisibility('all'); setFormTodoRepeat('none'); setFormTodoMission(false)
+      setFormTodoAttachType('none'); setFormTodoAttachUrl('')
       loadDayTodos(storeId, selectedDate); loadTodoDates(storeId)
     } catch (e: any) { alert('저장 실패: ' + e?.message) }
     finally { setIsSavingTodo(false) }
@@ -843,30 +1133,6 @@ export default function NoticePage() {
     if (!confirm('할일을 삭제할까요?')) return
     await supabase.from('notices').delete().eq('id', id)
     loadDayTodos(storeId, selectedDate); loadTodoDates(storeId)
-  }
-
-  async function toggleNoticeTodo(todoId: string, noticeDate: string) {
-    if (!canCheckDate(noticeDate)) { alert('당일 할일만 체크할 수 있습니다.'); return }
-    const myCheck = (noticeTodoChecks[todoId]||[]).find((c: any) => c.checked_by === userName)
-    if (myCheck) {
-      await supabase.from('notice_todo_checks').delete().eq('id', myCheck.id)
-      setNoticeTodoChecks(p => ({ ...p, [todoId]: (p[todoId]||[]).filter((c: any) => c.id !== myCheck.id) }))
-    } else {
-      const { data } = await supabase.from('notice_todo_checks').insert({ todo_id: todoId, checked_by: userName, checked_at: new Date().toISOString() }).select().single()
-      setNoticeTodoChecks(p => ({ ...p, [todoId]: [...(p[todoId]||[]), data] }))
-    }
-  }
-
-  async function toggleClosingTodo(todoId: string) {
-    if (!canCheckDate(selectedDate)) { alert('당일 전달사항만 체크할 수 있습니다.'); return }
-    const myCheck = (closingChecks[todoId]||[]).find((c: any) => c.checked_by === userName)
-    if (myCheck) {
-      await supabase.from('closing_next_todo_checks').delete().eq('id', myCheck.id)
-      setClosingChecks(p => ({ ...p, [todoId]: (p[todoId]||[]).filter((c: any) => c.id !== myCheck.id) }))
-    } else {
-      const { data } = await supabase.from('closing_next_todo_checks').insert({ todo_id: todoId, checked_by: userName, checked_at: new Date().toISOString() }).select().single()
-      setClosingChecks(p => ({ ...p, [todoId]: [...(p[todoId]||[]), data] }))
-    }
   }
 
   const tabBtn = (active: boolean) => ({
@@ -905,9 +1171,10 @@ export default function NoticePage() {
     <div style={{ ...bx, border:'1px solid rgba(108,92,231,0.3)', background:'rgba(108,92,231,0.02)' }}>
       <div style={{ fontSize:13, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>✅ {selectedDate.replace(/-/g,'.')} 할일 추가</div>
       <input value={formTodoTitle} onChange={e => setFormTodoTitle(e.target.value)} placeholder="그룹명 (예: 오픈 준비)" style={{ ...inp, marginBottom:10 }} />
-      {/* 직급별 보기 설정 */}
+
+      {/* 직급별 보기 */}
       <div style={{ marginBottom: 10 }}>
-        <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>직급별 공개 범위</div>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>공개 범위</div>
         <div style={{ display: 'flex', gap: 6 }}>
           {VISIBILITY_OPTIONS.map(opt => (
             <button key={opt.value} onClick={() => setFormTodoVisibility(opt.value)}
@@ -916,12 +1183,35 @@ export default function NoticePage() {
             </button>
           ))}
         </div>
-        {formTodoVisibility !== 'all' && (
-          <div style={{ fontSize: 10, color: VISIBILITY_OPTIONS.find(o => o.value === formTodoVisibility)?.color, marginTop: 4 }}>
-            {VISIBILITY_OPTIONS.find(o => o.value === formTodoVisibility)?.desc}
-          </div>
+      </div>
+
+      {/* 반복 설정 */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>반복 설정</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {REPEAT_OPTIONS.map(opt => (
+            <button key={opt.value} onClick={() => setFormTodoRepeat(opt.value)}
+              style={{ flex: 1, padding: '7px 4px', borderRadius: 8, border: formTodoRepeat === opt.value ? '1.5px solid #00B894' : '1px solid #E8ECF0', background: formTodoRepeat === opt.value ? 'rgba(0,184,148,0.12)' : '#F4F6F9', color: formTodoRepeat === opt.value ? '#00B894' : '#aaa', fontSize: 10, fontWeight: formTodoRepeat === opt.value ? 700 : 400, cursor: 'pointer', textAlign: 'center' }}>
+              {opt.icon || '—'} {opt.label}
+            </button>
+          ))}
+        </div>
+        {formTodoRepeat !== 'none' && (
+          <div style={{ fontSize: 10, color: '#00B894', marginTop: 4 }}>✅ 완료 시 다음 날짜로 복사 제안이 표시됩니다</div>
         )}
       </div>
+
+      {/* 미션 모드 */}
+      <div style={{ marginBottom: 10 }}>
+        <button onClick={() => setFormTodoMission(p => !p)}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: formTodoMission ? '1.5px solid #FDC400' : '1px solid #E8ECF0', background: formTodoMission ? 'rgba(253,196,0,0.1)' : '#F8F9FB', color: formTodoMission ? '#d4a800' : '#888', fontSize: 12, fontWeight: formTodoMission ? 700 : 400, cursor: 'pointer', textAlign: 'left' as const }}>
+          📸 미션 모드 {formTodoMission ? 'ON — 완료 시 사진 인증' : 'OFF — 일반 완료'}
+        </button>
+        {formTodoMission && (
+          <div style={{ fontSize: 10, color: '#d4a800', marginTop: 4, paddingLeft: 4 }}>완료 시 사진 촬영이 요청됩니다. 사진 없이 완료도 가능해요.</div>
+        )}
+      </div>
+
       <div style={{ fontSize: 11, color:'#888', marginBottom:6 }}>할일 항목</div>
       {formTodos.map((todo, i) => (
         <div key={i} style={{ display:'flex', gap:6, marginBottom:6 }}>
@@ -929,15 +1219,14 @@ export default function NoticePage() {
           {formTodos.length > 1 && <button onClick={() => setFormTodos(formTodos.filter((_,j)=>j!==i))} style={{ padding:'8px 10px', borderRadius:8, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#bbb', cursor:'pointer', fontSize:13 }}>✕</button>}
         </div>
       ))}
-      <button onClick={() => setFormTodos([...formTodos,''])} style={{ width:'100%', padding:'7px 0', borderRadius:8, border:'1px dashed #E8ECF0', background:'transparent', color:'#bbb', fontSize:12, cursor:'pointer', marginBottom:10 }}>+ 항목 추가</button>
-      {/* 첨부파일 */}
+      <button onClick={() => setFormTodos([...formTodos,''])} style={{ width:'100%', padding:'7px 0', borderRadius:8, background:'#F4F6F9', border:'1px dashed #E0E4E8', color:'#aaa', fontSize:12, cursor:'pointer', marginBottom:10 }}>+ 항목 추가</button>
       <AttachmentForm
         attachType={formTodoAttachType} setAttachType={setFormTodoAttachType}
         attachUrl={formTodoAttachUrl} setAttachUrl={setFormTodoAttachUrl}
         isUploading={isUploadingTodoAttach} onFileChange={handleTodoImageUpload}
       />
-      <button onClick={saveTodo} disabled={isSavingTodo} style={{ width:'100%', padding:'11px 0', borderRadius:12, background:isSavingTodo?'#ddd':'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:isSavingTodo?'not-allowed':'pointer' }}>
-        {isSavingTodo ? '저장 중...' : '할일 등록'}
+      <button onClick={saveTodo} disabled={isSavingTodo} style={{ width:'100%', padding:'12px 0', borderRadius:12, background:isSavingTodo?'#ddd':'linear-gradient(135deg,#6C5CE7,#00B894)', border:'none', color:'#fff', fontSize:14, fontWeight:700, cursor:isSavingTodo?'not-allowed':'pointer' }}>
+        {isSavingTodo ? '저장 중...' : '✅ 할일 등록'}
       </button>
     </div>
   )
@@ -946,17 +1235,9 @@ export default function NoticePage() {
   const noticeTabContent = (
     <>
       {overdueCount > 0 && (
-        <div style={{ ...bx, border:'1px solid rgba(232,67,147,0.3)', background:'rgba(232,67,147,0.02)', marginBottom:14 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-              <span style={{ fontSize:13, fontWeight:700, color:'#E84393' }}>⚠️ 미완료 할일</span>
-              <span style={{ fontSize:10, padding:'2px 7px', borderRadius:8, background:'rgba(232,67,147,0.12)', color:'#E84393', fontWeight:700 }}>{overdueCount}개</span>
-            </div>
-            <button onClick={() => setSubTab('todo')} style={{ fontSize:11, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', borderRadius:7, padding:'3px 9px', cursor:'pointer', fontWeight:700 }}>
-              할일 탭에서 보기 →
-            </button>
-          </div>
-          {overdueTodos.filter(t => (overdueChecks[t.id]||[]).length === 0).slice(0, 5).map(todo => {
+        <div style={{ ...bx, border:'1px solid rgba(255,107,53,0.3)', background:'rgba(255,107,53,0.02)', marginBottom:12 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'#FF6B35', marginBottom:8 }}>⚠️ 미완료 할일 {overdueCount}개</div>
+          {overdueTodos.slice(0,3).map(todo => {
             const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : '#FDC400'
             return (
               <div key={`${todo.id}-${todo.origin_date}`} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 0', borderBottom:'1px solid #F4F6F9' }}>
@@ -966,7 +1247,7 @@ export default function NoticePage() {
               </div>
             )
           })}
-          {overdueCount > 5 && <div style={{ fontSize:11, color:'#bbb', textAlign:'center', paddingTop:8 }}>외 {overdueCount - 5}개 더...</div>}
+          {overdueCount > 3 && <div style={{ fontSize:11, color:'#bbb', textAlign:'center', paddingTop:8 }}>외 {overdueCount - 3}개 더...</div>}
         </div>
       )}
       {noticeForm}
@@ -1058,7 +1339,12 @@ export default function NoticePage() {
           {(notice.notice_todos||[])
             .filter((todo: any) => canViewByVisibility(todo.visibility, userRole))
             .map((todo: any) => (
-              <TodoItem key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]} onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date)} canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole} />
+              <TodoItem
+                key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]}
+                onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date, todo)}
+                canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole}
+                onMissionComplete={(todoId) => setMissionModal({ todoId, content: todo.content, noticeDate: notice.notice_date })}
+              />
             ))}
         </div>
       ))}
@@ -1069,7 +1355,7 @@ export default function NoticePage() {
   const tabBar = (
     <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:14 }}>
       <button style={tabBtn(subTab==='notice')} onClick={() => setSubTab('notice')}>
-        📢 공지 {unreadCount > 0 ? `(${unreadCount})` : ''}
+        📢 공지 {unreadCount > 0 ? `(${unreadCount})` : notices.filter(n => n.title !== '__PERSONAL_MEMO__').length > 0 ? `(${notices.filter(n => n.title !== '__PERSONAL_MEMO__').length})` : ''}
       </button>
       <button style={tabBtn(subTab==='todo')} onClick={() => setSubTab('todo')}>
         ✅ 할일 {overdueCount > 0 ? `(${overdueCount} 미완료)` : ''}
@@ -1092,7 +1378,7 @@ export default function NoticePage() {
         </button>
       )}
       {isManager && subTab === 'todo' && (
-        <button onClick={() => { setShowTodoForm(p=>!p); setFormTodoTitle(''); setFormTodos(['']); setFormTodoVisibility('all'); setFormTodoAttachType('none'); setFormTodoAttachUrl('') }}
+        <button onClick={() => { setShowTodoForm(p=>!p); setFormTodoTitle(''); setFormTodos(['']); setFormTodoVisibility('all'); setFormTodoRepeat('none'); setFormTodoMission(false); setFormTodoAttachType('none'); setFormTodoAttachUrl('') }}
           style={{ padding:'6px 14px', borderRadius:9, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, fontWeight:700, cursor:'pointer' }}>
           {showTodoForm ? '✕ 취소' : '+ 할일 추가'}
         </button>
@@ -1103,8 +1389,8 @@ export default function NoticePage() {
   // ══ PC 레이아웃 ══
   if (isPC) {
     return (
-      <div>
-        {/* 헤더 - 1번만 렌더 */}
+      <div style={{ padding: '0 8px' }}>
+        {/* 헤더 */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <span style={{ fontSize:20, fontWeight:700, color:'#1a1a2e' }}>📢 공지</span>
@@ -1114,25 +1400,21 @@ export default function NoticePage() {
           </div>
           {actionButton}
         </div>
-
         {tabBar}
 
-        {/* 관리 탭: 풀 스크린 */}
+        {/* 관리 탭: 2컬럼 풀스크린 */}
         {subTab === 'admin' && isOwner && (
-          <AdminTab storeId={storeId} userName={userName} />
+          <AdminTab storeId={storeId} userName={userName} isPC={true} />
         )}
 
-        {/* 공지 탭: 풀 너비 */}
+        {/* 공지 탭 */}
         {subTab === 'notice' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 0 }}>
-            {noticeTabContent}
-          </div>
+          <div>{noticeTabContent}</div>
         )}
 
-        {/* 할일 탭: 캘린더 + 콘텐츠 2컬럼 */}
+        {/* 할일 탭: 캘린더 + 콘텐츠 */}
         {subTab === 'todo' && (
           <div style={{ display:'grid', gridTemplateColumns:'300px 1fr', gap:20, alignItems:'start' }}>
-            {/* 좌: 캘린더 (sticky) */}
             <div style={{ position:'sticky', top:80 }}>
               <MiniCalendar
                 year={calYear} month={calMonth}
@@ -1141,9 +1423,32 @@ export default function NoticePage() {
                 onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }}
               />
             </div>
-            {/* 우: 할일 목록 */}
             <div>{todoTabContent}</div>
           </div>
+        )}
+
+        {/* 반복 할일 복사 제안 */}
+        {repeatSuggest && (
+          <div style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:'#fff', borderRadius:16, padding:16, boxShadow:'0 4px 20px rgba(0,0,0,0.15)', border:'1px solid rgba(0,184,148,0.3)', zIndex:100, maxWidth:360, width:'90%' }}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#00B894', marginBottom:8 }}>🔁 반복 할일</div>
+            <div style={{ fontSize:12, color:'#444', marginBottom:12 }}>"{repeatSuggest.content}" — {REPEAT_OPTIONS.find(r=>r.value===repeatSuggest.repeatType)?.label} 반복</div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={() => setRepeatSuggest(null)} style={{ flex:1, padding:'9px 0', borderRadius:10, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:12, cursor:'pointer' }}>다음에</button>
+              <button onClick={() => copyRepeatTodo(repeatSuggest.content, repeatSuggest.repeatType)} style={{ flex:2, padding:'9px 0', borderRadius:10, background:'linear-gradient(135deg,#6C5CE7,#00B894)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>다음 날짜에 추가하기</button>
+            </div>
+          </div>
+        )}
+
+        {/* 미션 사진 모달 */}
+        {missionModal && (
+          <MissionPhotoModal
+            todoContent={missionModal.content}
+            onComplete={() => completeMissionTodo(missionModal.todoId, missionModal.noticeDate, missionPhotoUrl)}
+            onCancel={() => { setMissionModal(null); setMissionPhotoUrl('') }}
+            onUpload={handleMissionPhotoUpload}
+            isUploading={isUploadingMissionPhoto}
+            photoUrl={missionPhotoUrl}
+          />
         )}
       </div>
     )
@@ -1161,7 +1466,6 @@ export default function NoticePage() {
         </div>
         {actionButton}
       </div>
-
       {tabBar}
 
       {subTab === 'notice' && noticeTabContent}
@@ -1226,7 +1530,12 @@ export default function NoticePage() {
               {(notice.notice_todos||[])
                 .filter((todo: any) => canViewByVisibility(todo.visibility, userRole))
                 .map((todo: any) => (
-                  <TodoItem key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]} onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date)} canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole} />
+                  <TodoItem
+                    key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]}
+                    onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date, todo)}
+                    canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole}
+                    onMissionComplete={(todoId) => setMissionModal({ todoId, content: todo.content, noticeDate: notice.notice_date })}
+                  />
                 ))}
             </div>
           ))}
@@ -1234,7 +1543,31 @@ export default function NoticePage() {
       )}
 
       {subTab === 'admin' && isOwner && (
-        <AdminTab storeId={storeId} userName={userName} />
+        <AdminTab storeId={storeId} userName={userName} isPC={false} />
+      )}
+
+      {/* 반복 할일 복사 제안 */}
+      {repeatSuggest && (
+        <div style={{ position:'fixed', bottom:80, left:16, right:16, background:'#fff', borderRadius:16, padding:16, boxShadow:'0 4px 20px rgba(0,0,0,0.15)', border:'1px solid rgba(0,184,148,0.3)', zIndex:100 }}>
+          <div style={{ fontSize:13, fontWeight:700, color:'#00B894', marginBottom:8 }}>🔁 반복 할일 — {REPEAT_OPTIONS.find(r=>r.value===repeatSuggest.repeatType)?.label}</div>
+          <div style={{ fontSize:12, color:'#444', marginBottom:12 }}>"{repeatSuggest.content}"을 다음 날짜에도 추가할까요?</div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={() => setRepeatSuggest(null)} style={{ flex:1, padding:'9px 0', borderRadius:10, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:12, cursor:'pointer' }}>건너뛰기</button>
+            <button onClick={() => copyRepeatTodo(repeatSuggest.content, repeatSuggest.repeatType)} style={{ flex:2, padding:'9px 0', borderRadius:10, background:'linear-gradient(135deg,#6C5CE7,#00B894)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>다음 날짜에 추가 ✓</button>
+          </div>
+        </div>
+      )}
+
+      {/* 미션 사진 모달 */}
+      {missionModal && (
+        <MissionPhotoModal
+          todoContent={missionModal.content}
+          onComplete={() => completeMissionTodo(missionModal.todoId, missionModal.noticeDate, missionPhotoUrl)}
+          onCancel={() => { setMissionModal(null); setMissionPhotoUrl('') }}
+          onUpload={handleMissionPhotoUpload}
+          isUploading={isUploadingMissionPhoto}
+          photoUrl={missionPhotoUrl}
+        />
       )}
     </div>
   )
