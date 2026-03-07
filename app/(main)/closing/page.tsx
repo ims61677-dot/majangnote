@@ -102,6 +102,335 @@ function ClosingCalendar({ year, month, salesMap, weatherMap, editedDates, selec
   )
 }
 
+// ════════════════════════════════════════
+// ★ 마감일지 관리자탭 (대표 전용)
+// ════════════════════════════════════════
+function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userName: string; isPC: boolean }) {
+  const supabase = createSupabaseBrowserClient()
+  const today = toDateStr(new Date())
+  const now = new Date()
+
+  const [stores, setStores] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [calYear, setCalYear] = useState(now.getFullYear())
+  const [calMonth, setCalMonth] = useState(now.getMonth())
+  const [selectedDate, setSelectedDate] = useState(today)
+  const [storeClosingData, setStoreClosingData] = useState<any[]>([])
+  const [closingDates, setClosingDates] = useState<Set<string>>(new Set())
+  const [selectedStoreDetail, setSelectedStoreDetail] = useState<string | null>(null)
+  const [dataLoading, setDataLoading] = useState(false)
+
+  useEffect(() => { loadStores() }, [storeId])
+  useEffect(() => { if (stores.length > 0) { loadClosingData(); loadMonthDots() } }, [selectedDate, stores])
+  useEffect(() => { if (stores.length > 0) loadMonthDots() }, [calYear, calMonth, stores])
+
+  async function loadStores() {
+    setLoading(true)
+    const { data: memberData } = await supabase
+      .from('store_members')
+      .select('store_id, role, stores(id, name)')
+      .eq('role', 'owner')
+    let storeList = (memberData || [])
+      .map((m: any) => m.stores).filter(Boolean)
+      .filter((s: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === s.id) === i)
+    if (storeList.length === 0) {
+      const { data: sd } = await supabase.from('stores').select('id, name').eq('id', storeId).maybeSingle()
+      if (sd) storeList = [sd]
+    }
+    setStores(storeList)
+    setLoading(false)
+  }
+
+  async function loadClosingData() {
+    if (stores.length === 0) return
+    setDataLoading(true)
+    const results = await Promise.all(stores.map(async (store: any) => {
+      const { data: closing } = await supabase
+        .from('closings').select('*')
+        .eq('store_id', store.id).eq('closing_date', selectedDate).maybeSingle()
+      if (!closing) return { store, closing: null, sales: [], checks: [], checkItems: [], todos: [], reviews: [], totalSales: 0, totalCount: 0, totalCancelCount: 0 }
+
+      const [salesRes, checkItemsRes, checksRes, todosRes, reviewsRes] = await Promise.all([
+        supabase.from('closing_sales').select('*').eq('closing_id', closing.id),
+        supabase.from('closing_checklist_items').select('id, title').eq('store_id', store.id).order('sort_order'),
+        supabase.from('closing_checks').select('*').eq('closing_id', closing.id),
+        supabase.from('closing_next_todos').select('*').eq('closing_id', closing.id).order('created_at'),
+        supabase.from('closing_reviews').select('*').eq('closing_id', closing.id),
+      ])
+
+      const sales = salesRes.data || []
+      const totalSales = sales.reduce((sum: number, s: any) => sum + (s.amount || 0), 0)
+      const totalCount = sales.reduce((sum: number, s: any) => sum + (s.count || 0), 0)
+      const totalCancelCount = sales.reduce((sum: number, s: any) => sum + (s.cancel_count || 0), 0)
+
+      return {
+        store, closing, sales,
+        checkItems: checkItemsRes.data || [],
+        checks: checksRes.data || [],
+        todos: todosRes.data || [],
+        reviews: reviewsRes.data || [],
+        totalSales, totalCount, totalCancelCount,
+      }
+    }))
+    setStoreClosingData(results)
+    setDataLoading(false)
+  }
+
+  async function loadMonthDots() {
+    if (stores.length === 0) return
+    const pad2 = (n: number) => String(n).padStart(2, '0')
+    const monthStart = `${calYear}-${pad2(calMonth + 1)}-01`
+    const monthEnd = `${calYear}-${pad2(calMonth + 1)}-${pad2(new Date(calYear, calMonth + 1, 0).getDate())}`
+    const doneSet = new Set<string>()
+    for (const store of stores) {
+      const { data: cls } = await supabase.from('closings').select('closing_date')
+        .eq('store_id', store.id).gte('closing_date', monthStart).lte('closing_date', monthEnd)
+      if (cls) cls.forEach((c: any) => doneSet.add(c.closing_date))
+    }
+    setClosingDates(doneSet)
+  }
+
+  if (loading) return (
+    <div style={{ textAlign: 'center', padding: 48, color: '#bbb' }}>
+      <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
+      <div style={{ fontSize: 13 }}>전 지점 마감 데이터 불러오는 중...</div>
+    </div>
+  )
+
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  const firstDay = new Date(calYear, calMonth, 1).getDay()
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
+  const monthStr = `${calYear}-${pad2(calMonth + 1)}`
+  const weeks: (number | null)[][] = []
+  let week: (number | null)[] = Array(firstDay).fill(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    week.push(d)
+    if (week.length === 7) { weeks.push(week); week = [] }
+  }
+  if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week) }
+
+  const closedCount = storeClosingData.filter(d => d.closing).length
+  const totalSalesAll = storeClosingData.reduce((sum, d) => sum + d.totalSales, 0)
+  const totalCountAll = storeClosingData.reduce((sum, d) => sum + d.totalCount, 0)
+
+  // ── 미니 캘린더 ──
+  const calendarSection = (
+    <div style={{ ...bx, padding: '14px 12px' }}>
+      <div style={{ marginBottom: 10 }}>
+        <YearMonthPicker year={calYear} month={calMonth} onChange={(y, m) => { setCalYear(y); setCalMonth(m) }} color="#FF6B35" />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: 4 }}>
+        {['일','월','화','수','목','금','토'].map((d, i) => (
+          <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 600, color: i===0?'#E84393':i===6?'#2DC6D6':'#aaa', padding: '2px 0' }}>{d}</div>
+        ))}
+      </div>
+      {weeks.map((week, wi) => (
+        <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 2 }}>
+          {week.map((day, di) => {
+            if (!day) return <div key={di} />
+            const dateStr = `${monthStr}-${String(day).padStart(2,'0')}`
+            const hasDot = closingDates.has(dateStr)
+            const isSelected = dateStr === selectedDate
+            const isToday = dateStr === today
+            return (
+              <button key={di} onClick={() => setSelectedDate(dateStr)} style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                padding: '4px 2px', borderRadius: 8, cursor: 'pointer', minHeight: 44,
+                border: isSelected ? '2px solid #FF6B35' : isToday ? '1px solid rgba(255,107,53,0.3)' : '1px solid transparent',
+                background: isSelected ? 'rgba(255,107,53,0.1)' : hasDot ? 'rgba(0,184,148,0.06)' : 'transparent',
+              }}>
+                <span style={{ fontSize: 12, fontWeight: isSelected||isToday?700:400, color: isSelected?'#FF6B35':di===0?'#E84393':di===6?'#2DC6D6':'#1a1a2e' }}>{day}</span>
+                {hasDot && <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#00B894', marginTop: 2, display: 'block' }} />}
+              </button>
+            )
+          })}
+        </div>
+      ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px solid #F0F0F0' }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#00B894', display: 'inline-block' }} />
+        <span style={{ fontSize: 9, color: '#aaa' }}>마감일지 있음</span>
+      </div>
+    </div>
+  )
+
+  // ── 전체 요약 ──
+  const summaryBar = (
+    <div style={{ ...bx, marginBottom: 14 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>
+        📊 {selectedDate.replace(/-/g,'.')} 전 지점 현황
+        {dataLoading && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 8 }}>불러오는 중...</span>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+        {[
+          { label: '마감 완료', value: `${closedCount}/${stores.length}`, color: '#00B894', bg: 'rgba(0,184,148,0.08)' },
+          { label: '전체 매출', value: totalSalesAll > 0 ? (totalSalesAll >= 10000 ? `${Math.floor(totalSalesAll/10000)}만원` : `${totalSalesAll.toLocaleString()}원`) : '—', color: '#FF6B35', bg: 'rgba(255,107,53,0.08)' },
+          { label: '전체 건수', value: totalCountAll > 0 ? `${totalCountAll}건` : '—', color: '#6C5CE7', bg: 'rgba(108,92,231,0.08)' },
+          { label: '미마감', value: `${stores.length - closedCount}곳`, color: stores.length - closedCount > 0 ? '#E84393' : '#bbb', bg: stores.length - closedCount > 0 ? 'rgba(232,67,147,0.08)' : 'rgba(170,170,170,0.06)' },
+        ].map(item => (
+          <div key={item.label} style={{ textAlign: 'center', padding: '10px 6px', background: item.bg, borderRadius: 12 }}>
+            <div style={{ fontSize: isPC ? 18 : 15, fontWeight: 800, color: item.color }}>{item.value}</div>
+            <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
+  // ── 지점별 카드 ──
+  const storeCols = isPC ? Math.min(stores.length, 3) : Math.min(stores.length, 2)
+  const storeCards = (
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${storeCols}, 1fr)`, gap: 12 }}>
+      {storeClosingData.map(({ store, closing, sales, checks, checkItems, todos, reviews, totalSales, totalCount, totalCancelCount }) => {
+        const isDone = !!closing
+        const allChecked = checkItems.length > 0 && checks.length >= checkItems.length
+        const checkPct = checkItems.length > 0 ? Math.round((checks.length / checkItems.length) * 100) : 0
+        const isExpanded = selectedStoreDetail === store.id
+        const avgPerOrder = totalCount > 0 ? Math.round(totalSales / totalCount) : 0
+
+        return (
+          <div key={store.id}
+            onClick={() => isDone && setSelectedStoreDetail(isExpanded ? null : store.id)}
+            style={{
+              borderRadius: 14, padding: 14, transition: 'box-shadow 0.15s',
+              background: isDone ? (isExpanded ? '#fff' : 'rgba(0,184,148,0.04)') : 'rgba(255,107,53,0.03)',
+              border: isExpanded ? '2px solid #FF6B35' : isDone ? '1px solid rgba(0,184,148,0.2)' : '1px solid rgba(255,107,53,0.2)',
+              boxShadow: isExpanded ? '0 4px 16px rgba(255,107,53,0.1)' : '0 1px 4px rgba(0,0,0,0.04)',
+              cursor: isDone ? 'pointer' : 'default',
+            }}>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                🏪 {store.name}
+              </div>
+              <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, fontWeight: 700, flexShrink: 0, marginLeft: 8,
+                background: isDone ? 'rgba(0,184,148,0.12)' : 'rgba(255,107,53,0.12)',
+                color: isDone ? '#00B894' : '#FF6B35' }}>
+                {isDone ? '✅ 완료' : '⏳ 미마감'}
+              </span>
+            </div>
+
+            {isDone ? (
+              <>
+                <div style={{ fontSize: 20, fontWeight: 800, color: '#FF6B35', marginBottom: 6 }}>
+                  {totalSales.toLocaleString()}원
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {totalCount > 0 && <span style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 600 }}>{totalCount}건</span>}
+                  {avgPerOrder > 0 && <span style={{ fontSize: 11, color: '#888' }}>객단가 {avgPerOrder.toLocaleString()}원</span>}
+                  {totalCancelCount > 0 && <span style={{ fontSize: 11, color: '#E84393', fontWeight: 600 }}>취소 {totalCancelCount}건</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {closing.close_staff && <span style={{ fontSize: 11, color: '#888', background: '#F4F6F9', padding: '2px 8px', borderRadius: 6 }}>👤 {closing.close_staff}</span>}
+                  {closing.cash_amount > 0 && <span style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 600, background: 'rgba(108,92,231,0.07)', padding: '2px 8px', borderRadius: 6 }}>💵 {closing.cash_amount.toLocaleString()}원</span>}
+                  {closing.open_time && closing.close_time && <span style={{ fontSize: 11, color: '#888', background: '#F4F6F9', padding: '2px 8px', borderRadius: 6 }}>🕐 {closing.open_time}~{closing.close_time}</span>}
+                </div>
+                {checkItems.length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: '#aaa' }}>✅ 체크리스트</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: allChecked ? '#00B894' : '#FF6B35' }}>
+                        {checks.length}/{checkItems.length} {allChecked ? '완료 ✓' : '진행중'}
+                      </span>
+                    </div>
+                    <div style={{ height: 5, background: '#F0F2F5', borderRadius: 4 }}>
+                      <div style={{ height: 5, background: allChecked ? '#00B894' : '#FF6B35', borderRadius: 4, width: `${checkPct}%`, transition: 'width 0.3s' }} />
+                    </div>
+                  </div>
+                )}
+                {todos.length > 0 && (
+                  <div style={{ fontSize: 11, color: '#FF6B35', background: 'rgba(255,107,53,0.07)', borderRadius: 8, padding: '4px 10px', marginBottom: 6, display: 'inline-block' }}>
+                    📢 전달사항 {todos.length}건
+                  </div>
+                )}
+                {!isExpanded && (closing.note || closing.memo || todos.length > 0) && (
+                  <div style={{ fontSize: 10, color: '#bbb', textAlign: 'right', marginTop: 4 }}>▼ 상세보기</div>
+                )}
+                {isExpanded && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,107,53,0.12)' }}>
+                    {sales.filter((s: any) => s.amount > 0).length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6 }}>💰 플랫폼별 매출</div>
+                        {sales.filter((s: any) => s.amount > 0).map((s: any) => (
+                          <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #F8F9FB' }}>
+                            <span style={{ fontSize: 12, color: '#555' }}>{s.platform}</span>
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: '#FF6B35' }}>{s.amount.toLocaleString()}원</span>
+                              {s.count > 0 && <span style={{ fontSize: 10, color: '#aaa', marginLeft: 6 }}>{s.count}건</span>}
+                              {s.cancel_count > 0 && <span style={{ fontSize: 10, color: '#E84393', marginLeft: 4 }}>취소{s.cancel_count}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {closing.note && (
+                      <div style={{ padding: '8px 10px', background: 'rgba(232,67,147,0.05)', borderRadius: 8, fontSize: 12, color: '#555', marginBottom: 8, border: '1px solid rgba(232,67,147,0.15)' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#E84393', marginBottom: 3 }}>📝 클레임/특이사항</div>
+                        {closing.note}
+                      </div>
+                    )}
+                    {closing.memo && (
+                      <div style={{ padding: '8px 10px', background: 'rgba(108,92,231,0.05)', borderRadius: 8, fontSize: 12, color: '#555', marginBottom: 8, border: '1px solid rgba(108,92,231,0.15)' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#6C5CE7', marginBottom: 3 }}>📌 특이사항 메모</div>
+                        {closing.memo}
+                      </div>
+                    )}
+                    {todos.length > 0 && (
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35', marginBottom: 6 }}>📢 다음 담당자 전달사항</div>
+                        {todos.map((t: any) => (
+                          <div key={t.id} style={{ fontSize: 12, color: '#444', padding: '5px 8px', borderRadius: 7, background: '#FFF8F5', border: '1px solid rgba(255,107,53,0.15)', marginBottom: 4 }}>
+                            • {t.content}
+                            {t.created_by && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 6 }}>{t.created_by}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {reviews && reviews.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6 }}>⭐ 리뷰/답글</div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {reviews.map((r: any) => (
+                            <span key={r.id} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(255,107,53,0.07)', color: '#FF6B35', fontWeight: 600 }}>
+                              {r.platform}: 리뷰{r.review_count}·답글{r.reply_count}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ textAlign: 'right', marginTop: 8 }}>
+                      <span style={{ fontSize: 10, color: '#bbb' }}>▲ 접기</span>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: 12, color: '#bbb', padding: '8px 0', textAlign: 'center' }}>
+                아직 마감일지 미작성
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+
+  if (isPC) {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, alignItems: 'start' }}>
+        <div style={{ position: 'sticky', top: 80 }}>{calendarSection}</div>
+        <div>{summaryBar}{storeCards}</div>
+      </div>
+    )
+  }
+
+  return (
+    <div>{calendarSection}{summaryBar}{storeCards}</div>
+  )
+}
+
+// ════════════════════════════════════════
+// 메인 페이지
+// ════════════════════════════════════════
 export default function ClosingPage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
@@ -123,7 +452,6 @@ export default function ClosingPage() {
   const prevDataRef = useRef<any>(null)
   const isSavingRef = useRef(false)
 
-  // 최신 state를 ref로 항상 동기화 (onBlur 즉시 저장용)
   const writerRef = useRef('')
   const closeStaffRef = useRef('')
   const staffCountRef = useRef(0)
@@ -137,7 +465,6 @@ export default function ClosingPage() {
   const countsRef = useRef<Record<string, number>>({})
   const cancelCountsRef = useRef<Record<string, number>>({})
 
-  // 수정 이력 관련
   const [editLogs, setEditLogs] = useState<any[]>([])
   const [showEditLogs, setShowEditLogs] = useState(false)
   const [unreadEditCount, setUnreadEditCount] = useState(0)
@@ -175,6 +502,9 @@ export default function ClosingPage() {
   const [editingReviewPlatform, setEditingReviewPlatform] = useState<any>(null)
   const [editReviewPlatformName, setEditReviewPlatformName] = useState('')
 
+  // ★ 탭 상태 (대표 전용 관리자탭)
+  const [tab, setTab] = useState<'closing' | 'admin'>('closing')
+
   const isManager = userRole === 'owner' || userRole === 'manager'
   const isOwner = userRole === 'owner'
   const isSaved = !!closingRef.current
@@ -203,7 +533,6 @@ export default function ClosingPage() {
     if (isOwner && storeId) loadEditLogs(storeId)
   }, [isOwner, storeId])
 
-  // 페이지 떠날 때 대기 중인 자동저장 즉시 실행
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden' && autoSaveStatus === 'pending') {
@@ -266,7 +595,6 @@ export default function ClosingPage() {
     try {
       const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
       const yesterdayStr = toDateStr(yesterday)
-      // 어제 마감일지가 있고 날씨가 아직 없는 경우만 저장
       const { data: cl } = await supabase.from('closings').select('id, weather_code').eq('store_id', sid).eq('closing_date', yesterdayStr).maybeSingle()
       if (!cl || cl.weather_code !== null) return
       const { data: storeData } = await supabase.from('stores').select('lat, lng').eq('id', sid).maybeSingle()
@@ -376,7 +704,6 @@ export default function ClosingPage() {
         cash_amount: cl.cash_amount || 0, note: cl.note || '', memo: cl.memo || '',
         salesSnapshot: sm
       }
-      // ref 동기화
       writerRef.current = cl.writer || cl.created_by || ''
       closeStaffRef.current = cl.close_staff || ''
       staffCountRef.current = cl.staff_count || 0
@@ -398,7 +725,6 @@ export default function ClosingPage() {
       setSales({}); setCounts({}); setCancelCounts({})
       setChecks({}); setSoldouts([]); setNextTodos([]); setTodoChecks({})
       setReviews({}); prevDataRef.current = null
-      // 당일이면 폼 자동으로 열기
       setShowForm(date === todayStr)
     }
   }
@@ -409,7 +735,6 @@ export default function ClosingPage() {
     setCalYear(y); setCalMonth(m-1)
   }
 
-  // 자동저장 트리거 - 당일이면 즉시 저장 (이미 저장 중이면 스킵)
   const triggerAutoSave = useCallback(() => {
     if (selectedDate !== todayStr) return
     if (isSavingRef.current) return
@@ -457,7 +782,6 @@ export default function ClosingPage() {
 
     try {
       let weatherData: any = {}
-      // 자동저장 시 날씨 API 스킵 (속도 우선)
       if (!isAuto) {
         const { data: storeData } = await supabase.from('stores').select('lat, lng').eq('id', storeId).maybeSingle()
         if (storeData?.lat && storeData?.lng) {
@@ -556,17 +880,10 @@ export default function ClosingPage() {
     }
   }
 
-  // state + ref 동시 업데이트 래퍼
   function sr<T>(setter: (v: T) => void, ref: React.MutableRefObject<T>) {
     return (v: T) => { setter(v); ref.current = v; if (selectedDate === todayStr) triggerAutoSave() }
   }
 
-  // 당일 자동저장 래퍼 (ref 동기화 포함)
-  function aw<T>(setter: (v: T) => void) {
-    return (v: T) => { setter(v); if (selectedDate === todayStr) triggerAutoSave() }
-  }
-
-  // onBlur 즉시 저장 - ref의 최신값으로 저장
   function saveNow() {
     if (selectedDate !== todayStr) return
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
@@ -681,7 +998,7 @@ export default function ClosingPage() {
   const totalReviews = useMemo(() => reviewPlatforms.reduce((sum, p) => sum + (reviews[p.name]?.review_count || 0), 0), [reviewPlatforms, reviews])
   const totalReplies = useMemo(() => reviewPlatforms.reduce((sum, p) => sum + (reviews[p.name]?.reply_count || 0), 0), [reviewPlatforms, reviews])
 
-  // ── 수정 이력 모달 (대표 전용) ──
+  // ── 수정 이력 모달 ──
   const editLogModal = showEditLogs && isOwner && (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
       <div style={{ background:'#fff', width:'100%', maxWidth:540, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'82vh', overflowY:'auto' }}>
@@ -742,7 +1059,6 @@ export default function ClosingPage() {
   // ── 폼 콘텐츠 ──
   const formContent = (
     <>
-      {/* 자동저장 상태 (당일만) */}
       {isToday && (
         <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:6, marginBottom:10 }}>
           {autoSaveStatus === 'pending' && <span style={{ fontSize:11, color:'#FDC400', fontWeight:600 }}>⏳ 저장 대기 중...</span>}
@@ -873,7 +1189,7 @@ export default function ClosingPage() {
         {cashAmount > 0 && <div style={{ fontSize:11, color:'#888', marginTop:4, textAlign:'right' }}>{cashAmount.toLocaleString()}원</div>}
       </div>
 
-      {/* 리뷰 답글 */}
+      {/* 리뷰 */}
       <div style={bx}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
           <div>
@@ -1026,7 +1342,7 @@ export default function ClosingPage() {
         </div>
       </div>
 
-      {/* 저장 버튼: 당일은 없음(자동저장) / 과거 날짜만 표시 */}
+      {/* 저장 버튼 */}
       {!isToday && (
         (!isSaved || isManager) ? (
           <button onClick={() => performSave(false)} disabled={isSaving}
@@ -1052,6 +1368,25 @@ export default function ClosingPage() {
         </span>
       )}
     </button>
+  )
+
+  // ── 탭 바 (대표만 표시) ──
+  const tabBar = isOwner && (
+    <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16 }}>
+      {([
+        { v: 'closing' as const, l: '📋 마감일지' },
+        { v: 'admin' as const,   l: '👑 전 지점 관리' },
+      ]).map(t => (
+        <button key={t.v} onClick={() => setTab(t.v)}
+          style={{ flex:1, padding:'9px 0', borderRadius:10, border:'none', cursor:'pointer',
+            fontSize:13, fontWeight:tab===t.v?700:400,
+            background:tab===t.v?'#fff':'transparent',
+            color:tab===t.v?'#1a1a2e':'#aaa',
+            boxShadow:tab===t.v?'0 1px 4px rgba(0,0,0,0.08)':'none' }}>
+          {t.l}
+        </button>
+      ))}
+    </div>
   )
 
   return (
@@ -1136,12 +1471,59 @@ export default function ClosingPage() {
 
       {isPC ? (
         <div style={{ padding:'0 8px' }}>
+          {/* PC 헤더 */}
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
             <span style={{ fontSize:20, fontWeight:700, color:'#1a1a2e' }}>📋 마감일지</span>
-            {editLogBtn}
+            {tab === 'closing' && editLogBtn}
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'340px 1fr', gap:20, alignItems:'start' }}>
-            <div style={{ position:'sticky', top:80 }}>
+
+          {/* ★ 탭 바 (대표만) */}
+          {tabBar}
+
+          {/* ★ 마감일지 탭 */}
+          {tab === 'closing' && (
+            <div style={{ display:'grid', gridTemplateColumns:'340px 1fr', gap:20, alignItems:'start' }}>
+              <div style={{ position:'sticky', top:80 }}>
+                <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} weatherMap={weatherMap} editedDates={editedDates}
+                  selectedDate={selectedDate} onSelectDate={handleSelectDate} onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }} />
+                <div style={{ ...bx, padding:'12px 16px', background: isSaved?'rgba(0,184,148,0.04)':'#fff', border: isSaved?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>{selectedDate.replace(/-/g,'.')}</div>
+                      {isSaved
+                        ? <div style={{ fontSize:11, color:'#00B894', marginTop:2 }}>✓ 저장됨 · 총 매출 {totalSales.toLocaleString()}원 · {totalCount}건</div>
+                        : <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>{isToday ? '✏️ 오늘 일지 작성 중' : '미작성'}</div>}
+                    </div>
+                    <button onClick={() => setShowForm(p => !p)}
+                      style={{ padding:'7px 14px', borderRadius:9, background: isSaved?'rgba(0,184,148,0.1)':'rgba(255,107,53,0.1)', border: isSaved?'1px solid rgba(0,184,148,0.3)':'1px solid rgba(255,107,53,0.3)', color: isSaved?'#00B894':'#FF6B35', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                      {showForm ? '▲ 접기' : isSaved ? '📂 열기' : '✏️ 작성'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div>{showForm && formContent}</div>
+            </div>
+          )}
+
+          {/* ★ 전 지점 관리 탭 */}
+          {tab === 'admin' && isOwner && (
+            <ClosingAdminTab storeId={storeId} userName={userName} isPC={true} />
+          )}
+        </div>
+      ) : (
+        <div>
+          {/* 모바일 헤더 */}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+            <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>📋 마감일지</span>
+            {tab === 'closing' && editLogBtn}
+          </div>
+
+          {/* ★ 탭 바 (대표만) */}
+          {tabBar}
+
+          {/* ★ 마감일지 탭 */}
+          {tab === 'closing' && (
+            <>
               <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} weatherMap={weatherMap} editedDates={editedDates}
                 selectedDate={selectedDate} onSelectDate={handleSelectDate} onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }} />
               <div style={{ ...bx, padding:'12px 16px', background: isSaved?'rgba(0,184,148,0.04)':'#fff', border: isSaved?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0' }}>
@@ -1158,33 +1540,14 @@ export default function ClosingPage() {
                   </button>
                 </div>
               </div>
-            </div>
-            <div>{showForm && formContent}</div>
-          </div>
-        </div>
-      ) : (
-        <div>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-            <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>📋 마감일지</span>
-            {editLogBtn}
-          </div>
-          <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} weatherMap={weatherMap} editedDates={editedDates}
-            selectedDate={selectedDate} onSelectDate={handleSelectDate} onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }} />
-          <div style={{ ...bx, padding:'12px 16px', background: isSaved?'rgba(0,184,148,0.04)':'#fff', border: isSaved?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <div>
-                <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>{selectedDate.replace(/-/g,'.')}</div>
-                {isSaved
-                  ? <div style={{ fontSize:11, color:'#00B894', marginTop:2 }}>✓ 저장됨 · 총 매출 {totalSales.toLocaleString()}원 · {totalCount}건</div>
-                  : <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>{isToday ? '✏️ 오늘 일지 작성 중' : '미작성'}</div>}
-              </div>
-              <button onClick={() => setShowForm(p => !p)}
-                style={{ padding:'7px 14px', borderRadius:9, background: isSaved?'rgba(0,184,148,0.1)':'rgba(255,107,53,0.1)', border: isSaved?'1px solid rgba(0,184,148,0.3)':'1px solid rgba(255,107,53,0.3)', color: isSaved?'#00B894':'#FF6B35', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-                {showForm ? '▲ 접기' : isSaved ? '📂 열기' : '✏️ 작성'}
-              </button>
-            </div>
-          </div>
-          {showForm && formContent}
+              {showForm && formContent}
+            </>
+          )}
+
+          {/* ★ 전 지점 관리 탭 */}
+          {tab === 'admin' && isOwner && (
+            <ClosingAdminTab storeId={storeId} userName={userName} isPC={false} />
+          )}
         </div>
       )}
     </div>
