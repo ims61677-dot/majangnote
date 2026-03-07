@@ -834,47 +834,38 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E8ECF0', padding: '20px', textAlign: 'center', color: '#bbb', fontSize: 12 }}>등록된 공지 없음</div>
       ) : (
         <div>
-          {stores.map(store => {
-            const storeNotices = orderedNotices.filter((n: any) => n.store_id === store.id)
-            if (storeNotices.length === 0) return null
-            return (
-              <div key={store.id} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#6C5CE7', marginBottom: 7, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ background: 'rgba(108,92,231,0.1)', padding: '2px 8px', borderRadius: 6 }}>🏪 {store.name}</span>
-                  <span style={{ color: '#bbb', fontWeight: 400 }}>{storeNotices.length}개</span>
+          {/* 3열 고정 그리드 - 지점 순서대로 */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+            {stores.flatMap(store =>
+              orderedNotices.filter((n: any) => n.store_id === store.id)
+            ).map((notice: any) => {
+              const isExpanded = selectedAdminNotice?.id === notice.id
+              const storeName = stores.find((s: any) => s.id === notice.store_id)?.name || ''
+              return (
+                <div key={notice.id} onClick={() => setSelectedAdminNotice(isExpanded ? null : notice)}
+                  style={{ background: '#fff', borderRadius: 12, border: isExpanded ? '2px solid #6C5CE7' : notice.is_pinned ? '1px solid rgba(108,92,231,0.25)' : '1px solid #E8ECF0', padding: 12, cursor: 'pointer', minWidth: 0 }}>
+                  {/* 지점명 배지 */}
+                  <div style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.08)', borderRadius: 4, padding: '1px 6px', display: 'inline-block', marginBottom: 6, fontWeight: 700 }}>🏪 {storeName}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', flex: 1, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notice.is_pinned ? '📌 ' : ''}{notice.title}</div>
+                    <div style={{ display: 'flex', gap: 3, flexShrink: 0, marginLeft: 6 }}>
+                      <button onClick={e => { e.stopPropagation(); moveNotice(notice.id, 'up') }}
+                        style={{ fontSize: 9, padding: '1px 4px', borderRadius: 4, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>▲</button>
+                      <button onClick={e => { e.stopPropagation(); moveNotice(notice.id, 'down') }}
+                        style={{ fontSize: 9, padding: '1px 4px', borderRadius: 4, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>▼</button>
+                      <button onClick={e => { e.stopPropagation(); setEditingAdminNotice(notice); setAdminNoticeTitle(notice.title); setAdminNoticeContent(notice.content||''); setAdminNoticePinned(notice.is_pinned); setAdminNoticeAttachType(notice.attachment_type||'none'); setAdminNoticeAttachUrl(notice.attachment_url||''); setAdminNoticeStore(notice.store_id); setShowAdminNoticeForm(true) }}
+                        style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', cursor: 'pointer' }}>✏️</button>
+                      <button onClick={e => { e.stopPropagation(); deleteAdminNotice(notice.id) }}
+                        style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.25)', color: '#E84393', cursor: 'pointer' }}>✕</button>
+                    </div>
+                  </div>
+                  {notice.content && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.5, marginBottom: 4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: isExpanded ? 99 : 2, WebkitBoxOrient: 'vertical' as const }}>{notice.content}</div>}
+                  {notice.attachment_url && <AttachmentView url={notice.attachment_url} type={notice.attachment_type} />}
+                  <div style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
-                  {storeNotices.map((notice: any) => {
-                    const isExpanded = selectedAdminNotice?.id === notice.id
-                    return (
-                      <div key={notice.id} onClick={() => setSelectedAdminNotice(isExpanded ? null : notice)}
-                        style={{ background: '#fff', borderRadius: 12, border: isExpanded ? '2px solid #6C5CE7' : notice.is_pinned ? '1px solid rgba(108,92,231,0.25)' : '1px solid #E8ECF0', padding: 12, cursor: 'pointer' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', flex: 1, lineHeight: 1.3 }}>{notice.is_pinned ? '📌 ' : ''}{notice.title}</div>
-                          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                            {/* 순서 조정 */}
-                            <button onClick={e => { e.stopPropagation(); moveNotice(notice.id, 'up') }}
-                              style={{ fontSize: 9, padding: '1px 4px', borderRadius: 4, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>▲</button>
-                            <button onClick={e => { e.stopPropagation(); moveNotice(notice.id, 'down') }}
-                              style={{ fontSize: 9, padding: '1px 4px', borderRadius: 4, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>▼</button>
-                            {/* 수정 */}
-                            <button onClick={e => { e.stopPropagation(); setEditingAdminNotice(notice); setAdminNoticeTitle(notice.title); setAdminNoticeContent(notice.content||''); setAdminNoticePinned(notice.is_pinned); setAdminNoticeAttachType(notice.attachment_type||'none'); setAdminNoticeAttachUrl(notice.attachment_url||''); setAdminNoticeStore(notice.store_id); setShowAdminNoticeForm(true) }}
-                              style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', cursor: 'pointer' }}>✏️</button>
-                            {/* 삭제 */}
-                            <button onClick={e => { e.stopPropagation(); deleteAdminNotice(notice.id) }}
-                              style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.25)', color: '#E84393', cursor: 'pointer' }}>✕</button>
-                          </div>
-                        </div>
-                        {notice.content && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.5, marginBottom: 4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: isExpanded ? 99 : 2, WebkitBoxOrient: 'vertical' as const }}>{notice.content}</div>}
-                        {notice.attachment_url && <AttachmentView url={notice.attachment_url} type={notice.attachment_type} />}
-                        <div style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -882,7 +873,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   // ── 전체 할일 목록 ──
   const allTodosList = (
-    <div style={{ display: isPC ? 'grid' : 'block', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+    <div style={{ display: isPC ? 'grid' : 'block', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, minWidth: 0 }}>
       {allTodosMap.map(({ store, todos, closingTodos }) => {
         const incompleteTodos = todos.filter(t => !t.isDone)
         const incompleteClosing = closingTodos.filter((t: any) => !t.isDone)
@@ -998,13 +989,13 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // ── PC vs 모바일 레이아웃 ──
   if (isPC) {
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 280px) minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '240px minmax(0, 1fr)', gap: 16, alignItems: 'start', width: '100%', minWidth: 0 }}>
         {/* 좌: 캘린더 + 메모 (sticky) */}
         <div style={{ position: 'sticky', top: 72, minWidth: 0 }}>
           {calendarMemoSection}
         </div>
         {/* 우: 현황 그리드 + 빠른 추가 + 전체 할일 */}
-        <div style={{ minWidth: 0 }}>
+        <div style={{ minWidth: 0, overflow: 'hidden' }}>
           {statusGrid}
           {adminNoticeSection}
           {quickAddSection}
@@ -1655,7 +1646,7 @@ export default function NoticePage() {
   // ══ PC 레이아웃 ══
   if (isPC) {
     return (
-      <div style={{ width: '100%' }}>
+      <div style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
         {/* 헤더 */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
