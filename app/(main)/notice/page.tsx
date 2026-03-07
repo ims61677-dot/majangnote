@@ -457,7 +457,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         if (sd) storeList.push(sd)
       }
       setStores(storeList)
-      loadAdminNotices(storeList.map((s: any) => s.id))
+      loadAdminNotices(storeList.map((s: any) => s.id), storeList)
 
       const sevenDaysAgo = toDateStr(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000))
       const yesterday = toDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000))
@@ -519,7 +519,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       ])
 
       setAllTodosMap(storeResults.map(({ store, todos, closingTodos }) => ({ store, todos, closingTodos })))
-      loadAdminNotices(storeList.map((s: any) => s.id))
+      loadAdminNotices(storeList.map((s: any) => s.id), storeList)
 
       const allDates = new Set<string>()
       storeResults.forEach(({ allDates: sd }) => sd.forEach((d: string) => allDates.add(d)))
@@ -534,31 +534,30 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   }
 
   // 공지 로드/저장/삭제
-  async function loadAdminNotices(storeIdList?: string[]) {
+  async function loadAdminNotices(storeIdList?: string[], storeListOverride?: any[]) {
     if (!storeId) return
     const ids = (storeIdList && storeIdList.length > 0) ? storeIdList : [storeId]
-    console.log('[loadAdminNotices] ids:', ids)
-    // notice_todos join 없이 순수 notices만 조회
+    // notice_todos 개수 포함해서 조회 (할일 컨테이너 필터링용)
     const { data, error } = await supabase
       .from('notices')
-      .select('id, title, content, notice_date, created_by, is_pinned, store_id')
+      .select('id, title, content, notice_date, created_by, is_pinned, store_id, notice_todos(id)')
       .in('store_id', ids)
       .eq('is_from_closing', false)
       .neq('title', '__PERSONAL_MEMO__')
       .order('is_pinned', { ascending: false })
       .order('created_at', { ascending: false })
-    console.log('[loadAdminNotices] data count:', data?.length, 'error:', error)
     if (error) { console.error(error); return }
-    // todos가 있는 컨테이너 제목 제외 (할일 컨테이너는 공지 목록에서 숨김)
+    // notice_todos가 없는 것 = 순수 공지 (할일 컨테이너 제외)
     const todoTitles = ['전체 할일', '관리자 할일', '반복 할일', '[이월]']
     const noticeOnly = (data || []).filter((n: any) =>
+      (!n.notice_todos || n.notice_todos.length === 0) &&
       !todoTitles.some(t => n.title?.startsWith(t))
     )
-    // stores state에서 이름 매핑
+    // storeListOverride 우선, 없으면 stores state 사용
+    const sl = storeListOverride || stores
     const storeMap: Record<string, string> = {}
-    stores.forEach((s: any) => { storeMap[s.id] = s.name })
+    sl.forEach((s: any) => { storeMap[s.id] = s.name })
     const withStoreName = noticeOnly.map((n: any) => ({ ...n, storeName: storeMap[n.store_id] || '' }))
-    console.log('[loadAdminNotices] noticeOnly count:', noticeOnly.length)
     setAdminNotices(withStoreName)
   }
 
@@ -573,7 +572,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       })
       setAdminNoticeTitle(''); setAdminNoticeContent(''); setAdminNoticePinned(false)
       setShowAdminNoticeForm(false)
-      loadAdminNotices(stores.map((s: any) => s.id))
+      loadAdminNotices(stores.map((s: any) => s.id), stores)
     } finally { setSavingAdminNotice(false) }
   }
 
@@ -768,25 +767,51 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           </div>
         </div>
       )}
-      {/* 공지 목록 (3열 그리드) */}
+      {/* 공지 목록 - 지점별 그룹 */}
       {adminNotices.length === 0 ? (
         <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E8ECF0', padding: '20px', textAlign: 'center', color: '#bbb', fontSize: 12 }}>등록된 공지 없음</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-          {adminNotices.map(notice => (
-            <div key={notice.id} onClick={() => setSelectedAdminNotice(selectedAdminNotice?.id===notice.id ? null : notice)}
-              style={{ background: '#fff', borderRadius: 12, border: selectedAdminNotice?.id===notice.id ? '2px solid #6C5CE7' : notice.is_pinned ? '1px solid rgba(108,92,231,0.25)' : '1px solid #E8ECF0', padding: 12, cursor: 'pointer' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', flex: 1, lineHeight: 1.3 }}>{notice.is_pinned ? '📌 ' : ''}{notice.title}</div>
-                <button onClick={e => { e.stopPropagation(); deleteAdminNotice(notice.id) }} style={{ fontSize: 10, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: '0 0 0 4px' }}>✕</button>
+        <div>
+          {/* 지점별 그룹화 */}
+          {stores.map(store => {
+            const storeNotices = adminNotices.filter((n: any) => n.store_id === store.id)
+            if (storeNotices.length === 0) return null
+            return (
+              <div key={store.id} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#6C5CE7', marginBottom: 7, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ background: 'rgba(108,92,231,0.1)', padding: '2px 8px', borderRadius: 6 }}>🏪 {store.name}</span>
+                  <span style={{ color: '#bbb', fontWeight: 400 }}>{storeNotices.length}개</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                  {storeNotices.map((notice: any) => (
+                    <div key={notice.id} onClick={() => setSelectedAdminNotice(selectedAdminNotice?.id===notice.id ? null : notice)}
+                      style={{ background: '#fff', borderRadius: 12, border: selectedAdminNotice?.id===notice.id ? '2px solid #6C5CE7' : notice.is_pinned ? '1px solid rgba(108,92,231,0.25)' : '1px solid #E8ECF0', padding: 12, cursor: 'pointer' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', flex: 1, lineHeight: 1.3 }}>{notice.is_pinned ? '📌 ' : ''}{notice.title}</div>
+                        <button onClick={e => { e.stopPropagation(); deleteAdminNotice(notice.id) }} style={{ fontSize: 10, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: '0 0 0 6px' }}>✕</button>
+                      </div>
+                      {notice.content && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: selectedAdminNotice?.id===notice.id ? 99 : 2, WebkitBoxOrient: 'vertical' }}>{notice.content}</div>}
+                      <div style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              {notice.content && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{notice.content}</div>}
-              <div style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>{notice.storeName && <span style={{ color: '#6C5CE7', fontWeight: 600, marginRight: 4 }}>{notice.storeName}</span>}{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
-              {selectedAdminNotice?.id===notice.id && notice.content && (
-                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #F4F6F9', fontSize: 12, color: '#444', lineHeight: 1.6 }}>{notice.content}</div>
-              )}
+            )
+          })}
+          {/* 지점 미매핑 공지 (store 없는 경우) */}
+          {adminNotices.filter((n: any) => !stores.some((s: any) => s.id === n.store_id)).length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', marginBottom: 7 }}>기타</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                {adminNotices.filter((n: any) => !stores.some((s: any) => s.id === n.store_id)).map((notice: any) => (
+                  <div key={notice.id} style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8ECF0', padding: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>{notice.title}</div>
+                    <div style={{ fontSize: 10, color: '#bbb' }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
@@ -851,7 +876,11 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                           </span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 12, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.content}</div>
-                            <div style={{ fontSize: 10, color: '#bbb', marginTop: 1 }}>{(todo.notice_title==='관리자 할일'?'전체 할일':todo.notice_title)} · {todo.origin_date?.replace(/-/g,'.')}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
+                              {todo.repeat_type && todo.repeat_type !== 'none' && <RepeatBadge value={todo.repeat_type} />}
+                              {todo.visibility && todo.visibility !== 'all' && <VisibilityBadge value={todo.visibility} />}
+                              <span style={{ fontSize: 10, color: '#bbb' }}>{todo.origin_date?.replace(/-/g,'.')}</span>
+                            </div>
                           </div>
                           <button onClick={() => { setEditingTodo(todo); setEditTodoContent(todo.content) }}
                             style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', cursor: 'pointer', flexShrink: 0 }}>수정</button>
