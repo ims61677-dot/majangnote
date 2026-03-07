@@ -58,7 +58,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   const isOwner = user?.role === 'owner'
 
-  const isFullWidth = pathname === '/attendance' || pathname === '/schedule' || pathname === '/analytics' || pathname === '/inventory' || pathname === '/closing'
+  const isFullWidth = pathname === '/attendance' || pathname === '/schedule' || pathname === '/analytics' || pathname === '/inventory' || pathname === '/closing' || pathname === '/notice'
 
   return (
     <div style={{

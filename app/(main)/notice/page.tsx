@@ -650,7 +650,6 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     <div>
       {allTodosMap.map(({ store, todos, closingTodos }) => {
         const incompleteTodos = todos.filter(t => !t.isDone)
-        const completedTodos = todos.filter(t => t.isDone)
         const incompleteClosing = closingTodos.filter((t: any) => !t.isDone)
         const isExpanded = expandedStores.has(store.id)
         const totalAlert = incompleteTodos.length + incompleteClosing.length
@@ -717,18 +716,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                         })}
                       </div>
                     )}
-                    {completedTodos.length > 0 && (
-                      <details>
-                        <summary style={{ fontSize: 11, color: '#00B894', fontWeight: 700, cursor: 'pointer', marginBottom: 6, outline: 'none' }}>✅ 완료 {completedTodos.length}개 보기</summary>
-                        {completedTodos.map(todo => (
-                          <div key={`${todo.id}-done`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(0,184,148,0.04)', marginBottom: 3 }}>
-                            <span style={{ fontSize: 12, color: '#00B894' }}>✓</span>
-                            <span style={{ fontSize: 12, color: '#00B894', textDecoration: 'line-through', flex: 1 }}>{todo.content}</span>
-                            <span style={{ fontSize: 10, color: '#bbb' }}>{todo.origin_date?.replace(/-/g,'.')}</span>
-                          </div>
-                        ))}
-                      </details>
-                    )}
+
                   </>
                 )}
               </>
