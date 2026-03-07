@@ -438,7 +438,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [savingAdminNotice, setSavingAdminNotice] = useState(false)
   const [adminNoticeStore, setAdminNoticeStore] = useState('')
 
-  useEffect(() => { loadAdminData(); loadAdminNotices() }, [storeId])
+  useEffect(() => { loadAdminData() }, [storeId])
   useEffect(() => { setMemoText(personalMemos[selectedCalDate] || '') }, [selectedCalDate, personalMemos])
 
   async function loadAdminData() {
@@ -457,6 +457,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         if (sd) storeList.push(sd)
       }
       setStores(storeList)
+      loadAdminNotices(storeList.map((s: any) => s.id))
 
       const sevenDaysAgo = toDateStr(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000))
       const yesterday = toDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000))
@@ -518,6 +519,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       ])
 
       setAllTodosMap(storeResults.map(({ store, todos, closingTodos }) => ({ store, todos, closingTodos })))
+      loadAdminNotices(storeList.map((s: any) => s.id))
 
       const allDates = new Set<string>()
       storeResults.forEach(({ allDates: sd }) => sd.forEach((d: string) => allDates.add(d)))
@@ -532,16 +534,11 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   }
 
   // 공지 로드/저장/삭제
-  async function loadAdminNotices() {
+  async function loadAdminNotices(storeIdList?: string[]) {
     if (!storeId) return
-    // owner가 속한 모든 매장 ID를 직접 조회
-    const { data: memberData } = await supabase.from('store_members')
-      .select('store_id').eq('role', 'owner')
-    const storeIds = memberData && memberData.length > 0
-      ? [...new Set(memberData.map((m: any) => m.store_id))]
-      : [storeId]
+    const ids = storeIdList && storeIdList.length > 0 ? storeIdList : [storeId]
     const { data } = await supabase.from('notices').select('*, notice_todos(id), stores(name)')
-      .in('store_id', storeIds).eq('is_from_closing', false)
+      .in('store_id', ids).eq('is_from_closing', false)
       .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
     const pure = (data || []).filter((n: any) => (!n.notice_todos || n.notice_todos.length === 0) && n.title !== '__PERSONAL_MEMO__')
     setAdminNotices(pure)
@@ -558,7 +555,6 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       })
       setAdminNoticeTitle(''); setAdminNoticeContent(''); setAdminNoticePinned(false)
       setShowAdminNoticeForm(false)
-      loadAdminNotices()
       loadAdminData()
     } finally { setSavingAdminNotice(false) }
   }
@@ -566,7 +562,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   async function deleteAdminNotice(id: string) {
     await supabase.from('notices').delete().eq('id', id)
     if (selectedAdminNotice?.id === id) setSelectedAdminNotice(null)
-    loadAdminNotices()
+    loadAdminData()
   }
 
   async function deleteTodoFromAdmin(todoId: string) {
@@ -587,12 +583,17 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     setSavingStore(sId)
     try {
       // 오늘 날짜 notice 찾거나 생성
-      // 기존 '전체 할일' 또는 '관리자 할일' 재사용
+      // 기존 '전체 할일' 또는 '관리자 할일' 찾기
       const { data: existing1 } = await supabase.from('notices').select('id')
         .eq('store_id', sId).eq('notice_date', today).eq('title', '전체 할일').eq('is_from_closing', false).maybeSingle()
       const { data: existing2 } = await supabase.from('notices').select('id')
         .eq('store_id', sId).eq('notice_date', today).eq('title', '관리자 할일').eq('is_from_closing', false).maybeSingle()
-      let noticeId = existing1?.id || existing2?.id
+      let noticeId = existing1?.id
+      if (!noticeId && existing2?.id) {
+        // 기존 "관리자 할일" 제목을 "전체 할일"로 업데이트
+        await supabase.from('notices').update({ title: '전체 할일' }).eq('id', existing2.id)
+        noticeId = existing2.id
+      }
       if (!noticeId) {
         const { data: newNotice } = await supabase.from('notices').insert({
           store_id: sId, title: '전체 할일', content: null,
