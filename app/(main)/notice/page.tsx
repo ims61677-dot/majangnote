@@ -438,8 +438,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [savingAdminNotice, setSavingAdminNotice] = useState(false)
   const [adminNoticeStore, setAdminNoticeStore] = useState('')
 
-  useEffect(() => { loadAdminData() }, [storeId])
-  useEffect(() => { if (stores.length > 0) loadAdminNotices() }, [stores])
+  useEffect(() => { loadAdminData(); loadAdminNotices() }, [storeId])
   useEffect(() => { setMemoText(personalMemos[selectedCalDate] || '') }, [selectedCalDate, personalMemos])
 
   async function loadAdminData() {
@@ -535,8 +534,12 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // 공지 로드/저장/삭제
   async function loadAdminNotices() {
     if (!storeId) return
-    // 모든 지점 ID 가져오기
-    const storeIds = stores.length > 0 ? stores.map((s: any) => s.id) : [storeId]
+    // owner가 속한 모든 매장 ID를 직접 조회
+    const { data: memberData } = await supabase.from('store_members')
+      .select('store_id').eq('role', 'owner')
+    const storeIds = memberData && memberData.length > 0
+      ? [...new Set(memberData.map((m: any) => m.store_id))]
+      : [storeId]
     const { data } = await supabase.from('notices').select('*, notice_todos(id), stores(name)')
       .in('store_id', storeIds).eq('is_from_closing', false)
       .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
@@ -556,6 +559,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       setAdminNoticeTitle(''); setAdminNoticeContent(''); setAdminNoticePinned(false)
       setShowAdminNoticeForm(false)
       loadAdminNotices()
+      loadAdminData()
     } finally { setSavingAdminNotice(false) }
   }
 
@@ -583,9 +587,12 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     setSavingStore(sId)
     try {
       // 오늘 날짜 notice 찾거나 생성
-      const { data: existing } = await supabase.from('notices').select('id')
+      // 기존 '전체 할일' 또는 '관리자 할일' 재사용
+      const { data: existing1 } = await supabase.from('notices').select('id')
         .eq('store_id', sId).eq('notice_date', today).eq('title', '전체 할일').eq('is_from_closing', false).maybeSingle()
-      let noticeId = existing?.id
+      const { data: existing2 } = await supabase.from('notices').select('id')
+        .eq('store_id', sId).eq('notice_date', today).eq('title', '관리자 할일').eq('is_from_closing', false).maybeSingle()
+      let noticeId = existing1?.id || existing2?.id
       if (!noticeId) {
         const { data: newNotice } = await supabase.from('notices').insert({
           store_id: sId, title: '전체 할일', content: null,
@@ -771,7 +778,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   // ── 전체 할일 목록 ──
   const allTodosList = (
-    <div style={{ display: isPC ? 'grid' : 'block', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+    <div style={{ display: isPC ? 'grid' : 'block', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
       {allTodosMap.map(({ store, todos, closingTodos }) => {
         const incompleteTodos = todos.filter(t => !t.isDone)
         const incompleteClosing = closingTodos.filter((t: any) => !t.isDone)
