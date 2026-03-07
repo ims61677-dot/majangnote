@@ -425,6 +425,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // 보기 섹션
   const [showMemo, setShowMemo] = useState(false)
   const [expandedStores, setExpandedStores] = useState<Set<string>>(new Set())
+  const [editingTodo, setEditingTodo] = useState<any>(null)
+  const [editTodoContent, setEditTodoContent] = useState('')
 
   // 공지 관련
   const [adminNotices, setAdminNotices] = useState<any[]>([])
@@ -436,7 +438,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [savingAdminNotice, setSavingAdminNotice] = useState(false)
   const [adminNoticeStore, setAdminNoticeStore] = useState('')
 
-  useEffect(() => { loadAdminData(); loadAdminNotices() }, [storeId])
+  useEffect(() => { loadAdminData() }, [storeId])
+  useEffect(() => { if (stores.length > 0) loadAdminNotices() }, [stores])
   useEffect(() => { setMemoText(personalMemos[selectedCalDate] || '') }, [selectedCalDate, personalMemos])
 
   async function loadAdminData() {
@@ -532,8 +535,10 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // 공지 로드/저장/삭제
   async function loadAdminNotices() {
     if (!storeId) return
-    const { data } = await supabase.from('notices').select('*, notice_todos(id)')
-      .eq('store_id', storeId).eq('is_from_closing', false)
+    // 모든 지점 ID 가져오기
+    const storeIds = stores.length > 0 ? stores.map((s: any) => s.id) : [storeId]
+    const { data } = await supabase.from('notices').select('*, notice_todos(id), stores(name)')
+      .in('store_id', storeIds).eq('is_from_closing', false)
       .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
     const pure = (data || []).filter((n: any) => (!n.notice_todos || n.notice_todos.length === 0) && n.title !== '__PERSONAL_MEMO__')
     setAdminNotices(pure)
@@ -558,6 +563,18 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     await supabase.from('notices').delete().eq('id', id)
     if (selectedAdminNotice?.id === id) setSelectedAdminNotice(null)
     loadAdminNotices()
+  }
+
+  async function deleteTodoFromAdmin(todoId: string) {
+    await supabase.from('notice_todos').delete().eq('id', todoId)
+    loadAdminData()
+  }
+
+  async function updateTodoFromAdmin(todoId: string, newContent: string) {
+    if (!newContent.trim()) return
+    await supabase.from('notice_todos').update({ content: newContent.trim() }).eq('id', todoId)
+    setEditingTodo(null)
+    loadAdminData()
   }
 
   async function quickAddTodo(sId: string, sName: string) {
@@ -741,7 +758,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                 <button onClick={e => { e.stopPropagation(); deleteAdminNotice(notice.id) }} style={{ fontSize: 10, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: '0 0 0 4px' }}>✕</button>
               </div>
               {notice.content && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{notice.content}</div>}
-              <div style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
+              <div style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>{notice.stores?.name && <span style={{ color: '#6C5CE7', fontWeight: 600, marginRight: 4 }}>{notice.stores.name}</span>}{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
               {selectedAdminNotice?.id===notice.id && notice.content && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #F4F6F9', fontSize: 12, color: '#444', lineHeight: 1.6 }}>{notice.content}</div>
               )}
@@ -790,15 +807,35 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
               ) : (
                 incompleteTodos.map(todo => {
                   const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : todo.isToday ? '#6C5CE7' : '#FDC400'
+                  const isEditing = editingTodo?.id === todo.id
                   return (
-                    <div key={`${todo.id}-${todo.origin_date}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, background: `${urgentColor}06`, border: `1px solid ${urgentColor}20`, marginBottom: 4 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: urgentColor, background: `${urgentColor}15`, padding: '1px 6px', borderRadius: 6, flexShrink: 0 }}>
-                        {todo.isToday ? '오늘' : `${todo.day_count}일째`}
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.content}</div>
-                        <div style={{ fontSize: 10, color: '#bbb', marginTop: 1 }}>{todo.notice_title} · {todo.origin_date?.replace(/-/g,'.')}</div>
-                      </div>
+                    <div key={`${todo.id}-${todo.origin_date}`} style={{ padding: '6px 8px', borderRadius: 8, background: `${urgentColor}06`, border: `1px solid ${urgentColor}20`, marginBottom: 4 }}>
+                      {isEditing ? (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input value={editTodoContent} onChange={e => setEditTodoContent(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') updateTodoFromAdmin(todo.id, editTodoContent); if (e.key === 'Escape') setEditingTodo(null) }}
+                            autoFocus
+                            style={{ flex: 1, padding: '4px 8px', borderRadius: 6, border: '1px solid #6C5CE7', fontSize: 12, outline: 'none' }} />
+                          <button onClick={() => updateTodoFromAdmin(todo.id, editTodoContent)}
+                            style={{ padding: '4px 8px', borderRadius: 6, background: '#6C5CE7', border: 'none', color: '#fff', fontSize: 11, cursor: 'pointer' }}>저장</button>
+                          <button onClick={() => setEditingTodo(null)}
+                            style={{ padding: '4px 8px', borderRadius: 6, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>취소</button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: urgentColor, background: `${urgentColor}15`, padding: '1px 6px', borderRadius: 6, flexShrink: 0 }}>
+                            {todo.isToday ? '오늘' : `${todo.day_count}일째`}
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.content}</div>
+                            <div style={{ fontSize: 10, color: '#bbb', marginTop: 1 }}>{todo.notice_title} · {todo.origin_date?.replace(/-/g,'.')}</div>
+                          </div>
+                          <button onClick={() => { setEditingTodo(todo); setEditTodoContent(todo.content) }}
+                            style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', cursor: 'pointer', flexShrink: 0 }}>수정</button>
+                          <button onClick={() => deleteTodoFromAdmin(todo.id)}
+                            style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.3)', color: '#E84393', cursor: 'pointer', flexShrink: 0 }}>삭제</button>
+                        </div>
+                      )}
                     </div>
                   )
                 })
