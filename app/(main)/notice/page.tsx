@@ -536,12 +536,30 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // 공지 로드/저장/삭제
   async function loadAdminNotices(storeIdList?: string[]) {
     if (!storeId) return
-    const ids = storeIdList && storeIdList.length > 0 ? storeIdList : [storeId]
-    const { data } = await supabase.from('notices').select('*, notice_todos(id), stores(name)')
-      .in('store_id', ids).eq('is_from_closing', false)
-      .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
-    const pure = (data || []).filter((n: any) => (!n.notice_todos || n.notice_todos.length === 0) && n.title !== '__PERSONAL_MEMO__')
-    setAdminNotices(pure)
+    const ids = (storeIdList && storeIdList.length > 0) ? storeIdList : [storeId]
+    console.log('[loadAdminNotices] ids:', ids)
+    // notice_todos join 없이 순수 notices만 조회
+    const { data, error } = await supabase
+      .from('notices')
+      .select('id, title, content, notice_date, created_by, is_pinned, store_id')
+      .in('store_id', ids)
+      .eq('is_from_closing', false)
+      .neq('title', '__PERSONAL_MEMO__')
+      .order('is_pinned', { ascending: false })
+      .order('created_at', { ascending: false })
+    console.log('[loadAdminNotices] data count:', data?.length, 'error:', error)
+    if (error) { console.error(error); return }
+    // todos가 있는 컨테이너 제목 제외 (할일 컨테이너는 공지 목록에서 숨김)
+    const todoTitles = ['전체 할일', '관리자 할일', '반복 할일', '[이월]']
+    const noticeOnly = (data || []).filter((n: any) =>
+      !todoTitles.some(t => n.title?.startsWith(t))
+    )
+    // stores state에서 이름 매핑
+    const storeMap: Record<string, string> = {}
+    stores.forEach((s: any) => { storeMap[s.id] = s.name })
+    const withStoreName = noticeOnly.map((n: any) => ({ ...n, storeName: storeMap[n.store_id] || '' }))
+    console.log('[loadAdminNotices] noticeOnly count:', noticeOnly.length)
+    setAdminNotices(withStoreName)
   }
 
   async function saveAdminNotice() {
@@ -583,23 +601,20 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     setSavingStore(sId)
     try {
       // 오늘 날짜 notice 찾거나 생성
-      // 기존 '전체 할일' 또는 '관리자 할일' 찾기
-      const { data: existing1 } = await supabase.from('notices').select('id')
-        .eq('store_id', sId).eq('notice_date', today).eq('title', '전체 할일').eq('is_from_closing', false).maybeSingle()
-      const { data: existing2 } = await supabase.from('notices').select('id')
-        .eq('store_id', sId).eq('notice_date', today).eq('title', '관리자 할일').eq('is_from_closing', false).maybeSingle()
-      let noticeId = existing1?.id
-      if (!noticeId && existing2?.id) {
-        // 기존 "관리자 할일" 제목을 "전체 할일"로 업데이트
-        await supabase.from('notices').update({ title: '전체 할일' }).eq('id', existing2.id)
-        noticeId = existing2.id
+      // 오늘 '전체 할일' 또는 '관리자 할일' 컨테이너 찾기 (limit 사용으로 여러개 있어도 안전)
+      const { data: existingRows } = await supabase.from('notices').select('id, title')
+        .eq('store_id', sId).eq('notice_date', today).eq('is_from_closing', false)
+        .in('title', ['전체 할일', '관리자 할일']).limit(1)
+      let noticeId = existingRows?.[0]?.id
+      if (noticeId && existingRows?.[0]?.title === '관리자 할일') {
+        await supabase.from('notices').update({ title: '전체 할일' }).eq('id', noticeId)
       }
       if (!noticeId) {
         const { data: newNotice } = await supabase.from('notices').insert({
           store_id: sId, title: '전체 할일', content: null,
           notice_date: today, created_by: userName, is_from_closing: false, is_pinned: false
         }).select().single()
-        noticeId = newNotice.id
+        noticeId = newNotice?.id
       }
       await supabase.from('notice_todos').insert({
         notice_id: noticeId, content, created_by: userName,
@@ -766,7 +781,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                 <button onClick={e => { e.stopPropagation(); deleteAdminNotice(notice.id) }} style={{ fontSize: 10, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: '0 0 0 4px' }}>✕</button>
               </div>
               {notice.content && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{notice.content}</div>}
-              <div style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>{notice.stores?.name && <span style={{ color: '#6C5CE7', fontWeight: 600, marginRight: 4 }}>{notice.stores.name}</span>}{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
+              <div style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>{notice.storeName && <span style={{ color: '#6C5CE7', fontWeight: 600, marginRight: 4 }}>{notice.storeName}</span>}{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
               {selectedAdminNotice?.id===notice.id && notice.content && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #F4F6F9', fontSize: 12, color: '#444', lineHeight: 1.6 }}>{notice.content}</div>
               )}
