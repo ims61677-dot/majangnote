@@ -555,7 +555,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       })
       setAdminNoticeTitle(''); setAdminNoticeContent(''); setAdminNoticePinned(false)
       setShowAdminNoticeForm(false)
-      loadAdminData()
+      loadAdminNotices(stores.map((s: any) => s.id))
     } finally { setSavingAdminNotice(false) }
   }
 
@@ -836,7 +836,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                           </span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 12, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.content}</div>
-                            <div style={{ fontSize: 10, color: '#bbb', marginTop: 1 }}>{todo.notice_title} · {todo.origin_date?.replace(/-/g,'.')}</div>
+                            <div style={{ fontSize: 10, color: '#bbb', marginTop: 1 }}>{(todo.notice_title==='관리자 할일'?'전체 할일':todo.notice_title)} · {todo.origin_date?.replace(/-/g,'.')}</div>
                           </div>
                           <button onClick={() => { setEditingTodo(todo); setEditTodoContent(todo.content) }}
                             style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', cursor: 'pointer', flexShrink: 0 }}>수정</button>
