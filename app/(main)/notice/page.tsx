@@ -469,16 +469,17 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       loadAdminNotices(storeList.map((s: any) => s.id), storeList)
 
       const sevenDaysAgo = toDateStr(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000))
+      const fourteenDaysAhead = toDateStr(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000))
       const yesterday = toDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000))
 
       // ★ 모든 매장 동시에 병렬 로드
       const [storeResults, memosResult] = await Promise.all([
         Promise.all(storeList.map(async (store: any) => {
-          // 7일치 공지+할일 한번에 조회
+          // 과거7일 ~ 미래14일 공지+할일 한번에 조회
           const { data: notices } = await supabase
             .from('notices').select('*, notice_todos(*)')
             .eq('store_id', store.id)
-            .gte('notice_date', sevenDaysAgo).lte('notice_date', today)
+            .gte('notice_date', sevenDaysAgo).lte('notice_date', fourteenDaysAhead)
             .eq('is_from_closing', false).neq('title', '__PERSONAL_MEMO__')
 
           const allTodoIds = (notices || []).flatMap((n: any) => (n.notice_todos || []).map((t: any) => t.id))
@@ -505,7 +506,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
             allDates.add(noticeDate)
             for (const todo of (notice.notice_todos || [])) {
               const todoChecks = checkMap[todo.id] || []
-              todos.push({ ...todo, origin_date: noticeDate, day_count: dayCount, notice_title: notice.title, checks: todoChecks, isToday: noticeDate === today, isDone: todoChecks.length > 0 })
+              todos.push({ ...todo, origin_date: noticeDate, day_count: dayCount, notice_title: notice.title, checks: todoChecks, isToday: noticeDate === today, isFuture: noticeDate > today, isDone: todoChecks.length > 0 })
             }
           }
 
@@ -745,7 +746,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // ── 빠른 할일 추가 ──
   const quickAddSection = (
     <div style={{ ...bx, marginBottom: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>⚡ 빠른 할일 추가</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>⚡ 빠른 할일 추가 <span style={{ fontSize: 11, fontWeight: 400, color: selectedCalDate === today ? '#6C5CE7' : '#E84393', marginLeft: 4 }}>{selectedCalDate === today ? '(오늘)' : `(${selectedCalDate.replace(/-/g,'.')}) ← 선택날짜`}</span></div>
       {/* 공통 옵션 */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
         {VISIBILITY_OPTIONS.map(opt => (
@@ -904,9 +905,11 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const allTodosList = (
     <div style={{ display: isPC ? 'grid' : 'block', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, minWidth: 0 }}>
       {allTodosMap.map(({ store, todos, closingTodos }) => {
-        const incompleteTodos = todos.filter(t => !t.isDone)
+        const dateTodos = todos.filter(t => t.origin_date === selectedCalDate)
+        const incompleteTodos = dateTodos.filter(t => !t.isDone)
         const incompleteClosing = closingTodos.filter((t: any) => !t.isDone)
         const totalAlert = incompleteTodos.length + incompleteClosing.length
+        const totalCount = dateTodos.length + incompleteClosing.length
         return (
           <div key={store.id} style={{ background:'#fff', borderRadius:14, border: totalAlert>0 ? '1px solid rgba(232,67,147,0.2)' : '1px solid rgba(0,184,148,0.2)', padding:14 }}>
             {/* 지점 헤더 */}
@@ -931,7 +934,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                   ))}
                 </div>
               )}
-              {todos.length === 0 && closingTodos.length === 0 ? (
+              {dateTodos.length === 0 && closingTodos.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '20px 0', color: '#bbb', fontSize: 12 }}>최근 7일간 등록된 할일 없음</div>
               ) : incompleteTodos.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '16px 0', color: '#00B894', fontSize: 12 }}>✅ 미완료 할일 없음</div>
@@ -1028,7 +1031,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           {statusGrid}
           {adminNoticeSection}
           {quickAddSection}
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>📋 전 지점 할일</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>📋 전 지점 할일 <span style={{ fontSize: 11, fontWeight: 400, color: '#888', marginLeft: 4 }}>({selectedCalDate.replace(/-/g, '.')})</span></div>
           {allTodosList}
         </div>
       </div>
