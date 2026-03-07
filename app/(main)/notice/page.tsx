@@ -445,6 +445,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [editingAdminNotice, setEditingAdminNotice] = useState<any>(null)
   // 공지 순서 (로컬)
   const [noticeOrder, setNoticeOrder] = useState<string[]>([])
+  const NOTICE_ORDER_KEY = `notice_order_${storeId}`
 
   useEffect(() => { loadAdminData() }, [storeId])
   useEffect(() => { setMemoText(personalMemos[selectedCalDate] || '') }, [selectedCalDate, personalMemos])
@@ -567,7 +568,20 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     sl.forEach((s: any) => { storeMap[s.id] = s.name })
     const withStoreName = noticeOnly.map((n: any) => ({ ...n, storeName: storeMap[n.store_id] || '' }))
     setAdminNotices(withStoreName)
-    setNoticeOrder(withStoreName.map((n: any) => n.id))
+    // localStorage에 저장된 순서가 있으면 그 순서 우선 적용
+    const freshIds = withStoreName.map((n: any) => n.id)
+    const savedOrder = typeof window !== 'undefined' ? localStorage.getItem(`notice_order_${storeId}`) : null
+    if (savedOrder) {
+      const parsed: string[] = JSON.parse(savedOrder)
+      // 저장된 순서대로 정렬 (새로 추가된 건 뒤에)
+      const ordered = [
+        ...parsed.filter(id => freshIds.includes(id)),
+        ...freshIds.filter(id => !parsed.includes(id))
+      ]
+      setNoticeOrder(ordered)
+    } else {
+      setNoticeOrder(freshIds)
+    }
   }
 
   async function saveAdminNotice() {
@@ -632,6 +646,10 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       const swap = dir === 'up' ? idx - 1 : idx + 1
       if (swap < 0 || swap >= next.length) return prev
       ;[next[idx], next[swap]] = [next[swap], next[idx]]
+      // 새 순서 localStorage에 저장
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`notice_order_${storeId}`, JSON.stringify(next))
+      }
       return next
     })
   }
@@ -1047,7 +1065,17 @@ export default function NoticePage() {
   const today = toDateStr(new Date())
 
   type SubTab = 'notice' | 'todo' | 'admin'
-  const [subTab, setSubTab] = useState<SubTab>('notice')
+  const [subTab, setSubTab] = useState<SubTab>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('notice_subTab')
+      if (saved === 'notice' || saved === 'todo' || saved === 'admin') return saved as SubTab
+    }
+    return 'notice'
+  })
+  // subTab 변경 시 localStorage 저장
+  useEffect(() => {
+    if (typeof window !== 'undefined') localStorage.setItem('notice_subTab', subTab)
+  }, [subTab])
 
   // ── 공지 상태 ──
   const [notices, setNotices] = useState<any[]>([])
