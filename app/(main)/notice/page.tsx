@@ -651,76 +651,52 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       {allTodosMap.map(({ store, todos, closingTodos }) => {
         const incompleteTodos = todos.filter(t => !t.isDone)
         const incompleteClosing = closingTodos.filter((t: any) => !t.isDone)
-        const isExpanded = expandedStores.has(store.id)
         const totalAlert = incompleteTodos.length + incompleteClosing.length
         return (
-          <div key={store.id} style={{ ...bx, marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isExpanded ? 12 : 0 }}>
-              <button onClick={() => setExpandedStores(p => { const n = new Set(p); n.has(store.id) ? n.delete(store.id) : n.add(store.id); return n })}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0, flex: 1, textAlign: 'left' }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>🏪 {store.name}</span>
-                {totalAlert > 0 && (
-                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>{totalAlert}개 미완료</span>
-                )}
-                {totalAlert === 0 && (todos.length > 0 || closingTodos.length > 0) && (
-                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(0,184,148,0.1)', color: '#00B894', fontWeight: 700 }}>✅ 모두 완료</span>
-                )}
-                <span style={{ fontSize: 10, color: '#bbb', marginLeft: 'auto' }}>{isExpanded ? '▲' : '▼'}</span>
-              </button>
+          <div key={store.id} style={{ background:'#fff', borderRadius:14, border: totalAlert>0 ? '1px solid rgba(232,67,147,0.2)' : '1px solid rgba(0,184,148,0.2)', padding:14 }}>
+            {/* 지점 헤더 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid #F4F6F9' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e' }}>🏪 {store.name}</span>
+              {totalAlert > 0
+                ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>{totalAlert}개 미완료</span>
+                : <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, background: 'rgba(0,184,148,0.1)', color: '#00B894', fontWeight: 700 }}>✅ 완료</span>
+              }
             </div>
-            {isExpanded && (
-              <>
-                {/* 마감 전달사항 */}
-                {closingTodos.length > 0 && (
-                  <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,107,53,0.03)', border: '1px solid rgba(255,107,53,0.2)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35', marginBottom: 8 }}>📢 마감 전달사항</div>
-                    {closingTodos.map((todo: any) => (
-                      <div key={todo.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid rgba(255,107,53,0.08)' }}>
-                        <span style={{ fontSize: 12, color: todo.isDone ? '#00B894' : '#FF6B35' }}>{todo.isDone ? '✓' : '○'}</span>
-                        <span style={{ fontSize: 12, color: todo.isDone ? '#00B894' : '#444', textDecoration: todo.isDone ? 'line-through' : 'none', flex: 1 }}>{todo.content}</span>
-                        {todo.isDone && todo.checks?.[0] && (
-                          <span style={{ fontSize: 9, color: '#00B894' }}>{todo.checks[0].checked_by}</span>
-                        )}
+            {/* 내용: maxHeight + scroll */}
+            <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+              {/* 마감 전달사항 */}
+              {closingTodos.length > 0 && (
+                <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,107,53,0.03)', border: '1px solid rgba(255,107,53,0.2)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35', marginBottom: 6 }}>📢 마감 전달사항</div>
+                  {closingTodos.map((todo: any) => (
+                    <div key={todo.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid rgba(255,107,53,0.08)' }}>
+                      <span style={{ fontSize: 11, color: todo.isDone ? '#00B894' : '#FF6B35' }}>{todo.isDone ? '✓' : '○'}</span>
+                      <span style={{ fontSize: 11, color: todo.isDone ? '#888' : '#444', textDecoration: todo.isDone ? 'line-through' : 'none', flex: 1 }}>{todo.content}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {todos.length === 0 && closingTodos.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '20px 0', color: '#bbb', fontSize: 12 }}>최근 7일간 등록된 할일 없음</div>
+              ) : incompleteTodos.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '16px 0', color: '#00B894', fontSize: 12 }}>✅ 미완료 할일 없음</div>
+              ) : (
+                incompleteTodos.map(todo => {
+                  const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : todo.isToday ? '#6C5CE7' : '#FDC400'
+                  return (
+                    <div key={`${todo.id}-${todo.origin_date}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, background: `${urgentColor}06`, border: `1px solid ${urgentColor}20`, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: urgentColor, background: `${urgentColor}15`, padding: '1px 6px', borderRadius: 6, flexShrink: 0 }}>
+                        {todo.isToday ? '오늘' : `${todo.day_count}일째`}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.content}</div>
+                        <div style={{ fontSize: 10, color: '#bbb', marginTop: 1 }}>{todo.notice_title} · {todo.origin_date?.replace(/-/g,'.')}</div>
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                {todos.length === 0 && closingTodos.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '16px 0', color: '#bbb', fontSize: 12 }}>최근 7일간 등록된 할일 없음</div>
-                ) : (
-                  <>
-                    {incompleteTodos.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#E84393', marginBottom: 6 }}>⚠️ 미완료 할일</div>
-                        {incompleteTodos.map(todo => {
-                          const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : todo.isToday ? '#6C5CE7' : '#FDC400'
-                          return (
-                            <div key={`${todo.id}-${todo.origin_date}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, background: `${urgentColor}06`, border: `1px solid ${urgentColor}25`, marginBottom: 4 }}>
-                              <span style={{ fontSize: 10, fontWeight: 700, color: urgentColor, background: `${urgentColor}15`, padding: '1px 6px', borderRadius: 6, flexShrink: 0 }}>
-                                {todo.isToday ? '오늘' : `${todo.day_count}일째`}
-                              </span>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.content}</div>
-                                <div style={{ fontSize: 10, color: '#bbb', marginTop: 1, display: 'flex', gap: 6 }}>
-                                  <span>{todo.notice_title} · {todo.origin_date?.replace(/-/g,'.')}</span>
-                                  {todo.is_mission && <span style={{ color: '#FDC400' }}>📸 미션</span>}
-                                </div>
-                              </div>
-                              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                                <VisibilityBadge value={todo.visibility} />
-                                <RepeatBadge value={todo.repeat_type} />
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-
-                  </>
-                )}
-              </>
-            )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
           </div>
         )
       })}
@@ -1436,161 +1412,159 @@ export default function NoticePage() {
           <AdminTab storeId={storeId} userName={userName} isPC={true} />
         )}
 
-        {/* 공지 탭: 좌측 목록 + 우측 상세 */}
+        {/* 공지 탭: 2열 카드 그리드 */}
         {subTab === 'notice' && (
-          <div style={{ display:'grid', gridTemplateColumns:'340px 1fr', gap:20, alignItems:'start' }}>
-            {/* 좌: 공지 목록 */}
-            <div>
-              {overdueCount > 0 && (
-                <div style={{ ...bx, border:'1px solid rgba(255,107,53,0.3)', background:'rgba(255,107,53,0.02)', marginBottom:10 }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#FF6B35', marginBottom:6 }}>⚠️ 미완료 할일 {overdueCount}개</div>
-                  {overdueTodos.slice(0,3).map(todo => {
-                    const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : '#FDC400'
+          <div>
+            {overdueCount > 0 && (
+              <div style={{ ...bx, border:'1px solid rgba(255,107,53,0.3)', background:'rgba(255,107,53,0.04)', marginBottom:14, display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                <span style={{ fontSize:13, fontWeight:700, color:'#FF6B35', flexShrink:0 }}>⚠️ 미완료 할일 {overdueCount}개</span>
+                {overdueTodos.slice(0,4).map(todo => {
+                  const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : '#FDC400'
+                  return (
+                    <span key={`${todo.id}-${todo.origin_date}`} style={{ fontSize:11, color:urgentColor, background:`${urgentColor}10`, padding:'3px 8px', borderRadius:8, border:`1px solid ${urgentColor}25` }}>
+                      {todo.day_count}일째 · {todo.content}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+            {noticeForm}
+            {/* 고정 공지 */}
+            {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_MEMO__').length > 0 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginBottom:8, paddingLeft:2 }}>📌 고정 공지</div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12 }}>
+                  {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_MEMO__').map(notice => {
+                    const isRead = (noticeReads[notice.id]||[]).find((r:any)=>r.reader_name===userName)
+                    const readCount = (noticeReads[notice.id]||[]).length
                     return (
-                      <div key={`${todo.id}-${todo.origin_date}`} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:'1px solid #F4F6F9' }}>
-                        <span style={{ fontSize:10, fontWeight:700, color: urgentColor, background:`${urgentColor}15`, padding:'1px 5px', borderRadius:5, flexShrink:0 }}>{todo.day_count}일째</span>
-                        <span style={{ fontSize:12, color:'#1a1a2e', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</span>
+                      <div key={notice.id} onClick={() => setSelectedNotice(selectedNotice?.id===notice.id ? null : notice)}
+                        style={{ background:'#fff', borderRadius:14, border: selectedNotice?.id===notice.id ? '2px solid #6C5CE7' : '1px solid rgba(108,92,231,0.25)', padding:16, cursor:'pointer', transition:'box-shadow 0.15s', boxShadow: selectedNotice?.id===notice.id ? '0 4px 16px rgba(108,92,231,0.15)' : '0 1px 4px rgba(0,0,0,0.04)' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
+                          <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', flex:1, lineHeight:1.3 }}>{notice.title}</div>
+                          {!isRead && <span style={{ fontSize:9, padding:'2px 6px', borderRadius:6, background:'#FF6B35', color:'#fff', fontWeight:700, flexShrink:0, marginLeft:6 }}>NEW</span>}
+                        </div>
+                        {notice.content && <div style={{ fontSize:12, color:'#666', lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{notice.content}</div>}
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                          <span style={{ fontSize:10, color:'#bbb' }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</span>
+                          <span style={{ fontSize:10, color:'#00B894' }}>👁 {readCount}명</span>
+                        </div>
+                        {selectedNotice?.id===notice.id && (
+                          <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid #F4F6F9' }}>
+                            {notice.content && <div style={{ fontSize:13, color:'#444', lineHeight:1.7, marginBottom:10, padding:'8px 10px', background:'#F8F9FB', borderRadius:8 }}>{notice.content}</div>}
+                            <AttachmentView url={notice.attachment_url} type={notice.attachment_type} />
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:8, marginBottom:8 }}>
+                              {(noticeReads[notice.id]||[]).map((r:any) => (
+                                <span key={r.id} style={{ fontSize:10, padding:'2px 6px', borderRadius:6, background:'rgba(0,184,148,0.1)', color:'#00B894' }}>{r.reader_name}</span>
+                              ))}
+                            </div>
+                            <div style={{ display:'flex', gap:6, marginTop:6 }}>
+                              {!isRead && <button onClick={e=>{e.stopPropagation();markRead(notice.id)}} style={{ flex:2, padding:'7px 0', borderRadius:8, background:'linear-gradient(135deg,#6C5CE7,#00B894)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>✓ 읽음 확인</button>}
+                              {isManager && <button onClick={e=>{e.stopPropagation();setEditingNotice(notice);setFormTitle(notice.title);setFormContent(notice.content||'');setFormPinned(notice.is_pinned);setFormNoticeAttachType(notice.attachment_type||'none');setFormNoticeAttachUrl(notice.attachment_url||'');setShowNoticeForm(true)}} style={{ flex:1, padding:'7px 0', borderRadius:8, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:11, cursor:'pointer' }}>수정</button>}
+                              {isManager && <button onClick={e=>{e.stopPropagation();deleteNotice(notice.id);setSelectedNotice(null)}} style={{ flex:1, padding:'7px 0', borderRadius:8, background:'rgba(232,67,147,0.1)', border:'1px solid rgba(232,67,147,0.3)', color:'#E84393', fontSize:11, cursor:'pointer' }}>삭제</button>}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
                 </div>
-              )}
-              {noticeForm}
-              {/* 고정 공지 */}
-              {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_MEMO__').length > 0 && (
-                <div style={{ marginBottom:6 }}>
-                  <div style={{ fontSize:10, fontWeight:700, color:'#6C5CE7', marginBottom:4, paddingLeft:2 }}>📌 고정</div>
-                  {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_MEMO__').map(notice => (
-                    <div key={notice.id} onClick={() => setSelectedNotice(notice)}
-                      style={{ ...bx, marginBottom:6, cursor:'pointer', border: selectedNotice?.id===notice.id ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: selectedNotice?.id===notice.id ? 'rgba(108,92,231,0.04)' : '#fff' }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{notice.title}</div>
-                          {notice.content && <div style={{ fontSize:11, color:'#888', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{notice.content}</div>}
-                          <div style={{ fontSize:10, color:'#bbb', marginTop:3 }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
-                        </div>
-                        {(noticeReads[notice.id]||[]).filter((r:any)=>r.reader_name!==userName).length < 1 && (
-                          <span style={{ fontSize:9, padding:'2px 6px', borderRadius:6, background:'#FF6B35', color:'#fff', fontWeight:700, flexShrink:0 }}>NEW</span>
-                        )}
+              </div>
+            )}
+            {/* 전체 공지 */}
+            <div style={{ fontSize:11, fontWeight:700, color:'#aaa', marginBottom:8, paddingLeft:2 }}>📋 전체 공지</div>
+            {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_MEMO__').length === 0 ? (
+              <div style={{ ...bx, textAlign:'center', padding:32, color:'#bbb' }}>
+                <div style={{ fontSize:24, marginBottom:8 }}>📭</div>
+                <div style={{ fontSize:13 }}>등록된 공지가 없습니다</div>
+              </div>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12 }}>
+                {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_MEMO__').map(notice => {
+                  const isRead = (noticeReads[notice.id]||[]).find((r:any)=>r.reader_name===userName)
+                  const readCount = (noticeReads[notice.id]||[]).length
+                  return (
+                    <div key={notice.id} onClick={() => setSelectedNotice(selectedNotice?.id===notice.id ? null : notice)}
+                      style={{ background:'#fff', borderRadius:14, border: selectedNotice?.id===notice.id ? '2px solid #6C5CE7' : '1px solid #E8ECF0', padding:16, cursor:'pointer', boxShadow: selectedNotice?.id===notice.id ? '0 4px 16px rgba(108,92,231,0.12)' : '0 1px 4px rgba(0,0,0,0.04)' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>
+                        <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', flex:1, lineHeight:1.3 }}>{notice.title}</div>
+                        {!isRead && <span style={{ fontSize:9, padding:'2px 6px', borderRadius:6, background:'#FF6B35', color:'#fff', fontWeight:700, flexShrink:0, marginLeft:6 }}>NEW</span>}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* 전체 공지 */}
-              <div style={{ fontSize:10, fontWeight:700, color:'#aaa', marginBottom:4, paddingLeft:2 }}>📋 전체 공지</div>
-              {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_MEMO__').length === 0 ? (
-                <div style={{ ...bx, textAlign:'center', padding:24, color:'#bbb' }}>
-                  <div style={{ fontSize:20, marginBottom:6 }}>📭</div>
-                  <div style={{ fontSize:12 }}>등록된 공지가 없습니다</div>
-                </div>
-              ) : notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_MEMO__').map(notice => (
-                <div key={notice.id} onClick={() => setSelectedNotice(notice)}
-                  style={{ ...bx, marginBottom:6, cursor:'pointer', border: selectedNotice?.id===notice.id ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: selectedNotice?.id===notice.id ? 'rgba(108,92,231,0.04)' : '#fff' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{notice.title}</div>
-                      {notice.content && <div style={{ fontSize:11, color:'#888', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{notice.content}</div>}
-                      <div style={{ fontSize:10, color:'#bbb', marginTop:3 }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
-                    </div>
-                    {(noticeReads[notice.id]||[]).filter((r:any)=>r.reader_name!==userName).length < 1 && (
-                      <span style={{ fontSize:9, padding:'2px 6px', borderRadius:6, background:'#FF6B35', color:'#fff', fontWeight:700, flexShrink:0 }}>NEW</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {/* 우: 선택된 공지 상세 */}
-            <div style={{ position:'sticky', top:80 }}>
-              {selectedNotice ? (
-                <div style={{ ...bx }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:16, fontWeight:800, color:'#1a1a2e', marginBottom:4 }}>{selectedNotice.title}</div>
-                      <div style={{ fontSize:11, color:'#bbb' }}>{selectedNotice.created_by} · {selectedNotice.notice_date?.replace(/-/g,'.')}</div>
-                    </div>
-                    <div style={{ display:'flex', gap:6 }}>
-                      {isManager && (
-                        <>
-                          <button onClick={() => { setEditingNotice(selectedNotice); setFormTitle(selectedNotice.title); setFormContent(selectedNotice.content||''); setFormPinned(selectedNotice.is_pinned); setFormNoticeAttachType(selectedNotice.attachment_type||'none'); setFormNoticeAttachUrl(selectedNotice.attachment_url||''); setShowNoticeForm(true) }}
-                            style={{ fontSize:11, padding:'4px 10px', borderRadius:7, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', cursor:'pointer' }}>수정</button>
-                          <button onClick={() => { deleteNotice(selectedNotice.id); setSelectedNotice(null) }}
-                            style={{ fontSize:11, padding:'4px 10px', borderRadius:7, background:'rgba(232,67,147,0.1)', border:'1px solid rgba(232,67,147,0.3)', color:'#E84393', cursor:'pointer' }}>삭제</button>
-                        </>
+                      {notice.content && <div style={{ fontSize:12, color:'#666', lineHeight:1.5, marginBottom:8, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{notice.content}</div>}
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <span style={{ fontSize:10, color:'#bbb' }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</span>
+                        <span style={{ fontSize:10, color:'#00B894' }}>👁 {readCount}명</span>
+                      </div>
+                      {selectedNotice?.id===notice.id && (
+                        <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid #F4F6F9' }}>
+                          {notice.content && <div style={{ fontSize:13, color:'#444', lineHeight:1.7, marginBottom:10, padding:'8px 10px', background:'#F8F9FB', borderRadius:8 }}>{notice.content}</div>}
+                          <AttachmentView url={notice.attachment_url} type={notice.attachment_type} />
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:8, marginBottom:8 }}>
+                            {(noticeReads[notice.id]||[]).map((r:any) => (
+                              <span key={r.id} style={{ fontSize:10, padding:'2px 6px', borderRadius:6, background:'rgba(0,184,148,0.1)', color:'#00B894' }}>{r.reader_name}</span>
+                            ))}
+                          </div>
+                          <div style={{ display:'flex', gap:6, marginTop:6 }}>
+                            {!isRead && <button onClick={e=>{e.stopPropagation();markRead(notice.id)}} style={{ flex:2, padding:'7px 0', borderRadius:8, background:'linear-gradient(135deg,#6C5CE7,#00B894)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>✓ 읽음 확인</button>}
+                            {isManager && <button onClick={e=>{e.stopPropagation();setEditingNotice(notice);setFormTitle(notice.title);setFormContent(notice.content||'');setFormPinned(notice.is_pinned);setFormNoticeAttachType(notice.attachment_type||'none');setFormNoticeAttachUrl(notice.attachment_url||'');setShowNoticeForm(true)}} style={{ flex:1, padding:'7px 0', borderRadius:8, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:11, cursor:'pointer' }}>수정</button>}
+                            {isManager && <button onClick={e=>{e.stopPropagation();deleteNotice(notice.id);setSelectedNotice(null)}} style={{ flex:1, padding:'7px 0', borderRadius:8, background:'rgba(232,67,147,0.1)', border:'1px solid rgba(232,67,147,0.3)', color:'#E84393', fontSize:11, cursor:'pointer' }}>삭제</button>}
+                          </div>
+                        </div>
                       )}
-                      <button onClick={() => setSelectedNotice(null)} style={{ fontSize:11, padding:'4px 10px', borderRadius:7, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', cursor:'pointer' }}>✕</button>
                     </div>
-                  </div>
-                  {selectedNotice.content && (
-                    <div style={{ fontSize:13, color:'#444', lineHeight:1.7, marginBottom:12, padding:'10px 12px', background:'#F8F9FB', borderRadius:10 }}>
-                      {selectedNotice.content}
-                    </div>
-                  )}
-                  <AttachmentView url={selectedNotice.attachment_url} type={selectedNotice.attachment_type} />
-                  {/* 읽음 현황 */}
-                  <div style={{ marginTop:12, padding:'8px 10px', background:'rgba(0,184,148,0.04)', borderRadius:8, border:'1px solid rgba(0,184,148,0.15)' }}>
-                    <div style={{ fontSize:10, fontWeight:700, color:'#00B894', marginBottom:4 }}>👁 읽음 현황</div>
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
-                      {(noticeReads[selectedNotice.id]||[]).map((r:any) => (
-                        <span key={r.id} style={{ fontSize:10, padding:'2px 7px', borderRadius:6, background:'rgba(0,184,148,0.1)', color:'#00B894' }}>{r.reader_name}</span>
-                      ))}
-                      {(noticeReads[selectedNotice.id]||[]).length === 0 && <span style={{ fontSize:10, color:'#bbb' }}>아직 읽지 않음</span>}
-                    </div>
-                  </div>
-                  {/* 안읽음 처리 */}
-                  {!(noticeReads[selectedNotice.id]||[]).find((r:any)=>r.reader_name===userName) && (
-                    <button onClick={() => markRead(selectedNotice.id)}
-                      style={{ width:'100%', marginTop:10, padding:'9px 0', borderRadius:10, background:'linear-gradient(135deg,#6C5CE7,#00B894)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
-                      ✓ 읽음 확인
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div style={{ ...bx, textAlign:'center', padding:48, color:'#bbb' }}>
-                  <div style={{ fontSize:32, marginBottom:10 }}>👈</div>
-                  <div style={{ fontSize:13 }}>왼쪽에서 공지를 선택하세요</div>
-                </div>
-              )}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 
-        {/* 할일 탭: 3단 - 캘린더 | 마감전달사항 | 오늘 할일 */}
+        {/* 할일 탭: 균등 3단 - 미완료이월 | 마감전달사항 | 오늘 할일 */}
         {subTab === 'todo' && (
-          <div style={{ display:'grid', gridTemplateColumns:'240px 260px 1fr', gap:16, alignItems:'start' }}>
-            {/* 1열: 캘린더 + 미완료 이월 */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16, alignItems:'start' }}>
+            {/* 1열: 미완료이월(상단 강조) + 캘린더 */}
             <div style={{ position:'sticky', top:80 }}>
+              {overdueTodos.length > 0 ? (
+                <div style={{ borderRadius:14, border:'2px solid rgba(232,67,147,0.4)', background:'rgba(232,67,147,0.04)', padding:14, marginBottom:12 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                    <span style={{ fontSize:13, fontWeight:800, color:'#E84393' }}>⚠️ 미완료 이월</span>
+                    <span style={{ fontSize:11, padding:'2px 8px', borderRadius:8, background:'rgba(232,67,147,0.15)', color:'#E84393', fontWeight:700 }}>{overdueCount}개</span>
+                  </div>
+                  {overdueTodos.map(todo => {
+                    const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : '#FDC400'
+                    return (
+                      <div key={`${todo.id}-${todo.origin_date}`} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 0', borderBottom:'1px solid rgba(232,67,147,0.1)' }}>
+                        <span style={{ fontSize:10, fontWeight:700, color:urgentColor, background:`${urgentColor}15`, padding:'2px 6px', borderRadius:6, flexShrink:0 }}>{todo.day_count}일째</span>
+                        <span style={{ fontSize:12, color:'#333', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</span>
+                        {isManager && (
+                          <button onClick={() => moveTodoToToday(todo)} style={{ fontSize:10, padding:'3px 8px', borderRadius:6, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', cursor:'pointer', flexShrink:0 }}>이동</button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div style={{ borderRadius:14, border:'1px solid rgba(0,184,148,0.25)', background:'rgba(0,184,148,0.04)', padding:14, marginBottom:12, textAlign:'center' }}>
+                  <div style={{ fontSize:20, marginBottom:4 }}>✅</div>
+                  <div style={{ fontSize:12, color:'#00B894', fontWeight:600 }}>이월 할일 없음</div>
+                </div>
+              )}
               <MiniCalendar
                 year={calYear} month={calMonth}
                 todoDates={todoDates} selectedDate={selectedDate}
                 onSelectDate={d => { setSelectedDate(d); const [y,m]=d.split('-').map(Number); setCalYear(y); setCalMonth(m-1) }}
                 onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }}
               />
-              {overdueTodos.length > 0 && (
-                <div style={{ ...bx, border:'1px solid rgba(232,67,147,0.25)', background:'rgba(232,67,147,0.02)' }}>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#E84393', marginBottom:8 }}>⚠️ 미완료 이월 {overdueCount}개</div>
-                  {overdueTodos.map(todo => {
-                    const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : '#FDC400'
-                    return (
-                      <div key={`${todo.id}-${todo.origin_date}`} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:'1px solid #F4F6F9' }}>
-                        <span style={{ fontSize:9, fontWeight:700, color:urgentColor, background:`${urgentColor}15`, padding:'1px 5px', borderRadius:5, flexShrink:0 }}>{todo.day_count}일째</span>
-                        <span style={{ fontSize:11, color:'#444', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</span>
-                        {isManager && (
-                          <button onClick={() => moveTodoToToday(todo)} style={{ fontSize:9, padding:'2px 6px', borderRadius:5, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', cursor:'pointer', flexShrink:0 }}>이동</button>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
             </div>
             {/* 2열: 마감 전달사항 */}
             <div style={{ position:'sticky', top:80 }}>
-              <div style={{ ...bx, border: closingTodos.length>0?'1px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0', background: closingTodos.length>0?'rgba(255,107,53,0.02)':'#fff' }}>
-                <div style={{ fontSize:13, fontWeight:700, color:'#FF6B35', marginBottom:closingTodos.length>0?10:0 }}>📢 마감 전달사항</div>
-                <div style={{ fontSize:10, color:'#bbb', marginBottom: closingTodos.length>0?8:0 }}>{closingDateLabel} 마감</div>
+              <div style={{ borderRadius:14, border: closingTodos.length>0?'2px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0', background: closingTodos.length>0?'rgba(255,107,53,0.03)':'#fff', padding:14 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#FF6B35' }}>📢 마감 전달사항</span>
+                  <span style={{ fontSize:10, color:'#bbb' }}>{closingDateLabel}</span>
+                </div>
                 {closingTodos.length === 0
-                  ? <div style={{ fontSize:11, color:'#bbb', padding:'12px 0', textAlign:'center' }}>전달사항 없음 ✓</div>
+                  ? <div style={{ textAlign:'center', padding:'20px 0', color:'#bbb', fontSize:12 }}>전달사항 없음 ✓</div>
                   : closingTodos.map((todo: any) => (
                     <TodoItem key={todo.id} todo={todo} checks={closingChecks[todo.id]||[]} onToggle={() => toggleClosingTodo(todo.id)} canCheck={canCheckDate(selectedDate)} myName={userName} userRole={userRole} />
                   ))
