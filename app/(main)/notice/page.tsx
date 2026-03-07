@@ -1526,7 +1526,7 @@ export default function NoticePage() {
                       {selectedNotice.content}
                     </div>
                   )}
-                  <AttachmentView attachUrl={selectedNotice.attachment_url} attachType={selectedNotice.attachment_type} />
+                  <AttachmentView url={selectedNotice.attachment_url} type={selectedNotice.attachment_type} />
                   {/* 읽음 현황 */}
                   <div style={{ marginTop:12, padding:'8px 10px', background:'rgba(0,184,148,0.04)', borderRadius:8, border:'1px solid rgba(0,184,148,0.15)' }}>
                     <div style={{ fontSize:10, fontWeight:700, color:'#00B894', marginBottom:4 }}>👁 읽음 현황</div>
