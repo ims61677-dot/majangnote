@@ -24,7 +24,6 @@ export default function PushSetup() {
   }, [])
 
   useEffect(() => {
-    // 이미 허용된 경우 자동 구독
     if (permission === 'granted') {
       subscribePush()
     }
@@ -33,10 +32,8 @@ export default function PushSetup() {
   async function subscribePush() {
     try {
       const reg = await navigator.serviceWorker.ready
-      
-      // 기존 구독 확인
       let subscription = await reg.pushManager.getSubscription()
-      
+
       if (!subscription) {
         subscription = await reg.pushManager.subscribe({
           userVisibleOnly: true,
@@ -44,17 +41,18 @@ export default function PushSetup() {
         })
       }
 
-      // 유저 정보 가져오기
       const userStr = localStorage.getItem('mj_user')
+      const storeStr = localStorage.getItem('mj_store')
       const user = userStr ? JSON.parse(userStr) : null
+      const store = storeStr ? JSON.parse(storeStr) : null
 
-      // 서버에 구독 정보 저장
       await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subscription: subscription.toJSON(),
           userId: user?.id || null,
+          storeId: store?.id || null,
         }),
       })
     } catch (err) {
@@ -67,7 +65,6 @@ export default function PushSetup() {
     setPermission(result)
   }
 
-  // 아직 허용 안 한 경우에만 버튼 표시
   if (permission !== 'default') return null
 
   return (

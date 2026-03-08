@@ -8,31 +8,42 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   try {
-    const { subscription, userId } = await req.json()
+    const { subscription, userId, storeId } = await req.json()
 
     const { data: existing } = await supabase
       .from('push_subscriptions')
       .select('id')
-      .eq('endpoint', subscription.endpoint)
+      .eq('profile_id', userId)
+      .eq('store_id', storeId)
       .limit(1)
 
     if (existing && existing.length > 0) {
       await supabase
         .from('push_subscriptions')
-        .update({ keys: subscription.keys, user_id: userId })
-        .eq('endpoint', subscription.endpoint)
+        .update({
+          endpoint: subscription.endpoint,
+          keys: subscription.keys,
+          subscription: subscription,
+        })
+        .eq('id', existing[0].id)
     } else {
       await supabase
         .from('push_subscriptions')
         .insert({
+          profile_id: userId,
+          store_id: storeId,
           endpoint: subscription.endpoint,
           keys: subscription.keys,
-          user_id: userId,
+          subscription: subscription,
+          settings: {
+            attendance: true, late: true, absent: true, request: true,
+            notice: true, closing: false, inventory: true, schedule: true,
+          },
         })
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    return NextResponse.json({ error: 'Failed: ' + String(error) }, { status: 500 })
+    return NextResponse.json({ error: String(error) }, { status: 500 })
   }
 }
