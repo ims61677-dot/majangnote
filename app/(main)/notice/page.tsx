@@ -703,15 +703,25 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   }
 
   async function saveChecklist(date: string, items: any[]) {
-    const content = JSON.stringify(items)
-    const existing = await supabase.from('notices').select('id')
-      .eq('store_id', storeId).eq('notice_date', date).eq('title', '__PERSONAL_CHECKLIST__').maybeSingle()
-    if (existing.data) {
-      await supabase.from('notices').update({ content }).eq('id', existing.data.id)
-    } else {
-      await supabase.from('notices').insert({ store_id: storeId, title: '__PERSONAL_CHECKLIST__', content, notice_date: date, created_by: userName, is_from_closing: false, is_pinned: false })
-    }
-    setChecklistMap(p => ({ ...p, [date]: items }))
+    if (!storeId) { console.error('saveChecklist: storeId 없음'); return }
+    const jsonContent = JSON.stringify(items)
+    try {
+      const { data: existing, error: selectErr } = await supabase.from('notices').select('id')
+        .eq('store_id', storeId).eq('notice_date', date).eq('title', '__PERSONAL_CHECKLIST__').maybeSingle()
+      if (selectErr) { console.error('select error:', selectErr); return }
+      if (existing) {
+        const { error: updateErr } = await supabase.from('notices').update({ content: jsonContent }).eq('id', existing.id)
+        if (updateErr) { console.error('update error:', updateErr); alert('저장 실패: ' + updateErr.message); return }
+      } else {
+        const { error: insertErr } = await supabase.from('notices').insert({
+          store_id: storeId, title: '__PERSONAL_CHECKLIST__', content: jsonContent,
+          notice_date: date, created_by: userName, is_from_closing: false, is_pinned: false,
+          attachment_url: null, attachment_type: null
+        })
+        if (insertErr) { console.error('insert error:', insertErr); alert('저장 실패: ' + insertErr.message); return }
+      }
+      setChecklistMap(p => ({ ...p, [date]: items }))
+    } catch (e: any) { console.error('saveChecklist error:', e); alert('저장 중 오류: ' + e?.message) }
   }
 
   async function addChecklistItem() {
