@@ -277,7 +277,7 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
   )
 
   // ── 지점별 카드 ──
-  const storeCols = isPC ? Math.min(stores.length, 3) : Math.min(stores.length, 2)
+  const storeCols = isPC ? Math.min(stores.length, 3) : 1
   const storeCards = (
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${storeCols}, 1fr)`, gap: 12 }}>
       {storeClosingData.map(({ store, closing, sales, checks, checkItems, todos, reviews, totalSales, totalCount, totalCancelCount }) => {
