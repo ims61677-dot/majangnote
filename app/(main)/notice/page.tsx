@@ -1191,6 +1191,9 @@ export default function NoticePage() {
   const [noticeReads, setNoticeReads] = useState<Record<string, any[]>>({})
   const [showNoticeForm, setShowNoticeForm] = useState(false)
   const [editingNotice, setEditingNotice] = useState<any>(null)
+  // 할일 탭 - 개별 항목 인라인 수정
+  const [editingTodoItem, setEditingTodoItem] = useState<any>(null)
+  const [editTodoItemContent, setEditTodoItemContent] = useState('')
   const [formTitle, setFormTitle] = useState('')
   const [formContent, setFormContent] = useState('')
   const [formPinned, setFormPinned] = useState(false)
@@ -1535,9 +1538,28 @@ export default function NoticePage() {
   }
 
   async function deleteTodoNotice(id: string) {
-    if (!confirm('할일을 삭제할까요?')) return
+    if (!confirm('할일 그룹 전체를 삭제할까요?')) return
     await supabase.from('notices').delete().eq('id', id)
     loadDayTodos(storeId, selectedDate); loadTodoDates(storeId)
+  }
+
+  async function deleteNoticeTodoItem(todoId: string) {
+    if (!confirm('이 항목을 삭제할까요?')) return
+    await supabase.from('notice_todos').delete().eq('id', todoId)
+    loadDayTodos(storeId, selectedDate)
+  }
+
+  async function updateNoticeTodoItem(todoId: string, newContent: string) {
+    if (!newContent.trim()) return
+    await supabase.from('notice_todos').update({ content: newContent.trim() }).eq('id', todoId)
+    setEditingTodoItem(null)
+    loadDayTodos(storeId, selectedDate)
+  }
+
+  async function updateNoticeTodoTitle(noticeId: string, newTitle: string) {
+    if (!newTitle.trim()) return
+    await supabase.from('notices').update({ title: newTitle.trim() }).eq('id', noticeId)
+    loadDayTodos(storeId, selectedDate)
   }
 
   const tabBtn = (active: boolean) => ({
@@ -1735,21 +1757,54 @@ export default function NoticePage() {
       ) : dayNotices.filter((notice: any) => notice.title !== '__PERSONAL_MEMO__' || isOwner).map(notice => (
         <div key={notice.id} style={bx}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-            <div>
+            <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{notice.title}</div>
               <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{notice.created_by}</div>
             </div>
-            {isManager && <button onClick={() => deleteTodoNotice(notice.id)} style={{ fontSize:11, color:'#E84393', background:'none', border:'none', cursor:'pointer' }}>삭제</button>}
+            {isManager && (
+              <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                <button onClick={() => { setEditingNotice(notice); setFormTitle(notice.title); setFormContent(notice.content||''); setFormPinned(notice.is_pinned); setFormNoticeAttachType(notice.attachment_type||'none'); setFormNoticeAttachUrl(notice.attachment_url||''); setShowTodoForm(false); setShowNoticeForm(false)
+                  // 그룹명 인라인 수정
+                  const newTitle = prompt('그룹명 수정:', notice.title); if (newTitle) updateNoticeTodoTitle(notice.id, newTitle)
+                }} style={{ fontSize:11, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', borderRadius:6, padding:'2px 8px', cursor:'pointer' }}>수정</button>
+                <button onClick={() => deleteTodoNotice(notice.id)} style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', borderRadius:6, padding:'2px 8px', cursor:'pointer' }}>삭제</button>
+              </div>
+            )}
           </div>
           {(notice.notice_todos||[])
             .filter((todo: any) => canViewByVisibility(todo.visibility, userRole))
             .map((todo: any) => (
-              <TodoItem
-                key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]}
-                onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date, todo)}
-                canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole}
-                onMissionComplete={(todoId) => setMissionModal({ todoId, content: todo.content, noticeDate: notice.notice_date })}
-              />
+              <div key={todo.id}>
+                {editingTodoItem?.id === todo.id ? (
+                  <div style={{ display:'flex', gap:6, marginBottom:6, padding:'6px 0' }}>
+                    <input value={editTodoItemContent} onChange={e => setEditTodoItemContent(e.target.value)}
+                      onKeyDown={e => { if (e.key==='Enter') updateNoticeTodoItem(todo.id, editTodoItemContent); if (e.key==='Escape') setEditingTodoItem(null) }}
+                      autoFocus
+                      style={{ flex:1, padding:'6px 10px', borderRadius:8, border:'1px solid #6C5CE7', fontSize:13, outline:'none' }} />
+                    <button onClick={() => updateNoticeTodoItem(todo.id, editTodoItemContent)}
+                      style={{ padding:'6px 12px', borderRadius:8, background:'#6C5CE7', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>저장</button>
+                    <button onClick={() => setEditingTodoItem(null)}
+                      style={{ padding:'6px 10px', borderRadius:8, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:12, cursor:'pointer' }}>취소</button>
+                  </div>
+                ) : (
+                  <div style={{ position:'relative' }}>
+                    <TodoItem
+                      todo={todo} checks={noticeTodoChecks[todo.id]||[]}
+                      onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date, todo)}
+                      canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole}
+                      onMissionComplete={(todoId) => setMissionModal({ todoId, content: todo.content, noticeDate: notice.notice_date })}
+                    />
+                    {isManager && (
+                      <div style={{ display:'flex', gap:4, justifyContent:'flex-end', marginTop:-4, marginBottom:4 }}>
+                        <button onClick={() => { setEditingTodoItem(todo); setEditTodoItemContent(todo.content) }}
+                          style={{ fontSize:10, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', borderRadius:5, padding:'1px 7px', cursor:'pointer' }}>✏️ 수정</button>
+                        <button onClick={() => deleteNoticeTodoItem(todo.id)}
+                          style={{ fontSize:10, color:'#E84393', background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', borderRadius:5, padding:'1px 7px', cursor:'pointer' }}>🗑 삭제</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
         </div>
       ))}
@@ -1996,17 +2051,48 @@ export default function NoticePage() {
                       <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{notice.title}</div>
                       <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{notice.created_by}</div>
                     </div>
-                    {isManager && <button onClick={() => deleteTodoNotice(notice.id)} style={{ fontSize:11, color:'#E84393', background:'none', border:'none', cursor:'pointer' }}>삭제</button>}
+                    {isManager && (
+                      <div style={{ display:'flex', gap:5, flexShrink:0 }}>
+                        <button onClick={() => { const t=prompt('그룹명 수정:',notice.title); if(t) updateNoticeTodoTitle(notice.id,t) }}
+                          style={{ fontSize:11, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', borderRadius:6, padding:'2px 8px', cursor:'pointer' }}>수정</button>
+                        <button onClick={() => deleteTodoNotice(notice.id)}
+                          style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', borderRadius:6, padding:'2px 8px', cursor:'pointer' }}>삭제</button>
+                      </div>
+                    )}
                   </div>
                   {(notice.notice_todos||[])
                     .filter((todo: any) => canViewByVisibility(todo.visibility, userRole))
                     .map((todo: any) => (
-                      <TodoItem
-                        key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]}
-                        onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date, todo)}
-                        canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole}
-                        onMissionComplete={(todoId) => setMissionModal({ todoId, content: todo.content, noticeDate: notice.notice_date })}
-                      />
+                      <div key={todo.id}>
+                        {editingTodoItem?.id === todo.id ? (
+                          <div style={{ display:'flex', gap:6, marginBottom:6, padding:'6px 0' }}>
+                            <input value={editTodoItemContent} onChange={e => setEditTodoItemContent(e.target.value)}
+                              onKeyDown={e => { if(e.key==='Enter') updateNoticeTodoItem(todo.id,editTodoItemContent); if(e.key==='Escape') setEditingTodoItem(null) }}
+                              autoFocus style={{ flex:1, padding:'6px 10px', borderRadius:8, border:'1px solid #6C5CE7', fontSize:13, outline:'none' }} />
+                            <button onClick={() => updateNoticeTodoItem(todo.id,editTodoItemContent)}
+                              style={{ padding:'6px 12px', borderRadius:8, background:'#6C5CE7', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>저장</button>
+                            <button onClick={() => setEditingTodoItem(null)}
+                              style={{ padding:'6px 10px', borderRadius:8, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:12, cursor:'pointer' }}>취소</button>
+                          </div>
+                        ) : (
+                          <div style={{ position:'relative' }}>
+                            <TodoItem
+                              todo={todo} checks={noticeTodoChecks[todo.id]||[]}
+                              onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date, todo)}
+                              canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole}
+                              onMissionComplete={(todoId) => setMissionModal({ todoId, content: todo.content, noticeDate: notice.notice_date })}
+                            />
+                            {isManager && (
+                              <div style={{ display:'flex', gap:4, justifyContent:'flex-end', marginTop:-4, marginBottom:4 }}>
+                                <button onClick={() => { setEditingTodoItem(todo); setEditTodoItemContent(todo.content) }}
+                                  style={{ fontSize:10, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', borderRadius:5, padding:'1px 7px', cursor:'pointer' }}>✏️ 수정</button>
+                                <button onClick={() => deleteNoticeTodoItem(todo.id)}
+                                  style={{ fontSize:10, color:'#E84393', background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', borderRadius:5, padding:'1px 7px', cursor:'pointer' }}>🗑 삭제</button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     ))}
                 </div>
               ))}
@@ -2112,7 +2198,7 @@ export default function NoticePage() {
                   <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{notice.title}</div>
                   <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{notice.created_by}</div>
                 </div>
-                {isManager && <button onClick={() => deleteTodoNotice(notice.id)} style={{ fontSize:11, color:'#E84393', background:'none', border:'none', cursor:'pointer' }}>삭제</button>}
+                {isManager && <button onClick={() => deleteTodoNotice(notice.id)} style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', borderRadius:6, padding:'2px 8px', cursor:'pointer' }}>삭제</button>}
               </div>
               {(notice.notice_todos||[])
                 .filter((todo: any) => canViewByVisibility(todo.visibility, userRole))
