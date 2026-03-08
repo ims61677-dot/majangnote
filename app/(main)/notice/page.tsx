@@ -451,6 +451,10 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const NOTICE_ORDER_KEY = `notice_order_${storeId}`
 
   useEffect(() => { loadAdminData() }, [storeId])
+  // 날짜 바뀌면 자동 이월 체크
+  useEffect(() => {
+    if (selectedCalDate) carryOverItems(selectedCalDate)
+  }, [selectedCalDate])
   // 날짜 바뀌어도 input 초기화
 
   async function loadAdminData() {
@@ -724,6 +728,37 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     } catch (e: any) { console.error('saveChecklist error:', e); alert('저장 중 오류: ' + e?.message) }
   }
 
+  // 전날 미완료 항목 오늘로 자동 이월
+  async function carryOverItems(date: string) {
+    const prev = new Date(date)
+    prev.setDate(prev.getDate() - 1)
+    const prevDate = prev.toISOString().slice(0, 10)
+    const prevItems = checklistMap[prevDate]
+    if (!prevItems || prevItems.length === 0) return
+    const undone = prevItems.filter((i: any) => !i.done)
+    if (undone.length === 0) return
+    const todayItems = checklistMap[date] || []
+    const todayTexts = todayItems.map((i: any) => i.text)
+    const toCarry = undone.filter((i: any) => !todayTexts.includes(i.text))
+    if (toCarry.length === 0) return
+    const carried = toCarry.map((i: any) => ({
+      ...i, id: Date.now().toString() + Math.random(), done: false, carriedFrom: prevDate
+    }))
+    await saveChecklist(date, [...carried, ...todayItems])
+  }
+
+  // 항목을 다른 날짜로 이동
+  async function moveItemToDate(fromDate: string, itemId: string, toDate: string) {
+    const fromItems = checklistMap[fromDate] || []
+    const item = fromItems.find((i: any) => i.id === itemId)
+    if (!item) return
+    const newFromItems = fromItems.filter((i: any) => i.id !== itemId)
+    const toItems = checklistMap[toDate] || []
+    const movedItem = { ...item, id: Date.now().toString(), carriedFrom: fromDate }
+    await saveChecklist(fromDate, newFromItems)
+    await saveChecklist(toDate, [...toItems, movedItem])
+  }
+
   async function addChecklistItem() {
     const text = checklistInput.trim(); if (!text) return
     setSavingChecklist(true)
@@ -749,12 +784,15 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   async function sendPushToEmployees(message: string) {
     try {
-      // push_notifications 테이블에 저장 → Edge Function이 전송
-      await supabase.from('push_notifications').insert({
-        store_id: storeId, message, sent_by: userName, created_at: new Date().toISOString(), type: 'manual'
+      const res = await fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ store_id: storeId, title: '📣 매장 알림', message, url: '/notice', target: 'employees', sent_by: userName })
       })
-      alert('✅ 직원들에게 알림을 보냈습니다!')
-    } catch (e) { alert('알림 전송 실패. 나중에 다시 시도해주세요.') }
+      const data = await res.json()
+      if (data.sent > 0) alert(`✅ ${data.sent}명에게 알림을 보냈습니다!`)
+      else alert('⚠️ 알림을 받을 직원이 없습니다. 직원들이 앱 알림을 허용했는지 확인해주세요.')
+    } catch (e) { alert('알림 전송 실패. 잠시 후 다시 시도해주세요.') }
   }
 
   if (loading) return (
@@ -1094,8 +1132,15 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                     )}
                   </div>
                 </div>
-                <button onClick={() => deleteChecklistItem(selectedCalDate, item.id)}
-                  style={{ fontSize: 11, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: '0 2px' }}>✕</button>
+                <div style={{ display:'flex', gap:3, flexShrink:0 }}>
+                  <button onClick={() => {
+                    const toDate = prompt('이동할 날짜 입력 (예: 2026-03-10):')
+                    if (toDate && /^\d{4}-\d{2}-\d{2}$/.test(toDate)) moveItemToDate(selectedCalDate, item.id, toDate)
+                    else if (toDate) alert('날짜 형식이 올바르지 않아요 (예: 2026-03-10)')
+                  }} style={{ fontSize: 10, color: '#6C5CE7', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }} title="다른 날짜로 이동">📅</button>
+                  <button onClick={() => deleteChecklistItem(selectedCalDate, item.id)}
+                    style={{ fontSize: 11, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}>✕</button>
+                </div>
               </div>
             ))}
           </div>
