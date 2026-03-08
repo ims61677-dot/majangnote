@@ -3,8 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import BottomNav from '@/components/BottomNav'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
-
-const WEAK_PINS = ['1234', '0000', '9999', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9876']
+import PushSetup from '@/components/PushSetup'
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -35,13 +34,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     }
 
     const parsedUser = JSON.parse(u)
-
-    // 취약 PIN이면 변경 페이지로 강제 이동
-    if (WEAK_PINS.includes(parsedUser.pin)) {
-      router.push('/change-pin')
-      return
-    }
-
     setUser(parsedUser)
     setStore(JSON.parse(s))
     loadStores(parsedUser.id)
@@ -66,7 +58,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   const isOwner = user?.role === 'owner'
 
-  const isFullWidth = pathname === '/attendance' || pathname === '/schedule' || pathname === '/analytics' || pathname === '/inventory' || pathname === '/closing'
+  const isFullWidth = pathname === '/attendance' || pathname === '/schedule' || pathname === '/analytics' || pathname === '/inventory' || pathname === '/closing' || pathname === '/notice'
 
   return (
     <div style={{
@@ -169,6 +161,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         {children}
       </main>
 
+      <PushSetup />
       <BottomNav current={pathname} />
     </div>
   )
