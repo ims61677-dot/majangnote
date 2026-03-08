@@ -8,7 +8,8 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   try {
-    const { subscription, userId, storeId } = await req.json()
+    // ✅ role, userName 추가로 받기
+    const { subscription, userId, storeId, role, userName } = await req.json()
 
     const { data: existing } = await supabase
       .from('push_subscriptions')
@@ -24,6 +25,8 @@ export async function POST(req: NextRequest) {
           endpoint: subscription.endpoint,
           keys: subscription.keys,
           subscription: subscription,
+          role: role || 'employee',       // ✅ 추가
+          user_name: userName || null,    // ✅ 추가
         })
         .eq('id', existing[0].id)
     } else {
@@ -35,6 +38,8 @@ export async function POST(req: NextRequest) {
           endpoint: subscription.endpoint,
           keys: subscription.keys,
           subscription: subscription,
+          role: role || 'employee',       // ✅ 추가
+          user_name: userName || null,    // ✅ 추가
           settings: {
             attendance: true, late: true, absent: true, request: true,
             notice: true, closing: false, inventory: true, schedule: true,

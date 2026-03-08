@@ -53,6 +53,9 @@ export default function PushSetup() {
           subscription: subscription.toJSON(),
           userId: user?.id || null,
           storeId: store?.id || null,
+          // ✅ 추가된 부분
+          role: user?.role || 'employee',
+          userName: user?.name || user?.email || null,
         }),
       })
     } catch (err) {
