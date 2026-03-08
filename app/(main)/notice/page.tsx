@@ -936,14 +936,13 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
               )}
               {dateTodos.length === 0 && closingTodos.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '20px 0', color: '#bbb', fontSize: 12 }}>최근 7일간 등록된 할일 없음</div>
-              ) : incompleteTodos.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '16px 0', color: '#00B894', fontSize: 12 }}>✅ 미완료 할일 없음</div>
-              ) : (
-                incompleteTodos.map(todo => {
-                  const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : todo.isToday ? '#6C5CE7' : '#FDC400'
+              ) : dateTodos.length === 0 ? null : (
+                dateTodos.map(todo => {
+                  const done = todo.isDone
+                  const urgentColor = done ? '#00B894' : todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : todo.isToday ? '#6C5CE7' : '#FDC400'
                   const isEditing = editingTodo?.id === todo.id
                   return (
-                    <div key={`${todo.id}-${todo.origin_date}`} style={{ padding: '6px 8px', borderRadius: 8, background: `${urgentColor}06`, border: `1px solid ${urgentColor}20`, marginBottom: 4 }}>
+                    <div key={`${todo.id}-${todo.origin_date}`} style={{ padding: '6px 8px', borderRadius: 8, background: done ? 'rgba(0,184,148,0.04)' : `${urgentColor}06`, border: done ? '1px solid rgba(0,184,148,0.2)' : `1px solid ${urgentColor}20`, marginBottom: 4, opacity: done ? 0.75 : 1 }}>
                       {isEditing ? (
                         <div style={{ display: 'flex', gap: 6 }}>
                           <input value={editTodoContent} onChange={e => setEditTodoContent(e.target.value)}
@@ -957,19 +956,21 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                         </div>
                       ) : (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {/* 완료 여부 아이콘 */}
+                          <span style={{ fontSize: 13, flexShrink: 0 }}>{done ? '✅' : '○'}</span>
                           <span style={{ fontSize: 10, fontWeight: 700, color: urgentColor, background: `${urgentColor}15`, padding: '1px 6px', borderRadius: 6, flexShrink: 0 }}>
                             {todo.isToday ? '오늘' : `${todo.day_count}일째`}
                           </span>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{todo.content}</div>
+                            <div style={{ fontSize: 12, color: done ? '#888' : '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: done ? 'line-through' : 'none' }}>{todo.content}</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
                               {todo.repeat_type && todo.repeat_type !== 'none' && <RepeatBadge value={todo.repeat_type} />}
                               {todo.visibility && todo.visibility !== 'all' && <VisibilityBadge value={todo.visibility} />}
                               <span style={{ fontSize: 10, color: '#bbb' }}>{todo.origin_date?.replace(/-/g,'.')}</span>
                             </div>
                           </div>
-                          <button onClick={() => { setEditingTodo(todo); setEditTodoContent(todo.content) }}
-                            style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', cursor: 'pointer', flexShrink: 0 }}>수정</button>
+                          {!done && <button onClick={() => { setEditingTodo(todo); setEditTodoContent(todo.content) }}
+                            style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', cursor: 'pointer', flexShrink: 0 }}>수정</button>}
                           <button onClick={() => deleteTodoFromAdmin(todo.id)}
                             style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.3)', color: '#E84393', cursor: 'pointer', flexShrink: 0 }}>삭제</button>
                         </div>
