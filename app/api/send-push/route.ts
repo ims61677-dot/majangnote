@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const { data: subs, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!subs || subs.length === 0) return NextResponse.json({ sent: 0 })
-    const payload = JSON.stringify({ title: title || '매장노트', body: message, url: url || '/notice' })
+    const payload = JSON.stringify({ title: title || 'Store Note', body: message, url: url || '/notice' })
     let sent = 0
     await Promise.all(subs.map(async (sub: any) => {
       try { await webpush.sendNotification(sub.subscription, payload); sent++ }
