@@ -416,11 +416,14 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [selectedCalDate, setSelectedCalDate] = useState(today)
   const [allTodoDates, setAllTodoDates] = useState<Set<string>>(new Set())
 
-  // 개인 메모
-  const [personalMemos, setPersonalMemos] = useState<Record<string, string>>({})
-  const [memoText, setMemoText] = useState('')
-  const [savingMemo, setSavingMemo] = useState(false)
-  const memoDates = new Set(Object.keys(personalMemos).filter(d => personalMemos[d]))
+  // 개인 체크리스트 (메모 대체)
+  // 구조: { '2026-03-08': [{id, text, done, time?, repeat?}] }
+  const [checklistMap, setChecklistMap] = useState<Record<string, any[]>>({})
+  const [checklistInput, setChecklistInput] = useState('')
+  const [checklistTime, setChecklistTime] = useState('')
+  const [checklistRepeat, setChecklistRepeat] = useState<'none'|'weekly'>('none')
+  const [savingChecklist, setSavingChecklist] = useState(false)
+  const memoDates = new Set(Object.keys(checklistMap).filter(d => checklistMap[d]?.length > 0))
 
   // 보기 섹션
   const [showMemo, setShowMemo] = useState(false)
@@ -448,7 +451,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const NOTICE_ORDER_KEY = `notice_order_${storeId}`
 
   useEffect(() => { loadAdminData() }, [storeId])
-  useEffect(() => { setMemoText(personalMemos[selectedCalDate] || '') }, [selectedCalDate, personalMemos])
+  // 날짜 바뀌어도 input 초기화
 
   async function loadAdminData() {
     setLoading(true)
@@ -480,7 +483,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
             .from('notices').select('*, notice_todos(*)')
             .eq('store_id', store.id)
             .gte('notice_date', sevenDaysAgo).lte('notice_date', fourteenDaysAhead)
-            .eq('is_from_closing', false).neq('title', '__PERSONAL_MEMO__')
+            .eq('is_from_closing', false).neq('title', '__PERSONAL_CHECKLIST__')
 
           const allTodoIds = (notices || []).flatMap((n: any) => (n.notice_todos || []).map((t: any) => t.id))
 
@@ -525,7 +528,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
           return { store, todos, closingTodos, allDates }
         })),
-        supabase.from('notices').select('notice_date, content').eq('store_id', storeId).eq('is_from_closing', false).eq('title', '__PERSONAL_MEMO__')
+        supabase.from('notices').select('notice_date, content').eq('store_id', storeId).eq('is_from_closing', false).eq('title', '__PERSONAL_CHECKLIST__')
       ])
 
       setAllTodosMap(storeResults.map(({ store, todos, closingTodos }) => ({ store, todos, closingTodos })))
@@ -535,9 +538,13 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       storeResults.forEach(({ allDates: sd }) => sd.forEach((d: string) => allDates.add(d)))
       setAllTodoDates(allDates)
 
-      const memoMap: Record<string, string> = {}
-      if (memosResult.data) memosResult.data.forEach((m: any) => { memoMap[m.notice_date] = m.content || '' })
-      setPersonalMemos(memoMap)
+      const clMap: Record<string, any[]> = {}
+      if (memosResult.data) {
+        memosResult.data.forEach((m: any) => {
+          try { clMap[m.notice_date] = JSON.parse(m.content || '[]') } catch { clMap[m.notice_date] = [] }
+        })
+      }
+      setChecklistMap(clMap)
 
     } catch (e) { console.error('Admin data load error:', e) }
     setLoading(false)
@@ -553,7 +560,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       .select('id, title, content, notice_date, created_by, is_pinned, store_id, notice_todos(id)')
       .in('store_id', ids)
       .eq('is_from_closing', false)
-      .neq('title', '__PERSONAL_MEMO__')
+      .neq('title', '__PERSONAL_CHECKLIST__')
       .order('is_pinned', { ascending: false })
       .order('created_at', { ascending: false })
     if (error) { console.error(error); return }
@@ -695,20 +702,49 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     setSavingStore(null)
   }
 
-  async function saveMemo() {
-    if (!selectedCalDate) return
-    setSavingMemo(true)
+  async function saveChecklist(date: string, items: any[]) {
+    const content = JSON.stringify(items)
+    const existing = await supabase.from('notices').select('id')
+      .eq('store_id', storeId).eq('notice_date', date).eq('title', '__PERSONAL_CHECKLIST__').maybeSingle()
+    if (existing.data) {
+      await supabase.from('notices').update({ content }).eq('id', existing.data.id)
+    } else {
+      await supabase.from('notices').insert({ store_id: storeId, title: '__PERSONAL_CHECKLIST__', content, notice_date: date, created_by: userName, is_from_closing: false, is_pinned: false })
+    }
+    setChecklistMap(p => ({ ...p, [date]: items }))
+  }
+
+  async function addChecklistItem() {
+    const text = checklistInput.trim(); if (!text) return
+    setSavingChecklist(true)
+    const items = [...(checklistMap[selectedCalDate] || [])]
+    const newItem = { id: Date.now().toString(), text, done: false, time: checklistTime || null, repeat: checklistRepeat }
+    items.push(newItem)
+    await saveChecklist(selectedCalDate, items)
+    setChecklistInput(''); setChecklistTime(''); setChecklistRepeat('none')
+    setSavingChecklist(false)
+  }
+
+  async function toggleChecklistItem(date: string, itemId: string) {
+    const items = (checklistMap[date] || []).map((item: any) =>
+      item.id === itemId ? { ...item, done: !item.done } : item
+    )
+    await saveChecklist(date, items)
+  }
+
+  async function deleteChecklistItem(date: string, itemId: string) {
+    const items = (checklistMap[date] || []).filter((item: any) => item.id !== itemId)
+    await saveChecklist(date, items)
+  }
+
+  async function sendPushToEmployees(message: string) {
     try {
-      const existing = await supabase.from('notices').select('id')
-        .eq('store_id', storeId).eq('notice_date', selectedCalDate).eq('title', '__PERSONAL_MEMO__').maybeSingle()
-      if (existing.data) {
-        await supabase.from('notices').update({ content: memoText }).eq('id', existing.data.id)
-      } else {
-        await supabase.from('notices').insert({ store_id: storeId, title: '__PERSONAL_MEMO__', content: memoText, notice_date: selectedCalDate, created_by: userName, is_from_closing: false, is_pinned: false })
-      }
-      setPersonalMemos(p => ({ ...p, [selectedCalDate]: memoText }))
-    } catch (e) { console.error(e) }
-    setSavingMemo(false)
+      // push_notifications 테이블에 저장 → Edge Function이 전송
+      await supabase.from('push_notifications').insert({
+        store_id: storeId, message, sent_by: userName, created_at: new Date().toISOString(), type: 'manual'
+      })
+      alert('✅ 직원들에게 알림을 보냈습니다!')
+    } catch (e) { alert('알림 전송 실패. 나중에 다시 시도해주세요.') }
   }
 
   if (loading) return (
@@ -803,10 +839,19 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>📢 공지 센터</div>
-        <button onClick={() => { setShowAdminNoticeForm(p => !p); setAdminNoticeTitle(''); setAdminNoticeContent(''); setAdminNoticePinned(false); setAdminNoticeAttachType('none'); setAdminNoticeAttachUrl(''); setEditingAdminNotice(null) }}
-          style={{ padding: '5px 12px', borderRadius: 8, background: showAdminNoticeForm ? '#F4F6F9' : 'rgba(108,92,231,0.1)', border: showAdminNoticeForm ? '1px solid #E8ECF0' : '1px solid rgba(108,92,231,0.3)', color: showAdminNoticeForm ? '#888' : '#6C5CE7', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-          {showAdminNoticeForm ? '✕ 취소' : '+ 공지 작성'}
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => {
+            const msg = prompt('직원들에게 보낼 알림 내용을 입력하세요:')
+            if (msg?.trim()) sendPushToEmployees(msg.trim())
+          }}
+            style={{ padding: '5px 10px', borderRadius: 8, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.3)', color: '#00B894', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+            📣 직원 알림
+          </button>
+          <button onClick={() => { setShowAdminNoticeForm(p => !p); setAdminNoticeTitle(''); setAdminNoticeContent(''); setAdminNoticePinned(false); setAdminNoticeAttachType('none'); setAdminNoticeAttachUrl(''); setEditingAdminNotice(null) }}
+            style={{ padding: '5px 12px', borderRadius: 8, background: showAdminNoticeForm ? '#F4F6F9' : 'rgba(108,92,231,0.1)', border: showAdminNoticeForm ? '1px solid #E8ECF0' : '1px solid rgba(108,92,231,0.3)', color: showAdminNoticeForm ? '#888' : '#6C5CE7', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            {showAdminNoticeForm ? '✕ 취소' : '+ 공지 작성'}
+          </button>
+        </div>
       </div>
 
       {/* 공지 작성/수정 폼 */}
@@ -987,6 +1032,9 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   )
 
   // ── 캘린더 + 메모 섹션 ──
+  const checklistItems = checklistMap[selectedCalDate] || []
+  const doneCount = checklistItems.filter((i: any) => i.done).length
+
   const calendarMemoSection = (
     <div>
       <MiniCalendar
@@ -997,24 +1045,81 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         onSelectDate={d => setSelectedCalDate(d)}
         onChangeMonth={(y, m) => { setCalYear(y); setCalMonth(m) }}
       />
+      {/* 개인 체크리스트 */}
       <div style={{ ...bx }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#E84393' }}>📝 {selectedCalDate.replace(/-/g,'.')} 메모</div>
-          {selectedCalDate !== today && (
-            <span style={{ fontSize: 10, color: '#bbb' }}>대표님만 열람</span>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#E84393' }}>
+            ✅ {selectedCalDate.replace(/-/g,'.')} 내 스케줄
+          </div>
+          {checklistItems.length > 0 && (
+            <span style={{ fontSize: 10, color: doneCount === checklistItems.length ? '#00B894' : '#FF6B35', fontWeight: 700 }}>
+              {doneCount}/{checklistItems.length} 완료
+            </span>
           )}
         </div>
-        <textarea
-          value={memoText}
-          onChange={e => setMemoText(e.target.value)}
-          placeholder="이 날의 스케줄, 미팅, 할일 등을 자유롭게..."
-          rows={4}
-          style={{ ...inp, resize: 'none', lineHeight: 1.7, marginBottom: 10 }}
-        />
-        <button onClick={saveMemo} disabled={savingMemo}
-          style={{ width: '100%', padding: '10px 0', borderRadius: 12, background: savingMemo ? '#ddd' : 'linear-gradient(135deg,#E84393,#6C5CE7)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: savingMemo ? 'not-allowed' : 'pointer' }}>
-          {savingMemo ? '저장 중...' : '💾 메모 저장'}
-        </button>
+
+        {/* 체크리스트 아이템 목록 */}
+        {checklistItems.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '12px 0', color: '#ccc', fontSize: 12 }}>오늘 스케줄을 추가해보세요</div>
+        ) : (
+          <div style={{ marginBottom: 10 }}>
+            {checklistItems.map((item: any) => (
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 4px', borderBottom: '1px solid #F4F6F9' }}>
+                <button onClick={() => toggleChecklistItem(selectedCalDate, item.id)}
+                  style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: 0, color: item.done ? '#00B894' : '#ddd' }}>
+                  {item.done ? '✅' : '○'}
+                </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: item.done ? '#bbb' : '#1a1a2e', textDecoration: item.done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.text}</div>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
+                    {item.time && (
+                      <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>
+                        🔔 {item.time}
+                      </span>
+                    )}
+                    {item.repeat === 'weekly' && (
+                      <span style={{ fontSize: 9, color: '#00B894', background: 'rgba(0,184,148,0.1)', padding: '1px 5px', borderRadius: 4 }}>
+                        📆 매주
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button onClick={() => deleteChecklistItem(selectedCalDate, item.id)}
+                  style={{ fontSize: 11, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: '0 2px' }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 새 항목 추가 */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+          <input
+            value={checklistInput}
+            onChange={e => setChecklistInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addChecklistItem()}
+            placeholder="스케줄 입력 후 엔터"
+            style={{ ...inp, flex: 1, padding: '7px 10px', fontSize: 12 }}
+          />
+          <button onClick={addChecklistItem} disabled={savingChecklist || !checklistInput.trim()}
+            style={{ padding: '0 12px', borderRadius: 8, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.3)', color: '#E84393', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: !checklistInput.trim() ? 0.5 : 1 }}>
+            +
+          </button>
+        </div>
+
+        {/* 알람 설정 */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input
+            type="time"
+            value={checklistTime}
+            onChange={e => setChecklistTime(e.target.value)}
+            style={{ flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid #E8ECF0', fontSize: 11, color: '#6C5CE7', background: '#F8F9FB', outline: 'none' }}
+          />
+          <button onClick={() => setChecklistRepeat(r => r === 'weekly' ? 'none' : 'weekly')}
+            style={{ padding: '5px 10px', borderRadius: 8, border: checklistRepeat === 'weekly' ? '1.5px solid #00B894' : '1px solid #E8ECF0', background: checklistRepeat === 'weekly' ? 'rgba(0,184,148,0.1)' : '#F4F6F9', color: checklistRepeat === 'weekly' ? '#00B894' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'weekly' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+            📆 매주
+          </button>
+        </div>
+        <div style={{ fontSize: 9, color: '#bbb', marginTop: 4 }}>⏰ 시간 설정 시 해당 시간에 알림 (선택사항)</div>
       </div>
     </div>
   )
@@ -1193,7 +1298,7 @@ export default function NoticePage() {
     const { data } = await supabase.from('notices').select('*, notice_todos(id)').eq('store_id', sid).eq('is_from_closing', false)
       .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
     // 순수 공지만: notice_todos가 없고 __PERSONAL_MEMO__ 아닌 것
-    const pureNotices = (data || []).filter((n: any) => (!n.notice_todos || n.notice_todos.length === 0) && n.title !== '__PERSONAL_MEMO__')
+    const pureNotices = (data || []).filter((n: any) => (!n.notice_todos || n.notice_todos.length === 0) && n.title !== '__PERSONAL_CHECKLIST__')
     setNotices(pureNotices)
     if (data && data.length > 0) {
       const { data: reads } = await supabase.from('notice_reads').select('*').in('notice_id', data.map((n: any) => n.id))
@@ -1213,7 +1318,7 @@ export default function NoticePage() {
   async function loadDayTodos(sid: string, date: string) {
     const { data } = await supabase.from('notices').select('*, notice_todos(*)').eq('store_id', sid).eq('notice_date', date).eq('is_from_closing', false).order('created_at')
     // 할일이 있는 것만, __PERSONAL_MEMO__ 제외
-    const filtered = (data || []).filter((n: any) => (n.notice_todos && n.notice_todos.length > 0) && n.title !== '__PERSONAL_MEMO__')
+    const filtered = (data || []).filter((n: any) => (n.notice_todos && n.notice_todos.length > 0) && n.title !== '__PERSONAL_CHECKLIST__')
     setDayNotices(filtered)
     const allIds = (data || []).flatMap((n: any) => (n.notice_todos||[]).map((t: any) => t.id))
     if (allIds.length > 0) {
@@ -1442,7 +1547,7 @@ export default function NoticePage() {
     boxShadow: active ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
   })
 
-  const unreadCount = notices.filter(n => !(noticeReads[n.id]||[]).find((r: any) => r.read_by === userName) && n.title !== '__PERSONAL_MEMO__').length
+  const unreadCount = notices.filter(n => !(noticeReads[n.id]||[]).find((r: any) => r.read_by === userName) && n.title !== '__PERSONAL_CHECKLIST__').length
   const overdueCount = overdueTodos.filter(t => (overdueChecks[t.id]||[]).length === 0).length
 
   // ── 공지 폼 ──
@@ -1551,7 +1656,7 @@ export default function NoticePage() {
         </div>
       )}
       {noticeForm}
-      {notices.filter(n => n.title !== '__PERSONAL_MEMO__').length === 0 ? (
+      {notices.filter(n => n.title !== '__PERSONAL_CHECKLIST__').length === 0 ? (
         <div style={{ ...bx, textAlign:'center', padding:32, color:'#bbb' }}>
           <div style={{ fontSize:24, marginBottom:8 }}>📭</div>
           <div style={{ fontSize:13 }}>등록된 공지가 없습니다</div>
@@ -1559,20 +1664,20 @@ export default function NoticePage() {
         </div>
       ) : (
         <>
-          {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_MEMO__').length > 0 && (
+          {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_CHECKLIST__').length > 0 && (
             <div style={{ marginBottom:4 }}>
               <div style={{ fontSize:10, fontWeight:700, color:'#6C5CE7', marginBottom:6, paddingLeft:2 }}>📌 고정</div>
-              {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_MEMO__').map(notice => (
+              {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_CHECKLIST__').map(notice => (
                 <NoticeCard key={notice.id} notice={notice} reads={noticeReads[notice.id]||[]} myName={userName} isManager={isManager} onRead={markRead}
                   onEdit={n => { setEditingNotice(n); setFormTitle(n.title); setFormContent(n.content||''); setFormPinned(n.is_pinned); setFormNoticeAttachType(n.attachment_type||'none'); setFormNoticeAttachUrl(n.attachment_url||''); setShowNoticeForm(true) }}
                   onDelete={deleteNotice} />
               ))}
             </div>
           )}
-          {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_MEMO__').length > 0 && (
+          {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_CHECKLIST__').length > 0 && (
             <div>
               <div style={{ fontSize:10, fontWeight:700, color:'#aaa', marginBottom:6, paddingLeft:2 }}>📋 전체 공지</div>
-              {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_MEMO__').map(notice => (
+              {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_CHECKLIST__').map(notice => (
                 <NoticeCard key={notice.id} notice={notice} reads={noticeReads[notice.id]||[]} myName={userName} isManager={isManager} onRead={markRead}
                   onEdit={n => { setEditingNotice(n); setFormTitle(n.title); setFormContent(n.content||''); setFormPinned(n.is_pinned); setFormNoticeAttachType(n.attachment_type||'none'); setFormNoticeAttachUrl(n.attachment_url||''); setShowNoticeForm(true) }}
                   onDelete={deleteNotice} />
@@ -1655,7 +1760,7 @@ export default function NoticePage() {
   const tabBar = (
     <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:14 }}>
       <button style={tabBtn(subTab==='notice')} onClick={() => setSubTab('notice')}>
-        📢 공지 {unreadCount > 0 ? `(${unreadCount})` : notices.filter(n => n.title !== '__PERSONAL_MEMO__').length > 0 ? `(${notices.filter(n => n.title !== '__PERSONAL_MEMO__').length})` : ''}
+        📢 공지 {unreadCount > 0 ? `(${unreadCount})` : notices.filter(n => n.title !== '__PERSONAL_CHECKLIST__').length > 0 ? `(${notices.filter(n => n.title !== '__PERSONAL_CHECKLIST__').length})` : ''}
       </button>
       <button style={tabBtn(subTab==='todo')} onClick={() => setSubTab('todo')}>
         ✅ 할일 {overdueCount > 0 ? `(${overdueCount} 미완료)` : ''}
@@ -1725,11 +1830,11 @@ export default function NoticePage() {
             )}
             {noticeForm}
             {/* 고정 공지 */}
-            {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_MEMO__').length > 0 && (
+            {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_CHECKLIST__').length > 0 && (
               <div style={{ marginBottom:16 }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginBottom:8, paddingLeft:2 }}>📌 고정 공지</div>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12 }}>
-                  {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_MEMO__').map(notice => {
+                  {notices.filter(n => n.is_pinned && n.title !== '__PERSONAL_CHECKLIST__').map(notice => {
                     const isRead = (noticeReads[notice.id]||[]).find((r:any)=>r.reader_name===userName)
                     const readCount = (noticeReads[notice.id]||[]).length
                     return (
@@ -1768,14 +1873,14 @@ export default function NoticePage() {
             )}
             {/* 전체 공지 */}
             <div style={{ fontSize:11, fontWeight:700, color:'#aaa', marginBottom:8, paddingLeft:2 }}>📋 전체 공지</div>
-            {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_MEMO__').length === 0 ? (
+            {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_CHECKLIST__').length === 0 ? (
               <div style={{ ...bx, textAlign:'center', padding:32, color:'#bbb' }}>
                 <div style={{ fontSize:24, marginBottom:8 }}>📭</div>
                 <div style={{ fontSize:13 }}>등록된 공지가 없습니다</div>
               </div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12 }}>
-                {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_MEMO__').map(notice => {
+                {notices.filter(n => !n.is_pinned && n.title !== '__PERSONAL_CHECKLIST__').map(notice => {
                   const isRead = (noticeReads[notice.id]||[]).find((r:any)=>r.reader_name===userName)
                   const readCount = (noticeReads[notice.id]||[]).length
                   return (
