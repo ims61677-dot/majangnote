@@ -828,9 +828,11 @@ export default function AttendancePage() {
     <div style={{ minHeight:'100vh', background:'#F4F6F9' }}>
       <style>{`
         .att-wrap { max-width:480px; margin:0 auto; padding:16px 16px 100px; }
+        .all-grid { display:grid; grid-template-columns:1fr; gap:12px; }
         @media(min-width:768px){
           .att-wrap { max-width:100%; padding:24px 40px 40px; }
           .cal-grid { grid-template-columns:repeat(7,1fr)!important; }
+          .all-grid { grid-template-columns:repeat(3,1fr); }
         }
       `}</style>
       <div className="att-wrap">
@@ -1492,7 +1494,7 @@ export default function AttendancePage() {
                 ) : allStores.length === 0 ? (
                   <div style={{ textAlign:'center', padding:40, color:'#aaa', fontSize:14 }}>등록된 지점이 없습니다</div>
                 ) : (
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+                  <div className="all-grid">
                     {allStores.map((store: any) => {
                       const board   = allStoresBoard[store.id] || []
                       const working = board.filter((b:any) => b.status==='working').length
@@ -1522,7 +1524,7 @@ export default function AttendancePage() {
                                   <div key={b.pid||b.nm} style={{ display:'flex', alignItems:'center', background:st.bg, borderRadius:9, padding:'6px 9px', gap:7 }}>
                                     <span style={{ fontSize:13 }}>{st.icon}</span>
                                     <div style={{ flex:1, minWidth:0 }}>
-                                      <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{b.nm}</div>
+                            <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', wordBreak:'keep-all' }}>{b.nm}</div>
                                       <div style={{ fontSize:10, color:st.color, fontWeight:600 }}>
                                         {b.att?.clock_in ? fmtTime(b.att.clock_in) + (b.att.clock_out ? `→${fmtTime(b.att.clock_out)}` : '~') : '미출근'}
                                       </div>
