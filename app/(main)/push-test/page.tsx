@@ -1,11 +1,93 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+
+const VAPID_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i)
+  }
+  return outputArray
+}
 
 export default function PushTestPage() {
   const [title, setTitle] = useState('매장노트')
   const [body, setBody] = useState('테스트 알림입니다!')
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
+  const [subStatus, setSubStatus] = useState('확인 중...')
+
+  useEffect(() => {
+    checkSubscription()
+  }, [])
+
+  async function checkSubscription() {
+    try {
+      if (!('serviceWorker' in navigator)) {
+        setSubStatus('Service Worker 미지원')
+        return
+      }
+      if (!('Notification' in window)) {
+        setSubStatus('알림 미지원')
+        return
+      }
+      setSubStatus('알림 권한: ' + Notification.permission)
+      
+      if (Notification.permission === 'granted') {
+        const reg = await navigator.serviceWorker.ready
+        const sub = await reg.pushManager.getSubscription()
+        if (sub) {
+          setSubStatus('구독 완료 ✅')
+        } else {
+          setSubStatus('구독 없음 - 아래 버튼으로 등록하세요')
+        }
+      }
+    } catch (e) {
+      setSubStatus('에러: ' + String(e))
+    }
+  }
+
+  async function handleSubscribe() {
+    try {
+      setSubStatus('구독 등록 중...')
+      
+      const perm = await Notification.requestPermission()
+      if (perm !== 'granted') {
+        setSubStatus('알림 거부됨')
+        return
+      }
+
+      const reg = await navigator.serviceWorker.ready
+      let sub = await reg.pushManager.getSubscription()
+      
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
+        })
+      }
+
+      const userStr = localStorage.getItem('mj_user')
+      const user = userStr ? JSON.parse(userStr) : null
+
+      const res = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscription: sub.toJSON(),
+          userId: user?.id || null,
+        }),
+      })
+      const data = await res.json()
+      setSubStatus('구독 저장 결과: ' + JSON.stringify(data))
+    } catch (e) {
+      setSubStatus('구독 에러: ' + String(e))
+    }
+  }
 
   async function sendTest() {
     setLoading(true)
@@ -38,8 +120,23 @@ export default function PushTestPage() {
           🔔 푸시 알림 테스트
         </h1>
 
+        <div style={{ background: '#fff', borderRadius: 16, padding: 24, marginBottom: 16,
+          border: '1px solid #E8ECF0', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>1단계: 알림 구독</div>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 12, wordBreak: 'break-all' }}>{subStatus}</div>
+          <button onClick={handleSubscribe}
+            style={{
+              width: '100%', padding: 12, borderRadius: 10,
+              background: '#333', border: 'none', color: '#fff',
+              fontSize: 14, fontWeight: 700, cursor: 'pointer',
+            }}>
+            알림 구독 등록
+          </button>
+        </div>
+
         <div style={{ background: '#fff', borderRadius: 16, padding: 24,
           border: '1px solid #E8ECF0', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>2단계: 알림 보내기</div>
 
           <div style={{ fontSize: 12, fontWeight: 600, color: '#888', marginBottom: 6 }}>제목</div>
           <input value={title} onChange={e => setTitle(e.target.value)} style={inp} />
@@ -62,7 +159,6 @@ export default function PushTestPage() {
               marginTop: 16, padding: '10px 14px', borderRadius: 8,
               background: '#f5f5f5', fontSize: 11, color: '#333',
               whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-              maxHeight: 300, overflow: 'auto',
             }}>
               {result}
             </pre>
