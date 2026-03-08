@@ -854,14 +854,14 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       ) : (
         <div>
           {/* 칸반: 지점별 컬럼 */}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(stores.length, 3)}, 1fr)`, gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(stores.length, 3)}, minmax(0, 1fr))`, gap: 10, minWidth: 0 }}>
             {stores.map(store => {
               const storeNotices = orderedNotices.filter((n: any) => n.store_id === store.id)
               return (
                 <div key={store.id} style={{ background: '#F8F9FB', borderRadius: 14, border: '1px solid #E8ECF0', padding: 10 }}>
                   {/* 지점 헤더 */}
-                  <div style={{ fontSize: 12, fontWeight: 800, color: '#6C5CE7', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>🏪 {store.name}</span>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#6C5CE7', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🏪 {store.name}</span>
                     <span style={{ fontSize: 10, fontWeight: 400, color: '#bbb' }}>{storeNotices.length}개</span>
                   </div>
                   {/* 공지 카드 목록 */}
@@ -871,10 +871,10 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                       const isExpanded = selectedAdminNotice?.id === notice.id
                       return (
                         <div key={notice.id} onClick={() => setSelectedAdminNotice(isExpanded ? null : notice)}
-                          style={{ background: '#fff', borderRadius: 10, border: isExpanded ? '2px solid #6C5CE7' : notice.is_pinned ? '1px solid rgba(108,92,231,0.3)' : '1px solid #E8ECF0', padding: '10px 10px 8px', marginBottom: 8, cursor: 'pointer' }}>
+                          style={{ background: '#fff', borderRadius: 10, border: isExpanded ? '2px solid #6C5CE7' : notice.is_pinned ? '1px solid rgba(108,92,231,0.3)' : '1px solid #E8ECF0', padding: '10px 10px 8px', marginBottom: 8, cursor: 'pointer', minWidth: 0, overflow: 'hidden' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', flex: 1, lineHeight: 1.3 }}>{notice.is_pinned ? '📌 ' : ''}{notice.title}</div>
-                            <div style={{ display: 'flex', gap: 3, flexShrink: 0, marginLeft: 6 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', flex: 1, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const }}>{notice.is_pinned ? '📌 ' : ''}{notice.title}</div>
+                            <div style={{ display: 'flex', gap: 2, flexShrink: 0, marginLeft: 4 }}>
                               <button onClick={e => { e.stopPropagation(); moveNotice(notice.id, 'up') }}
                                 style={{ fontSize: 9, padding: '1px 4px', borderRadius: 4, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>▲</button>
                               <button onClick={e => { e.stopPropagation(); moveNotice(notice.id, 'down') }}
