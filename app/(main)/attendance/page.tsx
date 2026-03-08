@@ -50,6 +50,176 @@ const bx: React.CSSProperties = {
 }
 
 // ══════════════════════════════════════
+// 직원 근태 수정 모달 (대표 전용)
+// ══════════════════════════════════════
+function StaffAttendanceEditModal({ item, storeId, workDate, onClose, onSaved }: {
+  item: any; storeId: string; workDate: string; onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createSupabaseBrowserClient()
+
+  // 스케줄 상태
+  const [scheduleStatus, setScheduleStatus] = useState<string>(item.scheduleStatus || 'work')
+  // 출퇴근 시간 (HH:MM 형식)
+  function tsToHHMM(ts: string | null) {
+    if (!ts) return ''
+    const d = new Date(ts)
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  }
+  const [clockIn,  setClockIn]  = useState(tsToHHMM(item.att?.clock_in  || null))
+  const [clockOut, setClockOut] = useState(tsToHHMM(item.att?.clock_out || null))
+  const [saving, setSaving] = useState(false)
+
+  // 저장 시 스케줄 + 출퇴근 둘 다 업데이트
+  async function save() {
+    setSaving(true)
+    try {
+      // 1. 스케줄 업데이트
+      await supabase.from('schedules')
+        .update({ status: scheduleStatus })
+        .eq('store_id', storeId).eq('staff_name', item.nm).eq('schedule_date', workDate)
+
+      // 2. 출퇴근 기록 업데이트 or upsert
+      if (scheduleStatus === 'absent') {
+        // 결근이면 출퇴근 레코드를 absent 로
+        if (item.att?.id) {
+          await supabase.from('attendance').update({ status: 'absent', clock_in: null, clock_out: null })
+            .eq('id', item.att.id)
+        } else if (item.pid) {
+          await supabase.from('attendance').upsert({
+            profile_id: item.pid, store_id: storeId, work_date: workDate,
+            status: 'absent', clock_in: null, clock_out: null
+          }, { onConflict: 'profile_id,store_id,work_date' })
+        }
+      } else if (item.pid) {
+        // 시간 문자열 → 풀 타임스탬프 변환
+        function toISO(hhmm: string) {
+          if (!hhmm) return null
+          return `${workDate}T${hhmm}:00+09:00`
+        }
+        const newIn  = toISO(clockIn)
+        const newOut = toISO(clockOut)
+
+        // 지각/조퇴 자동 계산
+        const expIn  = item.expected_in
+        const expOut = item.expected_out
+        const isLate  = expIn  && newIn  ? (new Date(newIn).getHours()*60+new Date(newIn).getMinutes())  > timeToMinutes(expIn)  : false
+        const isEarly = expOut && newOut ? (new Date(newOut).getHours()*60+new Date(newOut).getMinutes()) < timeToMinutes(expOut) : false
+        let newStatus = 'normal'
+        if (isLate && isEarly) newStatus = 'late_early'
+        else if (isLate)  newStatus = 'late'
+        else if (isEarly) newStatus = 'early'
+        else if (newIn && !newOut) newStatus = 'working'
+
+        if (item.att?.id) {
+          await supabase.from('attendance').update({
+            clock_in: newIn, clock_out: newOut || null, status: newStatus
+          }).eq('id', item.att.id)
+        } else if (newIn) {
+          await supabase.from('attendance').upsert({
+            profile_id: item.pid, store_id: storeId, work_date: workDate,
+            clock_in: newIn, clock_out: newOut || null, status: newStatus
+          }, { onConflict: 'profile_id,store_id,work_date' })
+        }
+
+        // 스케줄 status도 실제 근태에 맞게 동기화
+        const syncStatus = newStatus === 'working' ? 'work'
+          : newStatus === 'absent' ? 'absent'
+          : scheduleStatus
+        if (syncStatus !== scheduleStatus) {
+          await supabase.from('schedules')
+            .update({ status: syncStatus })
+            .eq('store_id', storeId).eq('staff_name', item.nm).eq('schedule_date', workDate)
+        }
+      }
+
+      onSaved(); onClose()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const scheduleOptions = [
+    { v:'work',   l:'근무',   color:'#00B894' },
+    { v:'half',   l:'반차',   color:'#6C5CE7' },
+    { v:'absent', l:'결근',   color:'#b2bec3' },
+  ]
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:2000,
+      display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
+      <div style={{ background:'#fff', width:'100%', maxWidth:480,
+        borderRadius:'20px 20px 0 0', padding:24, paddingBottom:44 }}
+        onClick={e => e.stopPropagation()}>
+
+        {/* 헤더 */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:'linear-gradient(135deg,#FF6B35,#E84393)',
+              display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:800, fontSize:15 }}>
+              {item.nm?.charAt(0)}
+            </div>
+            <div>
+              <div style={{ fontSize:15, fontWeight:800, color:'#1a1a2e' }}>{item.nm}</div>
+              <div style={{ fontSize:11, color:'#aaa' }}>기준 {item.expected_in||'--'} ~ {item.expected_out||'--'}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:'#aaa', cursor:'pointer' }}>✕</button>
+        </div>
+
+        {/* 스케줄 상태 */}
+        <div style={{ marginBottom:18 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#888', marginBottom:8 }}>📋 스케줄 상태</div>
+          <div style={{ display:'flex', gap:8 }}>
+            {scheduleOptions.map(opt => (
+              <button key={opt.v} onClick={() => setScheduleStatus(opt.v)}
+                style={{ flex:1, padding:'10px 0', borderRadius:10, border:`2px solid ${scheduleStatus===opt.v ? opt.color : '#E8ECF0'}`,
+                  background: scheduleStatus===opt.v ? `${opt.color}15` : '#fff',
+                  color: scheduleStatus===opt.v ? opt.color : '#aaa',
+                  fontSize:13, fontWeight:700, cursor:'pointer', transition:'all 0.15s' }}>
+                {opt.l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 출퇴근 시간 — 결근이면 비활성화 */}
+        <div style={{ marginBottom:22, opacity: scheduleStatus==='absent' ? 0.35 : 1 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#888', marginBottom:8 }}>🕐 출퇴근 시간</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <div style={{ fontSize:11, color:'#aaa', marginBottom:5 }}>출근</div>
+              <input type="time" value={clockIn} onChange={e => setClockIn(e.target.value)}
+                disabled={scheduleStatus==='absent'}
+                style={{ width:'100%', padding:'11px 12px', borderRadius:10, border:'1px solid #E8ECF0',
+                  background:'#F8F9FB', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' }} />
+            </div>
+            <div>
+              <div style={{ fontSize:11, color:'#aaa', marginBottom:5 }}>퇴근</div>
+              <input type="time" value={clockOut} onChange={e => setClockOut(e.target.value)}
+                disabled={scheduleStatus==='absent'}
+                style={{ width:'100%', padding:'11px 12px', borderRadius:10, border:'1px solid #E8ECF0',
+                  background:'#F8F9FB', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' }} />
+            </div>
+          </div>
+          {clockIn && clockOut && scheduleStatus !== 'absent' && (
+            <div style={{ marginTop:8, fontSize:11, color:'#4a6cf7', fontWeight:600 }}>
+              ⚡ 저장 시 기준시간 대비 지각·조퇴 자동 계산됩니다
+            </div>
+          )}
+        </div>
+
+        <button onClick={save} disabled={saving}
+          style={{ width:'100%', padding:14, borderRadius:12, border:'none',
+            background:'linear-gradient(135deg,#FF6B35,#E84393)', color:'#fff',
+            fontSize:14, fontWeight:700, cursor:'pointer', opacity: saving ? 0.7 : 1 }}>
+          {saving ? '저장 중...' : '💾 저장'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════
 // 직원별 근무시간 설정 모달 (대표만)
 // ══════════════════════════════════════
 function StaffScheduleModal({ staff, storeId, onClose, onSaved }: {
@@ -376,6 +546,7 @@ export default function AttendancePage() {
   const [showOwnerPanel,    setShowOwnerPanel]     = useState(false)
   const [showStaffTimePanel,setShowStaffTimePanel] = useState(false)
   const [pendingCount,      setPendingCount]       = useState(0)
+  const [editItem,          setEditItem]           = useState<any>(null)  // 대표 근태 수정 모달용
 
   // ★ 직원 본인 이번달 통계 (오늘 탭용)
   const [myMonthData, setMyMonthData] = useState<any[]>([])
@@ -513,7 +684,7 @@ export default function AttendancePage() {
   async function loadBoard(sid: string) {
     const { data: todaySchedules } = await supabase.from('schedules')
       .select('staff_name, status')
-      .eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half'])
+      .eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half','absent'])
 
     const { data: members } = await supabase.from('store_members')
       .select('profile_id, expected_clock_in, expected_clock_out')
@@ -563,7 +734,11 @@ export default function AttendancePage() {
       const pid  = info.id || ''
       const att  = attMap[pid] || null
       let status = 'pending'
-      if (att) {
+
+      // 스케줄에서 결근 처리된 경우
+      if (s.status === 'absent') {
+        status = 'absent'
+      } else if (att) {
         // ★ 기준시간 기반 항상 실시간 재계산 (DB의 is_late 사용 안 함)
         const isLate  = info.expected_in && att.clock_in
           ? tsToMinutes(att.clock_in)  > timeToMinutes(info.expected_in)  : false
@@ -578,6 +753,7 @@ export default function AttendancePage() {
       }
       return {
         pid, nm:s.staff_name, att, status,
+        scheduleStatus: s.status,
         expected_in:info.expected_in, expected_out:info.expected_out,
         lateCount:lateMap[pid]||0, noClockOutCount:noClockOutMap[pid]||0, noClockInCount:noClockInMap[pid]||0,
       }
@@ -601,7 +777,7 @@ export default function AttendancePage() {
     await Promise.all(stores.map(async (store: any) => {
       const sid = store.id
       const { data: todaySchedules } = await supabase.from('schedules')
-        .select('staff_name').eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half'])
+        .select('staff_name, status').eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half','absent'])
       const { data: members } = await supabase.from('store_members')
         .select('profile_id, expected_clock_in, expected_clock_out').eq('store_id', sid).eq('active', true)
       const memberPids = (members||[]).map((m: any) => m.profile_id)
@@ -622,7 +798,9 @@ export default function AttendancePage() {
         const pid  = info.id || ''
         const att  = attMap[pid] || null
         let status = 'pending'
-        if (att) {
+        if (s.status === 'absent') {
+          status = 'absent'
+        } else if (att) {
           const isLate  = info.expected_in  && att.clock_in  ? tsToMinutes(att.clock_in)  > timeToMinutes(info.expected_in)  : false
           const isEarly = info.expected_out && att.clock_out ? tsToMinutes(att.clock_out) < timeToMinutes(info.expected_out) : false
           if (att.clock_out) {
@@ -1241,20 +1419,29 @@ export default function AttendancePage() {
 
             {/* ★ 오늘 현황판 */}
             <div style={bx}>
-              <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:14,
+              <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom: role==='owner' ? 6 : 14,
                 display:'flex', alignItems:'center' }}>
                 👥 오늘 출퇴근 현황
                 <span style={{ fontSize:11, color:'#aaa', fontWeight:500, marginLeft:'auto' }}>
                   {nowDate.getMonth()+1}월 {nowDate.getDate()}일
                 </span>
               </div>
+              {role==='owner' && (
+                <div style={{ fontSize:11, color:'#4a6cf7', fontWeight:600, marginBottom:12,
+                  padding:'6px 10px', background:'rgba(74,108,247,0.07)', borderRadius:8 }}>
+                  ✏️ 직원 행을 탭하면 근태를 수정할 수 있어요
+                </div>
+              )}
               {boardList.length===0 ? (
                 <div style={{ textAlign:'center', padding:'28px 0', color:'#bbb', fontSize:13 }}>오늘 스케줄이 없습니다</div>
               ) : boardList.map(item => {
                 const st = STATUS_MAP[item.status]||STATUS_MAP.pending
                 const hasBadge = item.lateCount>0||item.noClockOutCount>0||item.noClockInCount>0
                 return (
-                  <div key={item.pid||item.nm} style={{ padding:'11px 0', borderBottom:'1px solid #F8F9FB' }}>
+                  <div key={item.pid||item.nm}
+                    onClick={() => role==='owner' ? setEditItem(item) : undefined}
+                    style={{ padding:'11px 0', borderBottom:'1px solid #F8F9FB',
+                      cursor: role==='owner' ? 'pointer' : 'default' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:12 }}>
                       <div style={{ width:36, height:36, borderRadius:10, flexShrink:0,
                         background:'linear-gradient(135deg,#FF6B35,#E84393)',
@@ -1741,6 +1928,15 @@ export default function AttendancePage() {
           <StaffTimePanel storeId={storeId} staffList={staffList}
             onClose={() => setShowStaffTimePanel(false)}
             onSaved={() => loadStaffList(storeId)} />
+        )}
+        {editItem && (
+          <StaffAttendanceEditModal
+            item={editItem}
+            storeId={storeId}
+            workDate={today}
+            onClose={() => setEditItem(null)}
+            onSaved={() => { setEditItem(null); loadBoard(storeId) }}
+          />
         )}
       </div>
     </div>
