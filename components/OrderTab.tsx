@@ -98,7 +98,6 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
   const [itemName, setItemName] = useState('')
   const [quantity, setQuantity] = useState<number | ''>('')
   const [unit, setUnit] = useState('ea')
-  const [supplierId, setSupplierId] = useState('')
   const [memo, setMemo] = useState('')
   const [linkedItemId, setLinkedItemId] = useState('')
   const [requestedAt, setRequestedAt] = useState('')
@@ -123,14 +122,11 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
 
   async function handleSubmit() {
     if (!itemName.trim() || !quantity) return
-    const supplier = suppliers.find(s => s.id === supplierId)
     await supabase.from('orders').insert({
       store_id: storeId,
       item_name: itemName.trim(),
       quantity: Number(quantity),
       unit,
-      supplier_id: supplierId || null,
-      supplier_name: supplier?.name || null,
       inventory_item_id: linkedItemId || null,
       memo: memo.trim() || null,
       requested_at: requestedAt ? new Date(requestedAt).toISOString() : null,
@@ -182,15 +178,6 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
               <option value="병">병</option>
             </select>
           </div>
-        </div>
-
-        {/* 발주처 */}
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>발주처</div>
-          <select value={supplierId} onChange={e => setSupplierId(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
-            <option value="">선택 안함</option>
-            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
         </div>
 
         {/* 발주 요청 날짜 */}
@@ -395,16 +382,22 @@ function IssueModal({ order, userName, onClose, onSaved }: { order: any; userNam
 }
 
 // ─── 주문 확인 모달 ───
-function ConfirmOrderModal({ order, userName, onClose, onSaved }: { order: any; userName: string; onClose: () => void; onSaved: () => void }) {
+function ConfirmOrderModal({ order, userName, suppliers, onClose, onSaved }: { order: any; userName: string; suppliers: any[]; onClose: () => void; onSaved: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [confirmedBy, setConfirmedBy] = useState(userName)
+  const [supplierId, setSupplierId] = useState(order.supplier_id || '')
+  const [supplierName, setSupplierName] = useState(order.supplier_name || '')
   const [memo, setMemo] = useState('')
 
   async function handleSubmit() {
+    const selSupplier = suppliers.find(s => s.id === supplierId)
+    const finalSupplierName = selSupplier?.name || supplierName.trim() || null
     await supabase.from('orders').update({
       status: 'ordered',
       confirmed_by: confirmedBy.trim() || userName,
       confirmed_at: new Date().toISOString(),
+      supplier_id: supplierId || null,
+      supplier_name: finalSupplierName,
       memo: memo.trim() ? (order.memo ? order.memo + ' / ' + memo.trim() : memo.trim()) : order.memo,
     }).eq('id', order.id)
     onSaved(); onClose()
@@ -418,15 +411,34 @@ function ConfirmOrderModal({ order, userName, onClose, onSaved }: { order: any; 
         <div style={{ background: '#F8F9FB', borderRadius: 10, padding: '10px 12px', marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>📋 요청 정보</div>
           <div style={{ fontSize: 12, color: '#1a1a2e' }}>{order.ordered_by} · {new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
-          {order.supplier_name && <div style={{ fontSize: 11, color: '#2DC6D6', marginTop: 2 }}>🏪 {order.supplier_name}</div>}
         </div>
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>주문자 <span style={{ color: '#aaa', fontWeight: 400 }}>(직접 주문한 사람)</span></div>
           <input value={confirmedBy} onChange={e => setConfirmedBy(e.target.value)} placeholder="주문자 이름" style={inp} />
         </div>
+        {/* 발주처 - 주문자가 선택 */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>발주처 <span style={{ color: '#aaa', fontWeight: 400 }}>(주문한 곳)</span></div>
+          {suppliers.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+              <button onClick={() => { setSupplierId(''); setSupplierName('') }}
+                style={{ padding: '4px 10px', borderRadius: 16, border: supplierId === '' && !supplierName ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: supplierId === '' && !supplierName ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: supplierId === '' && !supplierName ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                미지정
+              </button>
+              {suppliers.map(s => (
+                <button key={s.id} onClick={() => { setSupplierId(s.id); setSupplierName('') }}
+                  style={{ padding: '4px 10px', borderRadius: 16, border: supplierId === s.id ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: supplierId === s.id ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: supplierId === s.id ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <input value={supplierId ? '' : supplierName} onChange={e => { setSupplierName(e.target.value); setSupplierId('') }}
+            placeholder="직접 입력 (예: 네이버, 쿠팡...)" style={{ ...inp, fontSize: 12 }} disabled={!!supplierId} />
+        </div>
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
-          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 네이버로 주문, 배송 3-4일" style={inp} />
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 배송 3-4일 예정" style={inp} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={handleSubmit} style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>주문 완료 처리</button>
@@ -634,8 +646,137 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
   )
 }
 
+// ─── 발주 수정 모달 ───
+function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: { order: any; userName: string; inventoryItems: any[]; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [itemName, setItemName] = useState(order.item_name)
+  const [quantity, setQuantity] = useState<number | ''>(order.quantity)
+  const [unit, setUnit] = useState(order.unit || 'ea')
+  const [memo, setMemo] = useState(order.memo || '')
+  const [suggestions, setSuggestions] = useState<any[]>([])
+  const [saving, setSaving] = useState(false)
+
+  function handleItemNameChange(val: string) {
+    setItemName(val)
+    setSuggestions(val.trim() ? inventoryItems.filter(i => i.name.includes(val.trim())).slice(0, 4) : [])
+  }
+
+  async function handleSubmit() {
+    if (!itemName.trim() || !quantity) return
+    setSaving(true)
+
+    // 변경된 필드만 로그 기록
+    const changes: { field: string; before: string; after: string }[] = []
+    if (itemName.trim() !== order.item_name) changes.push({ field: '품목명', before: order.item_name, after: itemName.trim() })
+    if (Number(quantity) !== order.quantity) changes.push({ field: '수량', before: `${order.quantity}${order.unit}`, after: `${quantity}${unit}` })
+    else if (unit !== order.unit) changes.push({ field: '단위', before: order.unit, after: unit })
+    if ((memo.trim() || null) !== (order.memo || null)) changes.push({ field: '메모', before: order.memo || '없음', after: memo.trim() || '없음' })
+
+    await supabase.from('orders').update({
+      item_name: itemName.trim(),
+      quantity: Number(quantity),
+      unit,
+      memo: memo.trim() || null,
+    }).eq('id', order.id)
+
+    // 로그 저장
+    if (changes.length > 0) {
+      await Promise.all(changes.map(c =>
+        supabase.from('order_receipt_logs').insert({
+          order_id: order.id,
+          changed_by: userName,
+          field_name: `${c.field} 수정`,
+          before_value: c.before,
+          after_value: c.after,
+          memo: null,
+        })
+      ))
+    }
+
+    setSaving(false)
+    onSaved(); onClose()
+  }
+
+  async function handleDelete() {
+    if (!confirm(`"${order.item_name}" 발주를 삭제할까요?`)) return
+    // 삭제 전 로그 남기기
+    await supabase.from('order_receipt_logs').insert({
+      order_id: order.id,
+      changed_by: userName,
+      field_name: '발주 삭제',
+      before_value: `${order.item_name} ${order.quantity}${order.unit}`,
+      after_value: '삭제됨',
+      memo: null,
+    })
+    await supabase.from('orders').delete().eq('id', order.id)
+    onSaved(); onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 360 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>✏️ 발주 수정</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* 품목명 */}
+        <div style={{ marginBottom: 10, position: 'relative' }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>품목명</div>
+          <input value={itemName} onChange={e => handleItemNameChange(e.target.value)} style={inp} />
+          {suggestions.length > 0 && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #E8ECF0', borderRadius: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, overflow: 'hidden' }}>
+              {suggestions.map(s => (
+                <div key={s.id} onClick={() => { setItemName(s.name); setUnit(s.unit || 'ea'); setSuggestions([]) }}
+                  style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: '#1a1a2e', borderBottom: '1px solid #F4F6F9' }}>
+                  {s.name}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 수량 / 단위 */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ flex: 2 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수량</div>
+            <input type="number" value={quantity} onChange={e => setQuantity(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
+            <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
+              <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option>
+            </select>
+          </div>
+        </div>
+
+        {/* 메모 */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="비고 메모" style={inp} />
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleDelete}
+            style={{ padding: '11px 14px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            🗑 삭제
+          </button>
+          <button onClick={handleSubmit} disabled={saving}
+            style={{ flex: 1, padding: '11px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            {saving ? '저장 중...' : '수정 완료'}
+          </button>
+          <button onClick={onClose}
+            style={{ padding: '11px 14px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>
+            취소
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── 발주 카드 상세 ───
-function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userName: string; isEdit: boolean; onRefresh: () => void }) {
+function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, onRefresh }: { order: any; userName: string; isEdit: boolean; suppliers: any[]; inventoryItems: any[]; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
   const [receipt, setReceipt] = useState<any>(null)
@@ -645,6 +786,7 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
   const [showIssue, setShowIssue] = useState(false)
   const [showReturn, setShowReturn] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
 
   useEffect(() => {
     if (expanded) loadDetail()
@@ -691,7 +833,8 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
       {showEditReceipt && receipt && <EditReceiptModal receipt={receipt} order={order} userName={userName} onClose={() => setShowEditReceipt(false)} onSaved={() => { loadDetail() }} />}
       {showIssue && <IssueModal order={order} userName={userName} onClose={() => setShowIssue(false)} onSaved={onRefresh} />}
       {showReturn && receipt && <ReturnModal receipt={receipt} order={order} userName={userName} onClose={() => setShowReturn(false)} onSaved={() => { loadDetail() }} />}
-      {showConfirm && <ConfirmOrderModal order={order} userName={userName} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
+      {showConfirm && <ConfirmOrderModal order={order} userName={userName} suppliers={suppliers} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
+      {showEdit && <EditOrderModal order={order} userName={userName} inventoryItems={inventoryItems} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
 
       <div style={{
         background: '#fff', borderRadius: 14, marginBottom: 8,
@@ -709,6 +852,12 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
               <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: statusBg[order.status] || statusBg.pending, color: statusColor[order.status] || statusColor.pending, fontWeight: 700 }}>{statusLabel[order.status] || '미수령'}</span>
+              {(order.status === 'requested' || order.status === 'ordered') && (
+                <button onClick={e => { e.stopPropagation(); setShowEdit(true) }}
+                  style={{ fontSize: 11, padding: '2px 7px', borderRadius: 6, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#888', cursor: 'pointer' }}>
+                  ✏️
+                </button>
+              )}
               <span style={{ fontSize: 11, color: '#ccc' }}>{expanded ? '▲' : '▼'}</span>
             </div>
           </div>
@@ -803,7 +952,12 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
                     <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>📋 수정 이력</div>
                     {logs.map(log => (
                       <div key={log.id} style={{ fontSize: 10, color: '#888', padding: '4px 0', borderBottom: '1px solid #F4F6F9', display: 'flex', justifyContent: 'space-between' }}>
-                        <span><strong style={{ color: '#1a1a2e' }}>{log.changed_by}</strong> · {log.field_name} {log.before_value ? `${log.before_value} → ${log.after_value}` : log.after_value} {log.memo && `"${log.memo}"`}</span>
+                        <span>
+                          <strong style={{ color: log.field_name.includes('수정') ? '#FF6B35' : log.field_name.includes('삭제') ? '#E84393' : '#1a1a2e' }}>{log.changed_by}</strong>
+                          {' · '}{log.field_name}
+                          {log.before_value ? <span style={{ color: '#ccc' }}> {log.before_value} → <span style={{ color: '#1a1a2e' }}>{log.after_value}</span></span> : <span> {log.after_value}</span>}
+                          {log.memo && <span style={{ color: '#bbb' }}> "{log.memo}"</span>}
+                        </span>
                         <span style={{ flexShrink: 0, marginLeft: 8 }}>{new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
                       </div>
                     ))}
@@ -812,6 +966,22 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: 12, color: '#bbb', fontSize: 12 }}>수령 정보 없음</div>
+            )}
+            {/* 수령 없어도 이력은 표시 */}
+            {!receipt && logs.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>📋 수정 이력</div>
+                {logs.map(log => (
+                  <div key={log.id} style={{ fontSize: 10, color: '#888', padding: '4px 0', borderBottom: '1px solid #F4F6F9', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>
+                      <strong style={{ color: log.field_name.includes('수정') ? '#FF6B35' : log.field_name.includes('삭제') ? '#E84393' : '#1a1a2e' }}>{log.changed_by}</strong>
+                      {' · '}{log.field_name}
+                      {log.before_value ? <span style={{ color: '#ccc' }}> {log.before_value} → <span style={{ color: '#1a1a2e' }}>{log.after_value}</span></span> : <span> {log.after_value}</span>}
+                    </span>
+                    <span style={{ flexShrink: 0, marginLeft: 8 }}>{new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -998,7 +1168,7 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
               </div>
               {/* 카드 그리드 */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 0 }}>
-                {items.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)}
+                {items.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} suppliers={suppliers} inventoryItems={inventoryItems} onRefresh={loadOrders} />)}
               </div>
             </div>
           )
