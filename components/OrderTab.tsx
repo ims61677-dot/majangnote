@@ -1482,8 +1482,8 @@ function OrderStats({ storeId, year, month }: { storeId: string; year: number; m
 // ═══════════════════════════════════════
 // 메인 OrderTab
 // ═══════════════════════════════════════
-export default function OrderTab({ storeId, userName, isEdit, inventoryItems, places }: {
-  storeId: string; userName: string; isEdit: boolean; inventoryItems: any[]; places: any[]
+export default function OrderTab({ storeId, userName, isEdit, userRole, inventoryItems, places }: {
+  storeId: string; userName: string; isEdit: boolean; userRole?: string; inventoryItems: any[]; places: any[]
 }) {
   const supabase = createSupabaseBrowserClient()
   const [orders, setOrders] = useState<any[]>([])
@@ -1520,7 +1520,10 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems, pl
     return d.getFullYear() === selYear && d.getMonth() + 1 === selMonth
   }), [orders, selYear, selMonth])
 
-  const pendingOrders = useMemo(() => orders.filter(o => o.status === 'pending' || o.status === 'requested' || o.status === 'ordered'), [orders])
+  // 미완료 목록: 미수령(requested/ordered) + 이슈 포함
+  const pendingOrders = useMemo(() => orders.filter(o =>
+    o.status === 'pending' || o.status === 'requested' || o.status === 'ordered' || o.status === 'issue'
+  ), [orders])
   const overdueOrders = useMemo(() => pendingOrders.filter(o => {
     const diff = (now.getTime() - new Date(o.ordered_at).getTime()) / (1000 * 60 * 60 * 24)
     return diff > 2
@@ -1624,7 +1627,7 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems, pl
 
       {/* 탭 */}
       <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 10, gap: 2 }}>
-        {tabBtn('pending', `미수령 ${pendingOrders.length}`, overdueOrders.length)}
+        {tabBtn('pending', `미완료 ${pendingOrders.length}`, overdueOrders.length)}
         {tabBtn('all', '전체 내역')}
         {tabBtn('issues', '이슈', issueOrders.length)}
         {tabBtn('history', '수정이력')}
@@ -1695,12 +1698,17 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems, pl
           {subTab === 'pending' && (
             <>
               {overdueOrders.length > 0 && (
-                <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', marginBottom: 12, fontSize: 11, color: '#E84393', fontWeight: 600 }}>
+                <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', marginBottom: 8, fontSize: 11, color: '#E84393', fontWeight: 600 }}>
                   🔴 2일 이상 미수령 {overdueOrders.length}건 있어요!
                 </div>
               )}
+              {issueOrders.length > 0 && (
+                <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.06)', border: '1px solid rgba(232,67,147,0.15)', marginBottom: 12, fontSize: 11, color: '#E84393', fontWeight: 600 }}>
+                  ⚠️ 이슈 발주 {issueOrders.length}건 포함
+                </div>
+              )}
               {pendingOrders.length === 0
-                ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>🎉 미수령 발주가 없어요!</div>
+                ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>🎉 미완료 발주가 없어요!</div>
                 : <DateGroupedList list={pendingOrders} />
               }
             </>

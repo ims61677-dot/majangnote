@@ -801,6 +801,7 @@ function InventoryPageInner() {
   const [storeId, setStoreId] = useState('')
   const [userName, setUserName] = useState('')
   const [isEdit, setIsEdit] = useState(false)
+  const [userRole, setUserRole] = useState('')
   const [items, setItems] = useState<any[]>([])
   const [places, setPlaces] = useState<any[]>([])
   const [stock, setStock] = useState<Record<string, any>>({})
@@ -850,6 +851,7 @@ function InventoryPageInner() {
     if (!store.id) return
     setStoreId(store.id)
     setUserName(user.nm)
+    setUserRole(user.role || '')
     setIsEdit(user.role === 'owner' || user.role === 'manager')
     const savedGroupOrder = JSON.parse(localStorage.getItem(`inv_group_order_${store.id}`) || '[]')
     if (savedGroupOrder.length > 0) setGroupOrder(savedGroupOrder)
@@ -1056,7 +1058,7 @@ function InventoryPageInner() {
   if (mainTab === 'order') return (
     <div style={{ padding: isPC ? '20px 28px' : '0' }}>
       <MainTabBar />
-      <OrderTab storeId={storeId} userName={userName} isEdit={isEdit} inventoryItems={items} places={places} />
+      <OrderTab storeId={storeId} userName={userName} isEdit={isEdit} userRole={userRole} inventoryItems={items} places={places} />
     </div>
   )
 
