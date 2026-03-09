@@ -1174,6 +1174,104 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, onRefre
   )
 }
 
+// ─── 수정이력 탭 ───
+function OrderHistoryTab({ storeId, year, month }: { storeId: string; year: number; month: number }) {
+  const supabase = createSupabaseBrowserClient()
+  const [logs, setLogs] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => { loadLogs() }, [year, month])
+
+  async function loadLogs() {
+    setLoading(true)
+    const from = new Date(year, month - 1, 1).toISOString()
+    const to = new Date(year, month, 1).toISOString()
+
+    // 해당 월의 orders 먼저 가져오기
+    const { data: monthOrders } = await supabase
+      .from('orders')
+      .select('id, item_name')
+      .eq('store_id', storeId)
+      .gte('ordered_at', from)
+      .lt('ordered_at', to)
+
+    if (!monthOrders || monthOrders.length === 0) { setLogs([]); setLoading(false); return }
+
+    const orderIds = monthOrders.map(o => o.id)
+    const orderMap = Object.fromEntries(monthOrders.map(o => [o.id, o.item_name]))
+
+    const { data } = await supabase
+      .from('order_receipt_logs')
+      .select('*')
+      .in('order_id', orderIds)
+      .order('changed_at', { ascending: false })
+
+    setLogs((data || []).map(l => ({ ...l, item_name: orderMap[l.order_id] || '(삭제된 품목)' })))
+    setLoading(false)
+  }
+
+  const fieldColor: Record<string, string> = {
+    '품목명 수정': '#FF6B35',
+    '수량 수정': '#FF6B35',
+    '단위 수정': '#FF6B35',
+    '메모 수정': '#FF6B35',
+    '발주 삭제': '#E84393',
+    '주문 취소': '#6C5CE7',
+    '최초수령': '#00B894',
+    '수령수량수정': '#FF6B35',
+    '반품처리': '#E84393',
+    '교환처리': '#6C5CE7',
+    '반품 완료': '#E84393',
+    '교환 수령': '#6C5CE7',
+  }
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>불러오는 중...</div>
+  if (logs.length === 0) return <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{year}년 {month}월 수정 이력이 없어요</div>
+
+  return (
+    <div>
+      {logs.map(log => {
+        const color = fieldColor[log.field_name] || '#888'
+        return (
+          <div key={log.id} style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8ECF0', padding: '12px 14px', marginBottom: 8, borderLeft: `4px solid ${color}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {/* 품목명 */}
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>{log.item_name}</div>
+                {/* 변경 내용 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 5, background: `rgba(${color === '#FF6B35' ? '255,107,53' : color === '#E84393' ? '232,67,147' : color === '#6C5CE7' ? '108,92,231' : '0,184,148'},0.1)`, color, fontWeight: 700 }}>
+                    {log.field_name}
+                  </span>
+                  {log.before_value && (
+                    <span style={{ fontSize: 11, color: '#aaa' }}>
+                      <span style={{ textDecoration: 'line-through' }}>{log.before_value}</span>
+                      <span style={{ margin: '0 4px', color: '#ddd' }}>→</span>
+                      <span style={{ color: '#1a1a2e', fontWeight: 600 }}>{log.after_value}</span>
+                    </span>
+                  )}
+                  {!log.before_value && log.after_value && (
+                    <span style={{ fontSize: 11, color: '#555' }}>{log.after_value}</span>
+                  )}
+                </div>
+                {/* 메모 */}
+                {log.memo && <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>📝 {log.memo}</div>}
+              </div>
+              {/* 오른쪽: 처리자 + 시간 */}
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>{log.changed_by}</div>
+                <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>
+                  {new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── 통계 ───
 function OrderStats({ storeId, year, month }: { storeId: string; year: number; month: number }) {
   const supabase = createSupabaseBrowserClient()
@@ -1272,7 +1370,7 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
   const supabase = createSupabaseBrowserClient()
   const [orders, setOrders] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
-  const [subTab, setSubTab] = useState<'pending' | 'all' | 'issues' | 'stats'>('pending')
+  const [subTab, setSubTab] = useState<'pending' | 'all' | 'issues' | 'history' | 'stats'>('pending')
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [showQuickOrder, setShowQuickOrder] = useState(false)
   const [showSupplierMgr, setShowSupplierMgr] = useState(false)
@@ -1403,6 +1501,7 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
         {tabBtn('pending', `미수령 ${pendingOrders.length}`, overdueOrders.length)}
         {tabBtn('all', '전체 내역')}
         {tabBtn('issues', '이슈', issueOrders.length)}
+        {tabBtn('history', '수정이력')}
         {tabBtn('stats', '📊 통계')}
       </div>
 
@@ -1490,6 +1589,7 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
               ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 이슈 내역이 없어요</div>
               : <DateGroupedList list={issueOrders} />
           )}
+          {subTab === 'history' && <OrderHistoryTab storeId={storeId} year={selYear} month={selMonth} />}
           {subTab === 'stats' && <OrderStats storeId={storeId} year={selYear} month={selMonth} />}
         </>
       )}
