@@ -1431,7 +1431,7 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
 
   async function loadOrders() {
     setLoading(true)
-    const { data } = await supabase.from('orders').select('*').eq('store_id', storeId).order('ordered_at', { ascending: false })
+    const { data } = await supabase.from('orders').select('*').eq('store_id', storeId).order('ordered_at', { ascending: false }).order('created_at', { ascending: true })
     setOrders(data || [])
     setLoading(false)
   }
@@ -1466,6 +1466,8 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
       if (!map[key]) map[key] = []
       map[key].push(o)
     })
+    // 날짜 내에서 created_at 오름차순 고정 → 액션해도 순서 안 바뀜
+    Object.values(map).forEach(items => items.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()))
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]))
   }
 
