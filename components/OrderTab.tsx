@@ -485,6 +485,155 @@ function ReturnModal({ receipt, order, userName, onClose, onSaved }: { receipt: 
   )
 }
 
+// ─── 빠른 발주 모달 ───
+function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, onSaved }: {
+  storeId: string; userName: string; suppliers: any[]; inventoryItems: any[]
+  onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createSupabaseBrowserClient()
+  type QuickItem = { id: number; name: string; qty: number | ''; unit: string; suggestion: any[] }
+  const newRow = (id: number): QuickItem => ({ id, name: '', qty: '', unit: 'ea', suggestion: [] })
+  const [rows, setRows] = useState<QuickItem[]>([newRow(1), newRow(2), newRow(3)])
+  const [supplierId, setSupplierId] = useState('')
+  const [saving, setSaving] = useState(false)
+  let nextId = rows.length + 1
+
+  function updateRow(id: number, field: string, value: any) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
+    if (field === 'name') {
+      const matched = value.trim() ? inventoryItems.filter(i => i.name.includes(value.trim())).slice(0, 4) : []
+      setRows(prev => prev.map(r => r.id === id ? { ...r, suggestion: matched } : r))
+    }
+  }
+  function pickSuggestion(id: number, item: any) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, name: item.name, unit: item.unit || 'ea', suggestion: [] } : r))
+  }
+  function addRow() {
+    setRows(prev => [...prev, newRow(++nextId)])
+  }
+  function removeRow(id: number) {
+    if (rows.length <= 1) return
+    setRows(prev => prev.filter(r => r.id !== id))
+  }
+
+  async function handleSubmit() {
+    const validRows = rows.filter(r => r.name.trim() && r.qty !== '' && Number(r.qty) > 0)
+    if (validRows.length === 0) return
+    setSaving(true)
+    const supplier = suppliers.find(s => s.id === supplierId)
+    const now = new Date().toISOString()
+    await Promise.all(validRows.map(r =>
+      supabase.from('orders').insert({
+        store_id: storeId,
+        item_name: r.name.trim(),
+        quantity: Number(r.qty),
+        unit: r.unit,
+        supplier_id: supplierId || null,
+        supplier_name: supplier?.name || null,
+        ordered_by: userName,
+        ordered_at: now,
+        status: 'requested',
+      })
+    ))
+    setSaving(false)
+    onSaved(); onClose()
+  }
+
+  const validCount = rows.filter(r => r.name.trim() && r.qty !== '' && Number(r.qty) > 0).length
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', width: '100%', maxWidth: 520, borderRadius: '20px 20px 0 0', padding: 20, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>⚡ 빠른 발주</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>품목과 수량만 입력하고 한번에 등록해요</div>
+
+        {/* 발주처 선택 */}
+        {suppliers.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>발주처 (전체 적용)</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button onClick={() => setSupplierId('')}
+                style={{ padding: '5px 12px', borderRadius: 20, border: supplierId === '' ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: supplierId === '' ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: supplierId === '' ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: supplierId === '' ? 700 : 400, cursor: 'pointer' }}>
+                미지정
+              </button>
+              {suppliers.map(s => (
+                <button key={s.id} onClick={() => setSupplierId(s.id)}
+                  style={{ padding: '5px 12px', borderRadius: 20, border: supplierId === s.id ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: supplierId === s.id ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: supplierId === s.id ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: supplierId === s.id ? 700 : 400, cursor: 'pointer' }}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 품목 행 */}
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 55px 28px', gap: 6, marginBottom: 6, padding: '0 2px' }}>
+            <span style={{ fontSize: 10, color: '#aaa' }}>품목명</span>
+            <span style={{ fontSize: 10, color: '#aaa' }}>수량</span>
+            <span style={{ fontSize: 10, color: '#aaa' }}>단위</span>
+            <span />
+          </div>
+          {rows.map((row, idx) => (
+            <div key={row.id} style={{ position: 'relative', marginBottom: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 55px 28px', gap: 6 }}>
+                <input
+                  value={row.name}
+                  onChange={e => updateRow(row.id, 'name', e.target.value)}
+                  placeholder={`품목 ${idx + 1}`}
+                  style={{ ...inp, padding: '8px 10px' }}
+                />
+                <input
+                  type="number"
+                  value={row.qty}
+                  onChange={e => updateRow(row.id, 'qty', e.target.value === '' ? '' : Number(e.target.value))}
+                  placeholder="0"
+                  style={{ ...inp, padding: '8px 8px', textAlign: 'center' }}
+                />
+                <select value={row.unit} onChange={e => updateRow(row.id, 'unit', e.target.value)}
+                  style={{ ...inp, padding: '8px 4px', appearance: 'auto' as any }}>
+                  <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option>
+                </select>
+                <button onClick={() => removeRow(row.id)}
+                  style={{ width: 28, height: 36, borderRadius: 7, border: '1px solid #E8ECF0', background: '#F8F9FB', color: '#ccc', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  ✕
+                </button>
+              </div>
+              {row.suggestion.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 30, background: '#fff', border: '1px solid #E8ECF0', borderRadius: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, overflow: 'hidden' }}>
+                  {row.suggestion.map(s => (
+                    <div key={s.id} onClick={() => pickSuggestion(row.id, s)}
+                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: '#1a1a2e', borderBottom: '1px solid #F4F6F9', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>재고</span>
+                      {s.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <button onClick={addRow}
+          style={{ width: '100%', padding: '9px 0', borderRadius: 10, border: '2px dashed #E0E4E8', background: '#F8F9FB', color: '#aaa', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
+          + 품목 추가
+        </button>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} disabled={saving || validCount === 0}
+            style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: validCount > 0 ? 'linear-gradient(135deg,#6C5CE7,#a29bfe)' : '#E8ECF0', border: 'none', color: validCount > 0 ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, cursor: validCount > 0 ? 'pointer' : 'default' }}>
+            {saving ? '등록 중...' : `📋 ${validCount}건 발주 요청`}
+          </button>
+          <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── 발주 카드 상세 ───
 function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userName: string; isEdit: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
@@ -576,6 +725,11 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
             <span style={{ fontSize: 11, color: '#aaa' }}>{new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
             {(order.status === 'ordered' || order.status === 'received') && order.confirmed_by && (
               <span style={{ fontSize: 11, color: '#6C5CE7', marginLeft: 4 }}>· 주문: {order.confirmed_by}</span>
+            )}
+            {order.confirmed_at && (order.status === 'ordered' || order.status === 'received') && (
+              <span style={{ fontSize: 10, color: '#a29bfe' }}>
+                {new Date(order.confirmed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.confirmed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+              </span>
             )}
             {order.memo && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 4 }}>📝 {order.memo}</span>}
           </div>
@@ -766,6 +920,7 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [subTab, setSubTab] = useState<'pending' | 'all' | 'issues' | 'stats'>('pending')
   const [showAddOrder, setShowAddOrder] = useState(false)
+  const [showQuickOrder, setShowQuickOrder] = useState(false)
   const [showSupplierMgr, setShowSupplierMgr] = useState(false)
   const [loading, setLoading] = useState(true)
   const now = new Date()
@@ -802,6 +957,56 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
   }), [pendingOrders])
   const issueOrders = useMemo(() => filteredOrders.filter(o => o.status === 'issue'), [filteredOrders])
 
+  // 날짜별 그룹핑
+  function groupByDate(list: any[]) {
+    const map: Record<string, any[]> = {}
+    list.forEach(o => {
+      const d = new Date(o.ordered_at)
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+      if (!map[key]) map[key] = []
+      map[key].push(o)
+    })
+    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]))
+  }
+
+  function DateGroupedList({ list }: { list: any[] }) {
+    const groups = groupByDate(list)
+    if (groups.length === 0) return null
+    return (
+      <>
+        {groups.map(([dateKey, items]) => {
+          const d = new Date(dateKey)
+          const label = `${d.getMonth()+1}월 ${d.getDate()}일`
+          const statusCounts = items.reduce((acc: any, o) => {
+            acc[o.status] = (acc[o.status] || 0) + 1; return acc
+          }, {})
+          return (
+            <div key={dateKey} style={{ marginBottom: 16 }}>
+              {/* 날짜 헤더 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '4px 10px', borderRadius: 20, flexShrink: 0 }}>
+                  📅 {label}
+                </div>
+                <div style={{ flex: 1, height: 1, background: '#E8ECF0' }} />
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                  {statusCounts.requested > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(255,107,53,0.12)', color: '#FF6B35', fontWeight: 700 }}>요청 {statusCounts.requested}</span>}
+                  {statusCounts.ordered > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(108,92,231,0.12)', color: '#6C5CE7', fontWeight: 700 }}>주문 {statusCounts.ordered}</span>}
+                  {(statusCounts.pending||0) > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(184,134,11,0.12)', color: '#B8860B', fontWeight: 700 }}>미수령 {statusCounts.pending}</span>}
+                  {statusCounts.received > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(0,184,148,0.1)', color: '#00B894', fontWeight: 700 }}>수령 {statusCounts.received}</span>}
+                  {statusCounts.issue > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>이슈 {statusCounts.issue}</span>}
+                </div>
+              </div>
+              {/* 카드 그리드 */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 0 }}>
+                {items.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)}
+              </div>
+            </div>
+          )
+        })}
+      </>
+    )
+  }
+
   const tabBtn = (key: typeof subTab, label: string, badgeCnt?: number) => (
     <button onClick={() => setSubTab(key)} style={{
       flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 11,
@@ -827,12 +1032,14 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
         />
       )}
       {showSupplierMgr && <SupplierModal storeId={storeId} onClose={() => { setShowSupplierMgr(false); loadSuppliers() }} />}
+      {showQuickOrder && <QuickOrderModal storeId={storeId} userName={userName} suppliers={suppliers} inventoryItems={inventoryItems} onClose={() => setShowQuickOrder(false)} onSaved={loadOrders} />}
 
       {/* 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>📋 발주 관리</span>
         <div style={{ display: 'flex', gap: 6 }}>
           {isEdit && <button onClick={() => setShowSupplierMgr(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', color: '#2DC6D6', fontSize: 11, cursor: 'pointer' }}>🏪 발주처</button>}
+          <button onClick={() => setShowQuickOrder(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>⚡ 빠른발주</button>
           <button onClick={() => setShowAddOrder(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>+ 발주 추가</button>
         </div>
       </div>
@@ -915,25 +1122,19 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
               )}
               {pendingOrders.length === 0
                 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>🎉 미수령 발주가 없어요!</div>
-                : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 0 }}>
-                    {pendingOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)}
-                  </div>
+                : <DateGroupedList list={pendingOrders} />
               }
             </>
           )}
           {subTab === 'all' && (
             filteredOrders.length === 0
               ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div>
-              : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 0 }}>
-                  {filteredOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)}
-                </div>
+              : <DateGroupedList list={filteredOrders} />
           )}
           {subTab === 'issues' && (
             issueOrders.length === 0
               ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 이슈 내역이 없어요</div>
-              : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 0 }}>
-                  {issueOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)}
-                </div>
+              : <DateGroupedList list={issueOrders} />
           )}
           {subTab === 'stats' && <OrderStats storeId={storeId} year={selYear} month={selMonth} />}
         </>
