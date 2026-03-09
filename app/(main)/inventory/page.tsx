@@ -1056,7 +1056,7 @@ function InventoryPageInner() {
   if (mainTab === 'order') return (
     <div style={{ padding: isPC ? '20px 28px' : '0' }}>
       <MainTabBar />
-      <OrderTab storeId={storeId} userName={userName} isEdit={isEdit} inventoryItems={items} />
+      <OrderTab storeId={storeId} userName={userName} isEdit={isEdit} inventoryItems={items} places={places} />
     </div>
   )
 

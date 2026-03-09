@@ -204,23 +204,38 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
 }
 
 // ─── 수령 처리 모달 ───
-function ReceiveModal({ order, userName, onClose, onSaved }: { order: any; userName: string; onClose: () => void; onSaved: () => void }) {
+function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: any; userName: string; places: any[]; onClose: () => void; onSaved: () => void }) {
   const supabase = createSupabaseBrowserClient()
+  const [step, setStep] = useState<'qty' | 'place'>('qty')
   const [recvQty, setRecvQty] = useState<number | ''>(order.quantity)
-  const [applyInventory, setApplyInventory] = useState(!!order.inventory_item_id)
+  const [selectedPlace, setSelectedPlace] = useState('')
   const [memo, setMemo] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  async function handleSubmit() {
+  const hasInventoryLink = !!order.inventory_item_id
+
+  async function handleQtyNext() {
     if (!recvQty) return
-    // 수령 정보 저장
+    if (hasInventoryLink) {
+      setStep('place') // 재고연동 있으면 배치 선택으로
+    } else {
+      await doSave(null) // 없으면 바로 저장
+    }
+  }
+
+  async function doSave(place: string | null) {
+    setSaving(true)
     const { data: receipt } = await supabase.from('order_receipts').insert({
       order_id: order.id,
       received_quantity: Number(recvQty),
       received_by: userName,
-      inventory_applied: false,
+      inventory_applied: !!place,
+      inventory_applied_at: place ? new Date().toISOString() : null,
+      inventory_applied_by: place ? userName : null,
+      inventory_place: place || null,
+      memo: memo.trim() || null,
     }).select().single()
 
-    // 이력 저장 (최초 수령)
     if (receipt) {
       await supabase.from('order_receipt_logs').insert({
         receipt_id: receipt.id,
@@ -228,64 +243,110 @@ function ReceiveModal({ order, userName, onClose, onSaved }: { order: any; userN
         changed_by: userName,
         field_name: '최초수령',
         before_value: null,
-        after_value: `${recvQty}${order.unit}`,
-        memo: memo || null,
+        after_value: place ? `${recvQty}${order.unit} → ${place}` : `${recvQty}${order.unit}`,
+        memo: memo.trim() || null,
       })
     }
 
     // 재고 반영
-    if (applyInventory && order.inventory_item_id && receipt) {
+    if (place && order.inventory_item_id) {
       const { data: existing } = await supabase.from('inventory_stock')
-        .select('quantity').eq('item_id', order.inventory_item_id).eq('place', '입고대기').single()
+        .select('quantity').eq('item_id', order.inventory_item_id).eq('place', place).single()
       const currentQty = existing?.quantity ?? 0
       await supabase.from('inventory_stock').upsert({
         item_id: order.inventory_item_id,
-        place: '입고대기',
+        place,
         quantity: currentQty + Number(recvQty),
         updated_by: userName,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'item_id,place' })
-      await supabase.from('order_receipts').update({ inventory_applied: true, inventory_applied_at: new Date().toISOString(), inventory_applied_by: userName }).eq('id', receipt.id)
     }
 
-    // 발주 상태 수령완료로 변경
     await supabase.from('orders').update({ status: 'received' }).eq('id', order.id)
+    setSaving(false)
     onSaved(); onClose()
   }
 
+  // 장소 그룹핑
+  const placeGroups = places.reduce((acc: Record<string, any[]>, p) => {
+    const g = p.group_name || '기타'
+    if (!acc[g]) acc[g] = []
+    acc[g].push(p)
+    return acc
+  }, {})
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 210, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', width: '100%', maxWidth: 480, borderRadius: '20px 20px 0 0', padding: 20 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>📦 수령 처리</div>
-        <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} · 발주수량 {order.quantity}{order.unit}</div>
+      <div style={{ background: '#fff', width: '100%', maxWidth: 480, borderRadius: '20px 20px 0 0', padding: 20, maxHeight: '85vh', overflowY: 'auto' }}>
 
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>실제 수령 수량</div>
-          <input type="number" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
-        </div>
+        {step === 'qty' && (
+          <>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>📦 수령 처리</div>
+            <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} · 발주수량 {order.quantity}{order.unit}</div>
 
-        {order.inventory_item_id && (
-          <div onClick={() => setApplyInventory(v => !v)}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, background: applyInventory ? 'rgba(108,92,231,0.08)' : '#F8F9FB', border: `1px solid ${applyInventory ? 'rgba(108,92,231,0.3)' : '#E8ECF0'}`, cursor: 'pointer', marginBottom: 10 }}>
-            <div style={{ width: 20, height: 20, borderRadius: 6, background: applyInventory ? '#6C5CE7' : '#E8ECF0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              {applyInventory && <span style={{ color: '#fff', fontSize: 12 }}>✓</span>}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>실제 수령 수량</div>
+              <input type="number" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
             </div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#1a1a2e' }}>재고에 자동 반영</div>
-              <div style={{ fontSize: 10, color: '#aaa' }}>수령 수량이 재고(입고대기)에 합산돼요</div>
+
+            {hasInventoryLink && (
+              <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.2)', marginBottom: 10, fontSize: 12, color: '#6C5CE7' }}>
+                📦 재고 연동된 품목이에요 — 다음 단계에서 배치 장소를 선택해요
+              </div>
+            )}
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
+              <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="특이사항 메모" style={inp} />
             </div>
-          </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={handleQtyNext} disabled={!recvQty}
+                style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: recvQty ? 'linear-gradient(135deg,#00B894,#2DC6D6)' : '#E8ECF0', border: 'none', color: recvQty ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, cursor: recvQty ? 'pointer' : 'default' }}>
+                {hasInventoryLink ? '다음 →' : '수령 완료'}
+              </button>
+              <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+            </div>
+          </>
         )}
 
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
-          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="특이사항 메모" style={inp} />
-        </div>
+        {step === 'place' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <button onClick={() => setStep('qty')} style={{ background: 'none', border: 'none', color: '#aaa', fontSize: 18, cursor: 'pointer', padding: 0 }}>←</button>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>📍 배치 장소 선택</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} {recvQty}{order.unit} — 어디에 넣을까요?</div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={handleSubmit} style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>수령 완료</button>
-          <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
-        </div>
+            {Object.entries(placeGroups).map(([group, gPlaces]) => (
+              <div key={group} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>{group}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 6 }}>
+                  {gPlaces.map((p: any) => (
+                    <button key={p.id} onClick={() => setSelectedPlace(p.name)}
+                      style={{ padding: '10px 8px', borderRadius: 10, border: selectedPlace === p.name ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: selectedPlace === p.name ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: selectedPlace === p.name ? '#6C5CE7' : '#555', fontSize: 12, fontWeight: selectedPlace === p.name ? 700 : 400, cursor: 'pointer' }}>
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {places.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 24, color: '#bbb', fontSize: 12 }}>
+                등록된 장소가 없어요<br />
+                <span style={{ fontSize: 11 }}>재고 탭 → 장소 관리에서 추가해주세요</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button onClick={() => doSave(selectedPlace)} disabled={saving || !selectedPlace}
+                style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: selectedPlace ? 'linear-gradient(135deg,#00B894,#2DC6D6)' : '#E8ECF0', border: 'none', color: selectedPlace ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, cursor: selectedPlace ? 'pointer' : 'default' }}>
+                {saving ? '처리 중...' : `✅ ${selectedPlace || '장소 선택'} 배치 완료`}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -920,10 +981,28 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
           <div style={{ marginBottom: 12 }}>
             <button onClick={async () => {
               if (!confirm('수령 완료를 취소하고 주문완료 상태로 되돌릴까요?\n(수령 정보가 삭제됩니다)')) return
-              // 수령 정보 삭제
+              // 재고 반영됐으면 차감
+              const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).single()
+              if (r?.inventory_applied && r?.inventory_place && order.inventory_item_id) {
+                const { data: existing } = await supabase.from('inventory_stock')
+                  .select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).single()
+                const currentQty = existing?.quantity ?? 0
+                await supabase.from('inventory_stock').upsert({
+                  item_id: order.inventory_item_id,
+                  place: r.inventory_place,
+                  quantity: Math.max(0, currentQty - r.received_quantity),
+                  updated_by: userName,
+                  updated_at: new Date().toISOString(),
+                }, { onConflict: 'item_id,place' })
+              }
               await supabase.from('order_receipts').delete().eq('order_id', order.id)
               await supabase.from('orders').update({ status: 'ordered' }).eq('id', order.id)
-              await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '수령 취소', before_value: '수령완료', after_value: '주문완료로 되돌림', memo: null })
+              await supabase.from('order_receipt_logs').insert({
+                order_id: order.id, changed_by: userName, field_name: '수령 취소',
+                before_value: r?.inventory_applied ? `수령완료 (${r.inventory_place} 재고 반영됨)` : '수령완료',
+                after_value: r?.inventory_applied ? `주문완료로 되돌림 + ${r.inventory_place} 재고 차감` : '주문완료로 되돌림',
+                memo: null,
+              })
               onSaved(); onClose()
             }} style={{ width: '100%', padding: '10px 0', borderRadius: 10, background: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.25)', color: '#00B894', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               ↩️ 수령 취소 (주문완료로 되돌리기)
@@ -977,7 +1056,7 @@ function TimelineItem({ color, icon, title, who, when, note }: {
 }
 
 // ─── 발주 카드 상세 ───
-function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, onRefresh }: { order: any; userName: string; isEdit: boolean; suppliers: any[]; inventoryItems: any[]; onRefresh: () => void }) {
+function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places, onRefresh }: { order: any; userName: string; isEdit: boolean; suppliers: any[]; inventoryItems: any[]; places: any[]; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
   const [receipt, setReceipt] = useState<any>(null)
@@ -1034,7 +1113,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, onRefre
 
   return (
     <>
-      {showReceive && <ReceiveModal order={order} userName={userName} onClose={() => setShowReceive(false)} onSaved={() => { onRefresh(); loadDetail() }} />}
+      {showReceive && <ReceiveModal order={order} userName={userName} places={places} onClose={() => setShowReceive(false)} onSaved={() => { onRefresh(); loadDetail() }} />}
       {showEditReceipt && receipt && <EditReceiptModal receipt={receipt} order={order} userName={userName} onClose={() => setShowEditReceipt(false)} onSaved={() => { loadDetail() }} />}
       {showIssue && <IssueModal order={order} userName={userName} onClose={() => setShowIssue(false)} onSaved={onRefresh} />}
       {showReturn && receipt && <ReturnModal receipt={receipt} order={order} userName={userName} onClose={() => setShowReturn(false)} onSaved={() => { loadDetail() }} />}
@@ -1165,7 +1244,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, onRefre
                   title={`수령 완료 · ${receipt.received_quantity}${order.unit}`}
                   who={receipt.received_by}
                   when={receipt.received_at}
-                  note={receipt.inventory_applied ? `✓ 재고 반영 (${receipt.inventory_applied_by})` : undefined} />
+                  note={receipt.inventory_applied ? `✓ ${receipt.inventory_place || '재고'} 반영 (${receipt.inventory_applied_by})` : undefined} />
               )}
 
               {/* 5. 반품/교환 */}
@@ -1185,15 +1264,6 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, onRefre
               <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                 <button onClick={() => setShowEditReceipt(true)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>✏️ 수령 수정</button>
                 {!receipt.return_type && <button onClick={() => setShowReturn(true)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.2)', color: '#6C5CE7', fontSize: 10, cursor: 'pointer' }}>↩️ 반품/교환</button>}
-                {!receipt.inventory_applied && order.inventory_item_id && (
-                  <button onClick={async () => {
-                    const { data: existing } = await supabase.from('inventory_stock').select('quantity').eq('item_id', order.inventory_item_id).eq('place', '입고대기').single()
-                    const currentQty = existing?.quantity ?? 0
-                    await supabase.from('inventory_stock').upsert({ item_id: order.inventory_item_id, place: '입고대기', quantity: currentQty + receipt.received_quantity, updated_by: userName, updated_at: new Date().toISOString() }, { onConflict: 'item_id,place' })
-                    await supabase.from('order_receipts').update({ inventory_applied: true, inventory_applied_at: new Date().toISOString(), inventory_applied_by: userName }).eq('id', receipt.id)
-                    loadDetail()
-                  }} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.2)', color: '#6C5CE7', fontSize: 10, cursor: 'pointer' }}>📊 재고 반영</button>
-                )}
               </div>
             )}
 
@@ -1412,8 +1482,8 @@ function OrderStats({ storeId, year, month }: { storeId: string; year: number; m
 // ═══════════════════════════════════════
 // 메인 OrderTab
 // ═══════════════════════════════════════
-export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: {
-  storeId: string; userName: string; isEdit: boolean; inventoryItems: any[]
+export default function OrderTab({ storeId, userName, isEdit, inventoryItems, places }: {
+  storeId: string; userName: string; isEdit: boolean; inventoryItems: any[]; places: any[]
 }) {
   const supabase = createSupabaseBrowserClient()
   const [orders, setOrders] = useState<any[]>([])
@@ -1500,7 +1570,7 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
               </div>
               {/* 카드 그리드 */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 0 }}>
-                {items.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} suppliers={suppliers} inventoryItems={inventoryItems} onRefresh={loadOrders} />)}
+                {items.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} suppliers={suppliers} inventoryItems={inventoryItems} places={places} onRefresh={loadOrders} />)}
               </div>
             </div>
           )
