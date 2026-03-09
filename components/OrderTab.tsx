@@ -690,15 +690,9 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
     setSuppliers(data || [])
   }
 
-  // 드롭다운 선택지: 최근 24개월
-  const monthOptions = useMemo(() => {
-    const opts: { year: number; month: number; label: string }[] = []
-    for (let i = 0; i < 24; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      opts.push({ year: d.getFullYear(), month: d.getMonth() + 1, label: `${d.getFullYear()}년 ${d.getMonth() + 1}월` })
-    }
-    return opts
-  }, [])
+  // 날짜 피커 팝업 상태
+  const [showPicker, setShowPicker] = useState(false)
+  const [pickerYear, setPickerYear] = useState(now.getFullYear())
 
   // 선택된 달 기준 필터 (전체/이슈/통계용)
   const filteredOrders = useMemo(() => orders.filter(o => {
@@ -756,22 +750,60 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
         {tabBtn('stats', '📊 통계')}
       </div>
 
-      {/* 년/월 드롭다운 — 미수령 탭 제외 */}
+      {/* 년/월 팝업 피커 — 미수령 탭 제외 */}
       {subTab !== 'pending' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <span style={{ fontSize: 11, color: '#aaa', flexShrink: 0 }}>📅 기간</span>
-          <select
-            value={`${selYear}-${selMonth}`}
-            onChange={e => {
-              const [y, m] = e.target.value.split('-').map(Number)
-              setSelYear(y); setSelMonth(m)
-            }}
-            style={{ flex: 1, padding: '7px 10px', borderRadius: 9, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#1a1a2e', fontSize: 13, outline: 'none', cursor: 'pointer', fontWeight: 600 }}
+        <div style={{ marginBottom: 12 }}>
+          <button
+            onClick={() => { setPickerYear(selYear); setShowPicker(true) }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#1a1a2e', fontSize: 14, fontWeight: 700, cursor: 'pointer', width: '100%', justifyContent: 'center' }}
           >
-            {monthOptions.map(o => (
-              <option key={`${o.year}-${o.month}`} value={`${o.year}-${o.month}`}>{o.label}</option>
-            ))}
-          </select>
+            📅 {selYear}년 {selMonth}월 ▾
+          </button>
+
+          {showPicker && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+              onClick={() => setShowPicker(false)}>
+              <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
+                onClick={e => e.stopPropagation()}>
+
+                {/* 연도 네비게이션 */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <button onClick={() => setPickerYear(y => y - 1)} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 16, color: '#888' }}>‹</button>
+                  <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>{pickerYear}년</span>
+                  <button onClick={() => setPickerYear(y => y + 1)} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 16, color: '#888' }}>›</button>
+                </div>
+
+                {/* 연도 빠른 선택 */}
+                <div style={{ display: 'flex', gap: 6, marginBottom: 16, justifyContent: 'center' }}>
+                  {[pickerYear - 2, pickerYear - 1, pickerYear, pickerYear + 1, pickerYear + 2].map(y => (
+                    <button key={y} onClick={() => setPickerYear(y)}
+                      style={{ padding: '5px 8px', borderRadius: 8, border: y === pickerYear ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: y === pickerYear ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: y === pickerYear ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: y === pickerYear ? 700 : 400, cursor: 'pointer' }}>
+                      {y}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 월 그리드 */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
+                    const isSelected = pickerYear === selYear && m === selMonth
+                    return (
+                      <button key={m}
+                        onClick={() => { setSelYear(pickerYear); setSelMonth(m); setShowPicker(false) }}
+                        style={{ padding: '12px 0', borderRadius: 12, border: isSelected ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: isSelected ? 'linear-gradient(135deg,#6C5CE7,#a29bfe)' : '#F8F9FB', color: isSelected ? '#fff' : '#1a1a2e', fontSize: 14, fontWeight: isSelected ? 700 : 400, cursor: 'pointer' }}>
+                        {m}월
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <button onClick={() => setShowPicker(false)}
+                  style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: '1px solid #E8ECF0', background: '#F4F6F9', color: '#888', fontSize: 13, cursor: 'pointer' }}>
+                  닫기
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
