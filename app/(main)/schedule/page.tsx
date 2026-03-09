@@ -14,6 +14,7 @@ const STATUS_LABEL: Record<string, string> = { work: '근무', off: '휴일', ha
 const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35', absent: '#E67E22', early: '#00B894' }
 const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)', absent: 'rgba(230,126,34,0.13)', early: 'rgba(0,184,148,0.13)' }
 const POS_COLOR: Record<string, string> = { K: '#FF6B35', H: '#2DC6D6', KH: '#6C5CE7' }
+const DOW_LABEL = ['일','월','화','수','목','금','토']
 
 function getHolidays(year: number): Record<string, string> {
   const h: Record<string, string> = {
@@ -35,57 +36,74 @@ function getHolidays(year: number): Record<string, string> {
   return h
 }
 
-const DOW_LABEL = ['일','월','화','수','목','금','토']
-
-// ══════════════════════════════════════
-// 스케줄 → 출퇴근 동기화 헬퍼
-// ══════════════════════════════════════
 async function syncAttendance(
   supabase: ReturnType<typeof createSupabaseBrowserClient>,
-  storeId: string,
-  staffName: string,
-  scheduleDate: string,
-  scheduleStatus: string,
-  earlyTime?: string   // early 일 때 조퇴 시간 (HH:MM)
+  storeId: string, staffName: string, scheduleDate: string,
+  scheduleStatus: string, earlyTime?: string
 ) {
-  // profile_id 조회
   const { data: members } = await supabase
-    .from('store_members')
-    .select('profile_id, profiles!inner(nm)')
-    .eq('store_id', storeId)
-    .eq('active', true)
+    .from('store_members').select('profile_id, profiles!inner(nm)').eq('store_id', storeId).eq('active', true)
   const member = (members || []).find((m: any) => m.profiles?.nm === staffName)
   if (!member) return
   const pid = member.profile_id
-
   if (scheduleStatus === 'absent') {
-    // 결근: 출퇴근 기록을 absent 로 upsert (clock_in/out 제거)
     await supabase.from('attendance').upsert({
-      profile_id: pid, store_id: storeId, work_date: scheduleDate,
-      status: 'absent', clock_in: null, clock_out: null
+      profile_id: pid, store_id: storeId, work_date: scheduleDate, status: 'absent', clock_in: null, clock_out: null
     }, { onConflict: 'profile_id,store_id,work_date' })
   } else if (scheduleStatus === 'early' && earlyTime) {
-    // 조퇴: 기존 출퇴근 레코드가 있으면 clock_out만 업데이트, 없으면 무시(아직 출근 전)
     const { data: existing } = await supabase.from('attendance')
-      .select('id, clock_in').eq('profile_id', pid).eq('store_id', storeId).eq('work_date', scheduleDate).maybeSingle()
-    if (existing?.id) {
-      const newOut = `${scheduleDate}T${earlyTime}:00+09:00`
-      await supabase.from('attendance').update({
-        clock_out: newOut, status: 'early'
-      }).eq('id', existing.id)
-    }
+      .select('id').eq('profile_id', pid).eq('store_id', storeId).eq('work_date', scheduleDate).maybeSingle()
+    if (existing?.id) await supabase.from('attendance').update({ clock_out: `${scheduleDate}T${earlyTime}:00+09:00`, status: 'early' }).eq('id', existing.id)
   } else if (['work', 'half', 'off'].includes(scheduleStatus)) {
-    // 근무/반차/휴일로 복구: absent 였던 레코드만 삭제
     const { data: existing } = await supabase.from('attendance')
       .select('id, status').eq('profile_id', pid).eq('store_id', storeId).eq('work_date', scheduleDate).maybeSingle()
-    if (existing?.status === 'absent') {
-      await supabase.from('attendance').delete().eq('id', existing.id)
-    }
+    if (existing?.status === 'absent') await supabase.from('attendance').delete().eq('id', existing.id)
   }
 }
 
+// ─── BulkPopup (NEW) ─────────────────────────────────────────
+function BulkPopup({ staffName, dates, onApply, onClose }: {
+  staffName: string; dates: string[]; onApply: (s: string) => void; onClose: () => void
+}) {
+  const sorted = [...dates].sort()
+  const fmt = (d: string) => d.split('-').slice(1).map(Number).join('/')
+  const label = dates.length === 1 ? fmt(sorted[0]) : `${fmt(sorted[0])} ~ ${fmt(sorted[sorted.length-1])}`
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={onClose}>
+      <div style={{ background:'#fff', borderRadius:20, padding:22, width:'100%', maxWidth:320, boxShadow:'0 8px 40px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{staffName}</div>
+          <div style={{ fontSize:12, color:'#888', marginTop:6, padding:'6px 12px', background:'rgba(108,92,231,0.07)', borderRadius:9, display:'inline-block' }}>
+            📅 {label} · <strong style={{ color:'#6C5CE7' }}>{dates.length}일</strong> 일괄 적용
+          </div>
+        </div>
+        <div style={{ fontSize:11, color:'#aaa', marginBottom:10 }}>적용할 상태를 선택하세요</div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8 }}>
+          {(['work','off','half'] as const).map(s => (
+            <button key={s} onClick={() => onApply(s)}
+              style={{ padding:'14px 0', borderRadius:12, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:13, fontWeight:700, cursor:'pointer' }}>
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+          {(['absent','early'] as const).map(s => (
+            <button key={s} onClick={() => onApply(s)}
+              style={{ padding:'14px 0', borderRadius:12, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:13, fontWeight:700, cursor:'pointer' }}>
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+          <button onClick={onClose}
+            style={{ padding:'14px 0', borderRadius:12, border:'1px solid #E8ECF0', background:'#F4F6F9', color:'#999', fontSize:13, cursor:'pointer' }}>
+            취소
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-// ─── 셀 팝업 ───
+// ─── CellPopup ───────────────────────────────────────────────
 function CellPopup({ staffName, dateStr, current, role, myName, onSave, onRequest, onDelete, onClose }: {
   staffName: string; dateStr: string; current: any | null
   role: string; myName: string
@@ -95,7 +113,6 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
 }) {
   const [status, setStatus] = useState(current?.status || 'work')
   const [position, setPosition] = useState(current?.position || '')
-  const [note, setNote] = useState(current?.note || '')
   const [earlyTime, setEarlyTime] = useState(() => {
     if (current?.status === 'early' && current?.note) {
       const m = current.note.match(/^\[조퇴:(\d{2}:\d{2})\](.*)$/)
@@ -118,17 +135,13 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
   const isManager = role === 'manager'
 
   function buildNote() {
-    if (status === 'early') {
-      return earlyTime ? `[조퇴:${earlyTime}]${noteText ? ' ' + noteText : ''}` : noteText
-    }
+    if (status === 'early') return earlyTime ? `[조퇴:${earlyTime}]${noteText ? ' ' + noteText : ''}` : noteText
     return noteText
   }
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={onClose}>
-      <div style={{ background:'#fff', borderRadius:20, padding:20, width:'100%', maxWidth:340, boxShadow:'0 8px 32px rgba(0,0,0,0.18)', maxHeight:'90vh', overflowY:'auto' }}
-        onClick={e => e.stopPropagation()}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={onClose}>
+      <div style={{ background:'#fff', borderRadius:20, padding:20, width:'100%', maxWidth:340, boxShadow:'0 8px 32px rgba(0,0,0,0.18)', maxHeight:'90vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{staffName}</div>
           <div style={{ fontSize:12, color:'#aaa', marginTop:2 }}>{parts[1]}월 {parts[2]}일 ({dow})</div>
@@ -158,8 +171,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
                 {status === 'early' && (
                   <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(0,184,148,0.06)', borderRadius:10, border:'1px solid rgba(0,184,148,0.2)' }}>
                     <div style={{ fontSize:11, color:'#00B894', fontWeight:600, marginBottom:8 }}>🌙 조퇴 시간</div>
-                    <input type="time" value={earlyTime} onChange={e => setEarlyTime(e.target.value)}
-                      style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid rgba(0,184,148,0.3)', background:'#fff', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' as const }} />
+                    <input type="time" value={earlyTime} onChange={e => setEarlyTime(e.target.value)} style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid rgba(0,184,148,0.3)', background:'#fff', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' as const }} />
                   </div>
                 )}
                 {status === 'absent' && (
@@ -198,8 +210,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
             {status === 'early' && (
               <div style={{ marginBottom:14, padding:'10px 12px', background:'rgba(0,184,148,0.06)', borderRadius:10, border:'1px solid rgba(0,184,148,0.2)' }}>
                 <div style={{ fontSize:11, color:'#00B894', fontWeight:600, marginBottom:8 }}>🌙 조퇴 시간</div>
-                <input type="time" value={earlyTime} onChange={e => setEarlyTime(e.target.value)}
-                  style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid rgba(0,184,148,0.3)', background:'#fff', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' as const }} />
+                <input type="time" value={earlyTime} onChange={e => setEarlyTime(e.target.value)} style={{ width:'100%', padding:'8px 10px', borderRadius:8, border:'1px solid rgba(0,184,148,0.3)', background:'#fff', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' as const }} />
               </div>
             )}
             {status === 'absent' && (
@@ -209,8 +220,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
             )}
             <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>메모</div>
             <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="사유 입력..." style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'#F8F9FB', border:'1px solid #E0E4E8', fontSize:13, outline:'none', boxSizing:'border-box' as const, marginBottom:16 }} />
-            <button onClick={() => onSave(status, current?.position || '', buildNote())}
-              style={{ width:'100%', padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#E67E22,#e17055)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
+            <button onClick={() => onSave(status, current?.position || '', buildNote())} style={{ width:'100%', padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#E67E22,#e17055)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
           </>
         )}
         {isManager && mode === 'request' && (
@@ -240,8 +250,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
   )
 }
 
-
-// ─── 요청 승인 패널 ───
+// ─── RequestPanel ─────────────────────────────────────────────
 function RequestPanel({ storeId, myName, onClose, onApproved }: {
   storeId: string; myName: string; onClose: () => void; onApproved: () => void
 }) {
@@ -257,7 +266,6 @@ function RequestPanel({ storeId, myName, onClose, onApproved }: {
       { store_id: storeId, staff_name: req.staff_name, schedule_date: req.schedule_date, status: req.requested_status, position: null, note: req.note },
       { onConflict: 'store_id,staff_name,schedule_date' }
     )
-    // ★ 출퇴근 동기화
     const earlyMatch = req.note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
     await syncAttendance(supabase, storeId, req.staff_name, req.schedule_date, req.requested_status, earlyMatch?.[1])
     await supabase.from('schedule_requests').update({ status: 'approved', reviewed_by: myName, reviewed_at: new Date().toISOString() }).eq('id', req.id)
@@ -299,9 +307,228 @@ function RequestPanel({ storeId, myName, onClose, onApproved }: {
   )
 }
 
+// ════════════════════════════════════════
+// ManageView - 전지점 관리 탭 (NEW)
+// ════════════════════════════════════════
+function ManageView({ profileId, myName, year, month }: {
+  profileId: string; myName: string; year: number; month: number
+}) {
+  const supabase = createSupabaseBrowserClient()
+  const [storeItems, setStoreItems] = useState<any[]>([])
+  const [storeData, setStoreData] = useState<Record<string, { schedules: any[]; requests: any[]; staff: string[] }>>({})
+  const [loading, setLoading] = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
+
+  useEffect(() => { loadAll() }, [year, month])
+
+  async function loadAll() {
+    setLoading(true)
+    const { data: members } = await supabase
+      .from('store_members').select('*, stores(*)').eq('profile_id', profileId).eq('active', true)
+    const myStores = (members || [])
+    setStoreItems(myStores)
+
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const startDate = `${year}-${pad(month+1)}-01`
+    const endDate = `${year}-${pad(month+1)}-${pad(getDaysInMonth(year, month))}`
+
+    const newData: typeof storeData = {}
+    await Promise.all(myStores.map(async (member: any) => {
+      const sid = member.stores?.id
+      if (!sid) return
+      const [schedsRes, reqsRes, staffRes] = await Promise.all([
+        supabase.from('schedules').select('*').eq('store_id', sid).gte('schedule_date', startDate).lte('schedule_date', endDate),
+        supabase.from('schedule_requests').select('*').eq('store_id', sid).eq('status', 'pending').order('created_at', { ascending: false }),
+        supabase.from('store_members').select('profile_id, sort_order, profiles(nm)').eq('store_id', sid).eq('active', true),
+      ])
+      const staffNames = (staffRes.data || [])
+        .map((m: any) => ({ nm: m.profiles?.nm || '', order: m.sort_order ?? 9999 }))
+        .filter((m: any) => m.nm)
+        .sort((a: any, b: any) => a.order - b.order)
+        .map((m: any) => m.nm)
+      newData[sid] = { schedules: schedsRes.data || [], requests: reqsRes.data || [], staff: staffNames }
+    }))
+
+    setStoreData(newData)
+    setLoading(false)
+
+    // 요청 있는 첫 지점 자동 펼침
+    const firstWithReqs = myStores.find((m: any) => (newData[m.stores?.id]?.requests?.length || 0) > 0)
+    setExpandedId(firstWithReqs?.stores?.id || myStores[0]?.stores?.id || null)
+  }
+
+  async function handleApprove(sid: string, req: any) {
+    setApprovingId(req.id)
+    await supabase.from('schedules').upsert(
+      { store_id: sid, staff_name: req.staff_name, schedule_date: req.schedule_date, status: req.requested_status, position: null, note: req.note },
+      { onConflict: 'store_id,staff_name,schedule_date' }
+    )
+    const earlyMatch = req.note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
+    await syncAttendance(supabase, sid, req.staff_name, req.schedule_date, req.requested_status, earlyMatch?.[1])
+    await supabase.from('schedule_requests').update({ status: 'approved', reviewed_by: myName, reviewed_at: new Date().toISOString() }).eq('id', req.id)
+    setApprovingId(null)
+    loadAll()
+  }
+
+  async function handleReject(sid: string, req: any) {
+    await supabase.from('schedule_requests').update({ status: 'rejected', reviewed_by: myName, reviewed_at: new Date().toISOString() }).eq('id', req.id)
+    loadAll()
+  }
+
+  if (loading) return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:60, gap:12 }}>
+      <div style={{ fontSize:28 }}>⏳</div>
+      <div style={{ fontSize:13, color:'#aaa' }}>전 지점 데이터 불러오는 중...</div>
+    </div>
+  )
+
+  const totalPending = Object.values(storeData).reduce((s, d) => s + d.requests.length, 0)
+  const totalStaff = Object.values(storeData).reduce((s, d) => s + d.staff.length, 0)
+
+  return (
+    <div>
+      {/* 상단 요약 */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:20 }}>
+        <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:'14px 10px', textAlign:'center' }}>
+          <div style={{ fontSize:22, fontWeight:800, color:'#6C5CE7' }}>{storeItems.length}</div>
+          <div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>전체 지점</div>
+        </div>
+        <div style={{ background: totalPending > 0 ? 'rgba(232,67,147,0.05)' : '#fff', borderRadius:14, border:`1.5px solid ${totalPending > 0 ? 'rgba(232,67,147,0.3)' : '#E8ECF0'}`, padding:'14px 10px', textAlign:'center' }}>
+          <div style={{ fontSize:22, fontWeight:800, color: totalPending > 0 ? '#E84393' : '#bbb' }}>{totalPending}</div>
+          <div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>승인 대기</div>
+        </div>
+        <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:'14px 10px', textAlign:'center' }}>
+          <div style={{ fontSize:22, fontWeight:800, color:'#FF6B35' }}>{totalStaff}</div>
+          <div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>전체 직원</div>
+        </div>
+      </div>
+
+      {/* 매장별 카드 */}
+      {storeItems.map((member: any) => {
+        const sid = member.stores?.id
+        if (!sid) return null
+        const storeName = member.stores?.name || ''
+        const d = storeData[sid]
+        if (!d) return null
+        const { schedules: scheds, requests, staff } = d
+        const isExpanded = expandedId === sid
+        const pendingCount = requests.length
+
+        const summary = staff.map(name => {
+          const ss = scheds.filter(s => s.staff_name === name)
+          return {
+            name,
+            work: ss.filter(s => s.status === 'work').length,
+            off: ss.filter(s => s.status === 'off').length,
+            half: ss.filter(s => s.status === 'half').length,
+            absent: ss.filter(s => s.status === 'absent').length,
+            early: ss.filter(s => s.status === 'early').length,
+          }
+        })
+
+        return (
+          <div key={sid} style={{ background:'#fff', borderRadius:18, border: pendingCount > 0 ? '1.5px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0', marginBottom:14, overflow:'hidden', boxShadow:'0 2px 8px rgba(0,0,0,0.05)' }}>
+            {/* 헤더 */}
+            <div onClick={() => setExpandedId(isExpanded ? null : sid)}
+              style={{ display:'flex', alignItems:'center', padding:'14px 16px', cursor:'pointer', background: isExpanded ? '#FAFBFC' : '#fff', borderBottom: isExpanded ? '1px solid #F0F2F5' : 'none' }}>
+              <div style={{ width:40, height:40, borderRadius:12, background:'linear-gradient(135deg,#FF6B35,#E84393)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, fontWeight:800, color:'#fff', marginRight:12, flexShrink:0 }}>
+                {storeName.charAt(0)}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>{storeName}</div>
+                <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>직원 {staff.length}명 · 스케줄 {scheds.length}건</div>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                {pendingCount > 0 && (
+                  <span style={{ background:'#E84393', color:'#fff', borderRadius:10, padding:'3px 9px', fontSize:11, fontWeight:700 }}>📋 {pendingCount}</span>
+                )}
+                {pendingCount === 0 && <span style={{ fontSize:11, color:'#bbb', background:'#F4F6F9', borderRadius:8, padding:'3px 9px' }}>✓ 완료</span>}
+                <span style={{ fontSize:12, color:'#ccc' }}>{isExpanded ? '▲' : '▼'}</span>
+              </div>
+            </div>
+
+            {isExpanded && (
+              <div style={{ padding:'16px 16px' }}>
+                {/* 승인 대기 요청 */}
+                {requests.length > 0 && (
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#E84393', marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
+                      <span>📋 승인 대기 요청</span>
+                      <span style={{ background:'rgba(232,67,147,0.1)', color:'#E84393', borderRadius:8, padding:'1px 8px', fontSize:11 }}>{requests.length}건</span>
+                    </div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                      {requests.map((req: any) => (
+                        <div key={req.id} style={{ background:'#FFFBFE', border:'1px solid rgba(232,67,147,0.15)', borderRadius:12, padding:'12px 14px' }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: req.note ? 6 : 10 }}>
+                            <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{req.staff_name}</span>
+                            <span style={{ fontSize:11, color:'#bbb' }}>{req.schedule_date}</span>
+                            <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5 }}>
+                              {req.current_status && <span style={{ fontSize:10, color:STATUS_COLOR[req.current_status], background:STATUS_BG[req.current_status], padding:'2px 7px', borderRadius:5, fontWeight:700 }}>{STATUS_LABEL[req.current_status]}</span>}
+                              <span style={{ fontSize:10, color:'#bbb' }}>→</span>
+                              <span style={{ fontSize:10, color:STATUS_COLOR[req.requested_status], background:STATUS_BG[req.requested_status], padding:'2px 7px', borderRadius:5, fontWeight:700 }}>{STATUS_LABEL[req.requested_status]}</span>
+                            </div>
+                          </div>
+                          {req.note && <div style={{ fontSize:11, color:'#888', marginBottom:8, padding:'5px 9px', background:'#F8F9FB', borderRadius:7 }}>{req.note}</div>}
+                          <div style={{ fontSize:10, color:'#bbb', marginBottom:8 }}>요청자: {req.requester_nm} · {new Date(req.created_at).toLocaleDateString('ko')}</div>
+                          <div style={{ display:'flex', gap:8 }}>
+                            <button onClick={() => handleReject(sid, req)} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거절</button>
+                            <button onClick={() => handleApprove(sid, req)} disabled={approvingId === req.id}
+                              style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, opacity: approvingId === req.id ? 0.7 : 1 }}>
+                              {approvingId === req.id ? '처리 중...' : '✓ 승인'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 이번달 근무 요약 */}
+                <div>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>
+                    📊 {year}년 {month+1}월 근무 요약
+                  </div>
+                  {summary.length === 0 ? (
+                    <div style={{ textAlign:'center', padding:'16px 0', color:'#bbb', fontSize:12 }}>직원 데이터 없음</div>
+                  ) : (
+                    <div style={{ borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden' }}>
+                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+                        <thead>
+                          <tr style={{ background:'#F8F9FB' }}>
+                            <th style={{ padding:'8px 12px', textAlign:'left', color:'#888', fontWeight:700, borderBottom:'1px solid #E8ECF0' }}>직원</th>
+                            {(['work','off','half','absent','early'] as const).map(s => (
+                              <th key={s} style={{ padding:'8px 6px', textAlign:'center', color:STATUS_COLOR[s], fontWeight:700, borderBottom:'1px solid #E8ECF0', fontSize:10 }}>{STATUS_LABEL[s]}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {summary.map((s, idx) => (
+                            <tr key={s.name} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFBFC', borderBottom:'1px solid #F4F6F9' }}>
+                              <td style={{ padding:'9px 12px', fontWeight:600, color:'#1a1a2e', fontSize:12 }}>{s.name}</td>
+                              <td style={{ padding:'9px 6px', textAlign:'center', fontWeight:700, color: s.work > 0 ? STATUS_COLOR.work : '#ddd' }}>{s.work || '-'}</td>
+                              <td style={{ padding:'9px 6px', textAlign:'center', color: s.off > 0 ? STATUS_COLOR.off : '#ddd' }}>{s.off || '-'}</td>
+                              <td style={{ padding:'9px 6px', textAlign:'center', color: s.half > 0 ? STATUS_COLOR.half : '#ddd' }}>{s.half || '-'}</td>
+                              <td style={{ padding:'9px 6px', textAlign:'center', color: s.absent > 0 ? STATUS_COLOR.absent : '#ddd', fontWeight: s.absent > 0 ? 700 : 400 }}>{s.absent || '-'}</td>
+                              <td style={{ padding:'9px 6px', textAlign:'center', color: s.early > 0 ? STATUS_COLOR.early : '#ddd' }}>{s.early || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 // ════════════════════════════════════════
-// PC 그리드
+// PC 그리드 (drag + copy-paste 추가)
 // ════════════════════════════════════════
 function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onReorderStaff, onChangeMonth, pendingCount }: {
   year: number; month: number; schedules: any[]
@@ -318,6 +545,15 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // ── 드래그 셀 선택 (NEW) ──
+  const [dragSel, setDragSel] = useState<{ staff: string; startDay: number; endDay: number } | null>(null)
+  const dragSelRef = useRef<typeof dragSel>(null)
+  const isMouseDown = useRef(false)
+  const [bulkTarget, setBulkTarget] = useState<{ staff: string; dates: string[] } | null>(null)
+
+  // ── 복사·붙여넣기 (NEW) ──
+  const [copiedStaff, setCopiedStaff] = useState<string | null>(null)
+
   const today = toDateStr(new Date())
   const daysInMonth = getDaysInMonth(year, month)
   const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
@@ -327,6 +563,80 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const isManager = role === 'manager'
   const isStaff = role === 'staff'
   const visibleStaff = isStaff ? staffList.filter(n => n === myName) : staffList
+
+  // 드래그 mouseup 전역 처리
+  useEffect(() => {
+    function onWindowMouseUp() {
+      if (!isMouseDown.current) return
+      isMouseDown.current = false
+      const ds = dragSelRef.current
+      if (!ds) return
+      const min = Math.min(ds.startDay, ds.endDay)
+      const max = Math.max(ds.startDay, ds.endDay)
+      dragSelRef.current = null
+      setDragSel(null)
+      if (min === max) {
+        setPopup({ staff: ds.staff, date: `${monthStr}-${String(min).padStart(2,'0')}` })
+      } else {
+        const dates: string[] = []
+        for (let d = min; d <= max; d++) dates.push(`${monthStr}-${String(d).padStart(2,'0')}`)
+        setBulkTarget({ staff: ds.staff, dates })
+      }
+    }
+    window.addEventListener('mouseup', onWindowMouseUp)
+    return () => window.removeEventListener('mouseup', onWindowMouseUp)
+  }, [monthStr])
+
+  function handleCellMouseDown(staff: string, day: number, e: React.MouseEvent) {
+    if (!isOwner) return
+    e.preventDefault()
+    isMouseDown.current = true
+    const next = { staff, startDay: day, endDay: day }
+    dragSelRef.current = next
+    setDragSel(next)
+  }
+
+  function handleCellMouseEnter(staff: string, day: number) {
+    if (!isMouseDown.current || !dragSelRef.current || dragSelRef.current.staff !== staff) return
+    const next = { ...dragSelRef.current, endDay: day }
+    dragSelRef.current = next
+    setDragSel(next)
+  }
+
+  function isCellInDrag(staff: string, day: number) {
+    if (!dragSel || dragSel.staff !== staff) return false
+    const min = Math.min(dragSel.startDay, dragSel.endDay)
+    const max = Math.max(dragSel.startDay, dragSel.endDay)
+    return day >= min && day <= max
+  }
+
+  async function handleBulkApply(status: string) {
+    if (!bulkTarget) return
+    for (const dateStr of bulkTarget.dates) {
+      await supabase.from('schedules').upsert(
+        { store_id: storeId, staff_name: bulkTarget.staff, schedule_date: dateStr, status, position: null, note: null },
+        { onConflict: 'store_id,staff_name,schedule_date' }
+      )
+      await syncAttendance(supabase, storeId, bulkTarget.staff, dateStr, status)
+    }
+    setBulkTarget(null)
+    onSaved()
+  }
+
+  async function handlePasteToStaff(targetStaff: string) {
+    if (!copiedStaff || copiedStaff === targetStaff) return
+    const src = schedules.filter(s => s.staff_name === copiedStaff)
+    if (src.length === 0) { alert(`${copiedStaff}의 스케줄이 없습니다`); setCopiedStaff(null); return }
+    if (!confirm(`${copiedStaff}의 스케줄(${src.length}건)을 ${targetStaff}에 붙여넣을까요?\n기존 스케줄은 덮어씌워집니다.`)) return
+    for (const s of src) {
+      await supabase.from('schedules').upsert(
+        { store_id: storeId, staff_name: targetStaff, schedule_date: s.schedule_date, status: s.status, position: s.position, note: s.note },
+        { onConflict: 'store_id,staff_name,schedule_date' }
+      )
+    }
+    setCopiedStaff(null)
+    onSaved()
+  }
 
   function openOrderModal() { setDragOrder([...visibleStaff]); setShowOrderModal(true) }
 
@@ -366,14 +676,12 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const popupData = popup ? (scheduleMap[`${popup.staff}-${popup.date}`] || null) : null
   function canClick(staff: string, hasSchedule: boolean) { if (isOwner) return true; if (isManager) return hasSchedule; return false }
 
-  // ★ handleSave: 스케줄 저장 + 출퇴근 동기화
   async function handleSave(status: string, position: string, note: string) {
     if (!popup) return
     await supabase.from('schedules').upsert(
       { store_id: storeId, staff_name: popup.staff, schedule_date: popup.date, status, position: position || null, note: note || null },
       { onConflict: 'store_id,staff_name,schedule_date' }
     )
-    // 출퇴근 동기화
     const earlyMatch = note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
     await syncAttendance(supabase, storeId, popup.staff, popup.date, status, earlyMatch?.[1])
     setPopup(null); onSaved()
@@ -389,7 +697,6 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   async function handleDelete() {
     if (!popup || !popupData) return
     await supabase.from('schedules').delete().eq('id', popupData.id)
-    // 삭제 시 결근 attendance도 정리
     await syncAttendance(supabase, storeId, popup.staff, popup.date, 'work')
     setPopup(null); onSaved()
   }
@@ -415,6 +722,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   return (
     <>
       {popup && <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} />}
+      {bulkTarget && <BulkPopup staffName={bulkTarget.staff} dates={bulkTarget.dates} onApply={handleBulkApply} onClose={() => setBulkTarget(null)} />}
       {showRequests && <RequestPanel storeId={storeId} myName={myName} onClose={() => setShowRequests(false)} onApproved={() => { onSaved(); setShowRequests(false) }} />}
 
       {showOrderModal && (
@@ -444,6 +752,13 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
         <YearMonthPicker year={year} month={month} onChange={onChangeMonth} color="#6C5CE7" />
         <div style={{ display:'flex', gap:8, alignItems:'center', marginLeft:'auto' }}>
+          {/* 복사 모드 안내 */}
+          {copiedStaff && (
+            <div style={{ padding:'5px 12px', borderRadius:9, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+              <span>📋 {copiedStaff} 복사 중</span>
+              <button onClick={() => setCopiedStaff(null)} style={{ background:'none', border:'none', color:'#6C5CE7', cursor:'pointer', fontSize:13, lineHeight:1 }}>✕</button>
+            </div>
+          )}
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
             {Object.entries(STATUS_LABEL).map(([k,v]) => (<div key={k} style={{ display:'flex', alignItems:'center', gap:3 }}><div style={{ width:9, height:9, borderRadius:2, background:STATUS_BG[k], border:`1px solid ${STATUS_COLOR[k]}` }} /><span style={{ fontSize:10, color:'#888' }}>{v}</span></div>))}
             {['K','H','KH'].map(p => <span key={p} style={{ fontSize:10, color:POS_COLOR[p], fontWeight:700 }}>{p}</span>)}
@@ -453,13 +768,41 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
         </div>
       </div>
 
+      {/* 드래그 안내 (owner만) */}
+      {isOwner && (
+        <div style={{ fontSize:10, color:'#bbb', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+          <span>💡 셀을 마우스로 드래그하면 여러 날 일괄 적용</span>
+          <span style={{ color:'#d0d0d0' }}>·</span>
+          <span>직원 이름 아래 [복사] 버튼으로 스케줄 패턴 복사</span>
+        </div>
+      )}
+
       <div style={{ overflowX:'auto', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 1px 6px rgba(0,0,0,0.05)' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed', minWidth: 600 }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed', minWidth:600, userSelect:'none' }}>
           <colgroup><col style={{ width:72 }} />{visibleStaff.map((_,i) => <col key={i} />)}<col style={{ width:52 }} /></colgroup>
           <thead>
             <tr>
               <th style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'2px solid #E8ECF0', padding:'10px 8px', fontSize:10, color:'#aaa', fontWeight:700, textAlign:'left', position:'sticky', top:0, zIndex:3 }}>날짜</th>
-              {visibleStaff.map(name => (<th key={name} style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'1px solid #ECEEF2', padding:'10px 4px', fontSize:12, color:'#1a1a2e', fontWeight:700, textAlign:'center', position:'sticky', top:0, zIndex:3 }}>{name}</th>))}
+              {visibleStaff.map(name => (
+                <th key={name} style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'1px solid #ECEEF2', padding:'8px 4px', fontSize:12, color:'#1a1a2e', fontWeight:700, textAlign:'center', position:'sticky', top:0, zIndex:3 }}>
+                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                    <span>{name}</span>
+                    {/* 복사/붙여넣기 버튼 (NEW) */}
+                    {isOwner && (
+                      copiedStaff === name ? (
+                        <button onClick={e => { e.stopPropagation(); setCopiedStaff(null) }}
+                          style={{ fontSize:9, background:'rgba(108,92,231,0.12)', border:'1px solid #6C5CE7', color:'#6C5CE7', borderRadius:5, padding:'2px 7px', cursor:'pointer', fontWeight:700 }}>복사 취소</button>
+                      ) : copiedStaff ? (
+                        <button onClick={e => { e.stopPropagation(); handlePasteToStaff(name) }}
+                          style={{ fontSize:9, background:'rgba(232,67,147,0.1)', border:'1px solid #E84393', color:'#E84393', borderRadius:5, padding:'2px 7px', cursor:'pointer', fontWeight:700, animation:'pulse 1s infinite' }}>여기 붙여넣기</button>
+                      ) : (
+                        <button onClick={e => { e.stopPropagation(); setCopiedStaff(name) }}
+                          style={{ fontSize:9, background:'#F4F6F9', border:'1px solid #E0E4E8', color:'#aaa', borderRadius:5, padding:'2px 7px', cursor:'pointer' }}>복사</button>
+                      )
+                    )}
+                  </div>
+                </th>
+              ))}
               <th style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', padding:'10px 4px', fontSize:10, color:'#6C5CE7', fontWeight:700, textAlign:'center', position:'sticky', top:0, zIndex:3 }}>출근</th>
             </tr>
           </thead>
@@ -480,18 +823,23 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                     </div>
                   </td>
                   {visibleStaff.map(staff => {
-                    const sc = scheduleMap[`${staff}-${dateStr}`]; const clickable = canClick(staff, !!sc)
+                    const sc = scheduleMap[`${staff}-${dateStr}`]
+                    const clickable = canClick(staff, !!sc)
+                    const inDrag = isCellInDrag(staff, day)
                     let earlyTimeDisplay = ''
                     if (sc?.status === 'early' && sc?.note) {
                       const m = sc.note.match(/^\[조퇴:(\d{2}:\d{2})\]/)
                       if (m) earlyTimeDisplay = m[1]
                     }
                     return (
-                      <td key={staff} onClick={() => clickable && setPopup({ staff, date: dateStr })}
-                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:40, textAlign:'center', verticalAlign:'middle', cursor:clickable?'pointer':'default', transition:'background 0.1s', background:sc?STATUS_BG[sc.status]:undefined }}
-                        onMouseEnter={e => { if(clickable&&!sc) (e.currentTarget as HTMLElement).style.background='rgba(108,92,231,0.04)' }}
-                        onMouseLeave={e => { if(!sc) (e.currentTarget as HTMLElement).style.background='' }}>
-                        {sc ? (
+                      <td key={staff}
+                        onMouseDown={e => handleCellMouseDown(staff, day, e)}
+                        onMouseEnter={() => handleCellMouseEnter(staff, day)}
+                        onClick={() => { if (isMouseDown.current) return; if (clickable && !dragSel) setPopup({ staff, date: dateStr }) }}
+                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:40, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: inDrag ? 'rgba(108,92,231,0.18)' : sc ? STATUS_BG[sc.status] : undefined, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
+                        {inDrag ? (
+                          <span style={{ fontSize:14, color:'#6C5CE7', fontWeight:700 }}>✓</span>
+                        ) : sc ? (
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, height:'100%', padding:'2px 3px' }}>
                             <span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR[sc.status] }}>{STATUS_LABEL[sc.status]}</span>
                             {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
@@ -540,9 +888,8 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   )
 }
 
-
 // ════════════════════════════════════════
-// 모바일 그리드
+// 모바일 그리드 (다중선택 모드 추가)
 // ════════════════════════════════════════
 function MobileGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onChangeMonth, pendingCount }: {
   year: number; month: number; schedules: any[]; staffList: string[]; role: string; storeId: string; myName: string
@@ -551,12 +898,18 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
   const supabase = createSupabaseBrowserClient()
   const [popup, setPopup] = useState<{ staff: string; date: string } | null>(null)
   const [showRequests, setShowRequests] = useState(false)
+
+  // ── 다중 선택 모드 (NEW) ──
+  const [multiMode, setMultiMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set()) // "staff|date"
+
   const today = toDateStr(new Date())
   const daysInMonth = getDaysInMonth(year, month)
   const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
   const days = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
   const isOwner = role==='owner'; const isManager = role==='manager'; const isStaff = role==='staff'
   const visibleStaff = isStaff ? staffList.filter(n => n===myName) : staffList
+  const canEdit = isOwner || isManager
   const headerScrollRef = useRef<HTMLDivElement>(null)
   const bodyScrollRefs = useRef<(HTMLDivElement|null)[]>([])
   const footerScrollRef = useRef<HTMLDivElement>(null)
@@ -569,11 +922,28 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
     setTimeout(() => { isSyncing.current = false }, 50)
   }, [])
   useEffect(() => { const d = parseInt(today.split('-')[2]); setTimeout(() => syncScroll(Math.max(0,(d-3)*44)), 150) }, [year, month, staffList])
+
   const scheduleMap = useMemo(() => { const m: Record<string,any>={}; schedules.forEach(s=>{m[`${s.staff_name}-${s.schedule_date}`]=s}); return m }, [schedules])
   const popupData = popup ? (scheduleMap[`${popup.staff}-${popup.date}`]||null) : null
   function canClick(staff: string, hasSchedule: boolean) { if(isOwner)return true; if(isManager)return hasSchedule; return false }
 
-  // ★ handleSave: 스케줄 저장 + 출퇴근 동기화
+  function toggleSelectCell(staff: string, dateStr: string) {
+    const key = `${staff}|${dateStr}`
+    setSelected(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next })
+  }
+
+  async function applyBulk(status: string) {
+    for (const key of selected) {
+      const [staff, dateStr] = key.split('|')
+      await supabase.from('schedules').upsert(
+        { store_id: storeId, staff_name: staff, schedule_date: dateStr, status, position: null, note: null },
+        { onConflict: 'store_id,staff_name,schedule_date' }
+      )
+      await syncAttendance(supabase, storeId, staff, dateStr, status)
+    }
+    setSelected(new Set()); setMultiMode(false); onSaved()
+  }
+
   async function handleSave(status: string, position: string, note: string) {
     if (!popup) return
     await supabase.from('schedules').upsert(
@@ -616,16 +986,40 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
     <div>
       {popup && <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} />}
       {showRequests && <RequestPanel storeId={storeId} myName={myName} onClose={() => setShowRequests(false)} onApproved={() => { onSaved(); setShowRequests(false) }} />}
+
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
         <div style={{ flex:1 }}><YearMonthPicker year={year} month={month} onChange={onChangeMonth} color="#6C5CE7" /></div>
-        {isOwner && <button onClick={() => setShowRequests(true)} style={{ padding:'7px 12px', borderRadius:10, background:pendingCount>0?'rgba(232,67,147,0.1)':'#F4F6F9', border:pendingCount>0?'1px solid rgba(232,67,147,0.3)':'1px solid #E8ECF0', color:pendingCount>0?'#E84393':'#aaa', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>📋 요청 {pendingCount>0&&<span style={{ background:'#E84393',color:'#fff',borderRadius:10,padding:'1px 6px',fontSize:10,marginLeft:4 }}>{pendingCount}</span>}</button>}
+        {/* 다중 선택 버튼 (NEW) */}
+        {canEdit && (
+          <button onClick={() => { setMultiMode(v => !v); setSelected(new Set()) }}
+            style={{ padding:'7px 12px', borderRadius:10, background: multiMode ? 'rgba(108,92,231,0.12)' : '#F4F6F9', border: multiMode ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0', color: multiMode ? '#6C5CE7' : '#888', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
+            {multiMode ? `☑ ${selected.size}개 선택` : '☑ 선택'}
+          </button>
+        )}
+        {isOwner && !multiMode && (
+          <button onClick={() => setShowRequests(true)}
+            style={{ padding:'7px 12px', borderRadius:10, background:pendingCount>0?'rgba(232,67,147,0.1)':'#F4F6F9', border:pendingCount>0?'1px solid rgba(232,67,147,0.3)':'1px solid #E8ECF0', color:pendingCount>0?'#E84393':'#aaa', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
+            📋{pendingCount>0&&<span style={{ background:'#E84393',color:'#fff',borderRadius:10,padding:'1px 6px',fontSize:10,marginLeft:4 }}>{pendingCount}</span>}
+          </button>
+        )}
       </div>
-      <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
-        {Object.entries(STATUS_LABEL).map(([k,v]) => (<div key={k} style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:10, height:10, borderRadius:3, background:STATUS_BG[k], border:`1px solid ${STATUS_COLOR[k]}` }}/><span style={{ fontSize:10, color:'#888' }}>{v}</span></div>))}
-        {isStaff&&<span style={{ fontSize:10, color:'#bbb', marginLeft:'auto' }}>읽기 전용</span>}
-        {isManager&&<span style={{ fontSize:10, color:'#aaa', marginLeft:'auto' }}>포지션 편집 / 휴일 요청 가능</span>}
-        {isOwner&&<span style={{ fontSize:10, color:'#aaa', marginLeft:'auto' }}>셀 눌러서 편집</span>}
-      </div>
+
+      {/* 다중 선택 안내 */}
+      {multiMode && (
+        <div style={{ padding:'8px 12px', background:'rgba(108,92,231,0.07)', borderRadius:10, marginBottom:12, fontSize:11, color:'#6C5CE7', fontWeight:600 }}>
+          셀을 탭해서 여러 날 선택 후 아래 상태 버튼으로 일괄 적용하세요
+        </div>
+      )}
+
+      {!multiMode && (
+        <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
+          {Object.entries(STATUS_LABEL).map(([k,v]) => (<div key={k} style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:10, height:10, borderRadius:3, background:STATUS_BG[k], border:`1px solid ${STATUS_COLOR[k]}` }}/><span style={{ fontSize:10, color:'#888' }}>{v}</span></div>))}
+          {isStaff&&<span style={{ fontSize:10, color:'#bbb', marginLeft:'auto' }}>읽기 전용</span>}
+          {isManager&&<span style={{ fontSize:10, color:'#aaa', marginLeft:'auto' }}>포지션 편집 / 휴일 요청 가능</span>}
+          {isOwner&&<span style={{ fontSize:10, color:'#aaa', marginLeft:'auto' }}>셀 눌러서 편집</span>}
+        </div>
+      )}
+
       <div style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
         <div style={{ display:'flex', borderBottom:'2px solid #E8ECF0' }}>
           <div style={{ minWidth:68, flexShrink:0, background:'#F8F9FB', borderRight:'2px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', padding:'8px 4px' }}><span style={{ fontSize:10, color:'#aaa', fontWeight:700 }}>이름</span></div>
@@ -643,21 +1037,35 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                 const dow=new Date(dateStr).getDay()
                 const isToday=dateStr===today; const isSun=dow===0; const isSat=dow===6
                 const clickable=canClick(staff,!!s)
+                const selKey = `${staff}|${dateStr}`
+                const isSelected = selected.has(selKey)
                 let earlyTimeDisplay = ''
                 if (s?.status === 'early' && s?.note) {
                   const m = s.note.match(/^\[조퇴:(\d{2}:\d{2})\]/)
                   if (m) earlyTimeDisplay = m[1]
                 }
                 return (
-                  <div key={day} onClick={() => clickable&&setPopup({staff,date:dateStr})}
-                    style={{ minWidth:44, flexShrink:0, borderRight:'1px solid #F0F2F5', minHeight:52, background:s?STATUS_BG[s.status]:isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff', cursor:clickable?'pointer':'default', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1 }}>
-                    {s ? (
+                  <div key={day}
+                    onClick={() => {
+                      if (multiMode && (isOwner || isManager)) { toggleSelectCell(staff, dateStr); return }
+                      if (clickable) setPopup({staff, date:dateStr})
+                    }}
+                    style={{ minWidth:44, flexShrink:0, borderRight:'1px solid #F0F2F5', minHeight:52,
+                      background: isSelected ? 'rgba(108,92,231,0.2)' : s ? STATUS_BG[s.status] : isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff',
+                      cursor: (multiMode && canEdit) ? 'pointer' : clickable ? 'pointer' : 'default',
+                      display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1,
+                      outline: isSelected ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
+                    {isSelected ? (
+                      <span style={{ fontSize:16, color:'#6C5CE7', fontWeight:700 }}>✓</span>
+                    ) : s ? (
                       <>
                         <span style={{ fontSize:9, fontWeight:700, color:STATUS_COLOR[s.status] }}>{STATUS_LABEL[s.status]}</span>
                         {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
                         {s.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[s.position]||'#888' }}>{s.position}</span>}
                         {s.note && !earlyTimeDisplay && <span style={{ fontSize:7, color:'#999', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>{s.note}</span>}
                       </>
+                    ) : (multiMode && canEdit) ? (
+                      <span style={{ fontSize:14, color:'#d0d0d0' }}>+</span>
                     ) : clickable ? <span style={{ fontSize:16, color:'#ebebeb' }}>+</span> : null}
                   </div>
                 )
@@ -672,38 +1080,58 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
           </div>
         </div>
       </div>
-      <div style={{ marginTop:16 }}>
-        <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>월간 요약</div>
-        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-          {staffSummary.map(s => (
-            <div key={s.name} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'10px 14px' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: (s.K>0||s.H>0||s.KH>0) ? 6 : 0 }}>
-                <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{s.name}</span>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
-                  <span style={{ fontSize:11, color:'#6C5CE7', fontWeight:700 }}>근무 {s.work}</span>
-                  {s.half > 0 && <span style={{ fontSize:11, color:'#FF6B35', fontWeight:700 }}>반차 {s.half}</span>}
-                  {s.early > 0 && <span style={{ fontSize:11, color:'#00B894', fontWeight:700 }}>조퇴 {s.early}</span>}
-                  {s.absent > 0 && <span style={{ fontSize:11, color:'#E67E22', fontWeight:700 }}>결근 {s.absent}</span>}
-                  <span style={{ fontSize:11, color:'#E84393', fontWeight:700 }}>휴일 {s.off}</span>
-                </div>
-              </div>
-              {(s.K>0||s.H>0||s.KH>0) && (
-                <div style={{ display:'flex', gap:8, paddingTop:4, borderTop:'1px solid #F4F6F9' }}>
-                  {s.K > 0 && <span style={{ fontSize:10, color:POS_COLOR.K, fontWeight:700 }}>K {s.K}일</span>}
-                  {s.H > 0 && <span style={{ fontSize:10, color:POS_COLOR.H, fontWeight:700 }}>H {s.H}일</span>}
-                  {s.KH > 0 && <span style={{ fontSize:10, color:POS_COLOR.KH, fontWeight:700 }}>KH {s.KH}일</span>}
-                </div>
-              )}
-            </div>
-          ))}
+
+      {/* 다중 선택 일괄 적용 바 (NEW) */}
+      {multiMode && selected.size > 0 && (
+        <div style={{ position:'fixed', bottom:72, left:0, right:0, padding:'12px 16px', background:'#fff', borderTop:'2px solid #E8ECF0', boxShadow:'0 -4px 20px rgba(0,0,0,0.12)', zIndex:200 }}>
+          <div style={{ fontSize:12, color:'#6C5CE7', fontWeight:700, marginBottom:10, textAlign:'center' }}>
+            {selected.size}개 선택됨 — 적용할 상태를 선택하세요
+          </div>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+            {(['work','off','half','absent','early'] as const).map(s => (
+              <button key={s} onClick={() => applyBulk(s)}
+                style={{ flex:1, minWidth:56, padding:'10px 0', borderRadius:10, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                {STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* 월간 요약 */}
+      {!multiMode && (
+        <div style={{ marginTop:16 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>월간 요약</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {staffSummary.map(s => (
+              <div key={s.name} style={{ background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', padding:'10px 14px' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: (s.K>0||s.H>0||s.KH>0) ? 6 : 0 }}>
+                  <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{s.name}</span>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
+                    <span style={{ fontSize:11, color:'#6C5CE7', fontWeight:700 }}>근무 {s.work}</span>
+                    {s.half > 0 && <span style={{ fontSize:11, color:'#FF6B35', fontWeight:700 }}>반차 {s.half}</span>}
+                    {s.early > 0 && <span style={{ fontSize:11, color:'#00B894', fontWeight:700 }}>조퇴 {s.early}</span>}
+                    {s.absent > 0 && <span style={{ fontSize:11, color:'#E67E22', fontWeight:700 }}>결근 {s.absent}</span>}
+                    <span style={{ fontSize:11, color:'#E84393', fontWeight:700 }}>휴일 {s.off}</span>
+                  </div>
+                </div>
+                {(s.K>0||s.H>0||s.KH>0) && (
+                  <div style={{ display:'flex', gap:8, paddingTop:4, borderTop:'1px solid #F4F6F9' }}>
+                    {s.K > 0 && <span style={{ fontSize:10, color:POS_COLOR.K, fontWeight:700 }}>K {s.K}일</span>}
+                    {s.H > 0 && <span style={{ fontSize:10, color:POS_COLOR.H, fontWeight:700 }}>H {s.H}일</span>}
+                    {s.KH > 0 && <span style={{ fontSize:10, color:POS_COLOR.KH, fontWeight:700 }}>KH {s.KH}일</span>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-
-// ─── 월간 캘린더 ───
+// ─── 월간 캘린더 ─────────────────────────────────────────────
 function MonthlyView({ year, month, schedules, onChangeMonth, selectedDate, onDayClick }: { year: number; month: number; schedules: any[]; onChangeMonth: (y:number,m:number)=>void; selectedDate: string; onDayClick: (d:string)=>void }) {
   const today = toDateStr(new Date()); const daysInMonth = getDaysInMonth(year,month); const firstDay = new Date(year,month,1).getDay(); const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
   const dayMap = useMemo(() => { const m: Record<string,{work:number;off:number}>={};schedules.forEach(s=>{if(!m[s.schedule_date])m[s.schedule_date]={work:0,off:0};if(s.status==='work'||s.status==='half'||s.status==='early')m[s.schedule_date].work++;else m[s.schedule_date].off++});return m },[schedules])
@@ -733,11 +1161,12 @@ export default function SchedulePage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
   const [myName, setMyName] = useState('')
+  const [profileId, setProfileId] = useState('')
   const [role, setRole] = useState('staff')
   const [schedules, setSchedules] = useState<any[]>([])
   const [staffList, setStaffList] = useState<string[]>([])
   const [pendingCount, setPendingCount] = useState(0)
-  const [viewTab, setViewTab] = useState<'grid'|'month'>('grid')
+  const [viewTab, setViewTab] = useState<'grid'|'month'|'manage'>('grid')
   const [isPC, setIsPC] = useState(false)
   const nowD = new Date()
   const [calYear, setCalYear] = useState(nowD.getFullYear())
@@ -753,7 +1182,7 @@ export default function SchedulePage() {
     const store = JSON.parse(localStorage.getItem('mj_store')||'{}')
     const user = JSON.parse(localStorage.getItem('mj_user')||'{}')
     if (!store.id) return
-    setStoreId(store.id); setMyName(user.nm||''); setRole(user.role||'staff')
+    setStoreId(store.id); setMyName(user.nm||''); setRole(user.role||'staff'); setProfileId(user.id||'')
     loadStaff(store.id)
     loadData(store.id, nowD.getFullYear(), nowD.getMonth())
     if (user.role==='owner') loadPendingCount(store.id)
@@ -796,6 +1225,8 @@ export default function SchedulePage() {
     color: active?'#1a1a2e':'#aaa', boxShadow: active?'0 1px 4px rgba(0,0,0,0.08)':'none',
   })
 
+  const isOwner = role === 'owner'
+
   const sharedProps = {
     year: calYear, month: calMonth, schedules, staffList, role, storeId, myName, pendingCount,
     onSaved: () => { loadData(storeId,calYear,calMonth); if(role==='owner') loadPendingCount(storeId) },
@@ -805,12 +1236,19 @@ export default function SchedulePage() {
 
   if (isPC) return (
     <div>
-      <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16, maxWidth:320 }}>
+      <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16, maxWidth: isOwner ? 480 : 320 }}>
         <button style={tabBtn(viewTab==='grid')} onClick={() => setViewTab('grid')}>📊 그리드 편집</button>
         <button style={tabBtn(viewTab==='month')} onClick={() => setViewTab('month')}>📅 월간 보기</button>
+        {isOwner && (
+          <button style={tabBtn(viewTab==='manage')} onClick={() => setViewTab('manage')}>
+            🏢 전지점 관리
+            {pendingCount > 0 && <span style={{ background:'#E84393', color:'#fff', borderRadius:10, padding:'1px 6px', fontSize:10, marginLeft:5 }}>{pendingCount}</span>}
+          </button>
+        )}
       </div>
       {viewTab==='grid' && <PCGridEditor {...sharedProps} />}
       {viewTab==='month' && <MonthlyView year={calYear} month={calMonth} schedules={schedules} onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} />}
+      {viewTab==='manage' && isOwner && <ManageView profileId={profileId} myName={myName} year={calYear} month={calMonth} />}
     </div>
   )
 
@@ -823,11 +1261,20 @@ export default function SchedulePage() {
         </span>
       </div>
       <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:16 }}>
-        <button style={tabBtn(viewTab==='grid')} onClick={() => setViewTab('grid')}>📊 그리드 편집</button>
-        <button style={tabBtn(viewTab==='month')} onClick={() => setViewTab('month')}>📅 월간 보기</button>
+        <button style={tabBtn(viewTab==='grid')} onClick={() => setViewTab('grid')}>📊 그리드</button>
+        <button style={tabBtn(viewTab==='month')} onClick={() => setViewTab('month')}>📅 월간</button>
+        {isOwner && (
+          <button style={{ ...tabBtn(viewTab==='manage'), position:'relative' }} onClick={() => setViewTab('manage')}>
+            🏢 관리
+            {pendingCount > 0 && (
+              <span style={{ position:'absolute', top:4, right:4, background:'#E84393', color:'#fff', borderRadius:8, padding:'0px 5px', fontSize:9, fontWeight:700 }}>{pendingCount}</span>
+            )}
+          </button>
+        )}
       </div>
       {viewTab==='grid' && <MobileGridEditor {...sharedProps} />}
       {viewTab==='month' && <MonthlyView year={calYear} month={calMonth} schedules={schedules} onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} />}
+      {viewTab==='manage' && isOwner && <ManageView profileId={profileId} myName={myName} year={calYear} month={calMonth} />}
     </div>
   )
 }
