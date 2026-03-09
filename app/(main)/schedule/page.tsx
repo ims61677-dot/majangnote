@@ -341,10 +341,12 @@ function RequestPanel({ storeId, myName, onClose, onApproved }: {
 // ════════════════════════════════════════
 // ManageView - 전지점 관리 탭
 // ════════════════════════════════════════
-function ManageView({ profileId, myName, year, month }: {
+function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   profileId: string; myName: string; year: number; month: number
 }) {
   const supabase = createSupabaseBrowserClient()
+  const [year, setYear] = useState(initYear)
+  const [month, setMonth] = useState(initMonth)
   const [storeItems, setStoreItems] = useState<any[]>([])
   const [storeData, setStoreData] = useState<Record<string, { schedules: any[]; requests: any[]; staff: string[] }>>({})
   const [loading, setLoading] = useState(true)
@@ -354,6 +356,11 @@ function ManageView({ profileId, myName, year, month }: {
   const [logs, setLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [editPopup, setEditPopup] = useState<{ sid: string; staff: string; date: string; current: any|null } | null>(null)
+  // 드래그 일괄편집
+  const [manageDragSel, setManageDragSel] = useState<{ sid: string; staff: string; startDay: number; endDay: number } | null>(null)
+  const manageDragRef = useRef<typeof manageDragSel>(null)
+  const manageMouseDown = useRef(false)
+  const [manageBulkTarget, setManageBulkTarget] = useState<{ sid: string; staff: string; dates: string[] } | null>(null)
   // 월간 그리드: 펼친 지점
   const [gridExpanded, setGridExpanded] = useState<Record<string, boolean>>({})
 
@@ -361,6 +368,38 @@ function ManageView({ profileId, myName, year, month }: {
   const tomorrow = toDateStr(new Date(Date.now() + 86400000))
 
   useEffect(() => { loadAll() }, [year, month])
+  useEffect(() => { setYear(initYear); setMonth(initMonth) }, [initYear, initMonth])
+
+  useEffect(() => {
+    const onMouseUp = () => {
+      if (manageMouseDown.current && manageDragRef.current) {
+        const drag = manageDragRef.current
+        const daysInMonth = getDaysInMonth(drag.sid ? parseInt(drag.sid) : year, month)
+        const s = Math.min(drag.startDay, drag.endDay)
+        const e = Math.max(drag.startDay, drag.endDay)
+        const dates: string[] = []
+        for (let d = s; d <= e; d++) {
+          dates.push(`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`)
+        }
+        if (dates.length > 1) {
+          setManageBulkTarget({ sid: drag.sid, staff: drag.staff, dates })
+          setManageDragSel(null)
+        } else {
+          // 단일 셀 → editPopup
+          const dateStr = dates[0]
+          // find current
+          const d2 = storeData[drag.sid]
+          const sc = d2 ? d2.schedules.find((sc: any) => sc.staff_name === drag.staff && sc.schedule_date === dateStr) : null
+          setEditPopup({ sid: drag.sid, staff: drag.staff, date: dateStr, current: sc || null })
+          setManageDragSel(null)
+        }
+      }
+      manageMouseDown.current = false
+      manageDragRef.current = null
+    }
+    window.addEventListener('mouseup', onMouseUp)
+    return () => window.removeEventListener('mouseup', onMouseUp)
+  }, [storeData, year, month])
 
   async function loadAll() {
     setLoading(true)
@@ -396,6 +435,38 @@ function ManageView({ profileId, myName, year, month }: {
     const expanded: Record<string, boolean> = {}
     myStores.forEach((m: any) => { if (m.stores?.id) expanded[m.stores.id] = true })
     setGridExpanded(expanded)
+  }
+
+  // 전지점 그리드 드래그 일괄 저장
+  async function handleManageBulkApply(status: string) {
+    if (!manageBulkTarget) return
+    const { sid, staff, dates } = manageBulkTarget
+    // 해당 지점 schedMap 구성
+    const d = storeData[sid]
+    const schedMap: Record<string,any> = {}
+    if (d) d.schedules.forEach((s: any) => { schedMap[`${s.staff_name}-${s.schedule_date}`] = s })
+
+    if (status === '__delete__') {
+      for (const dateStr of dates) {
+        const prev = schedMap[`${staff}-${dateStr}`]
+        await supabase.from('schedules').delete()
+          .eq('store_id', sid).eq('staff_name', staff).eq('schedule_date', dateStr)
+        await syncAttendance(supabase, sid, staff, dateStr, 'work')
+        await logScheduleEdit(supabase, sid, myName, staff, dateStr, 'bulk_delete', prev?.status || null, null)
+      }
+    } else {
+      for (const dateStr of dates) {
+        const prev = schedMap[`${staff}-${dateStr}`]
+        await supabase.from('schedules').upsert(
+          { store_id: sid, staff_name: staff, schedule_date: dateStr, status, position: null, note: null },
+          { onConflict: 'store_id,staff_name,schedule_date' }
+        )
+        await syncAttendance(supabase, sid, staff, dateStr, status)
+        await logScheduleEdit(supabase, sid, myName, staff, dateStr, 'bulk_upsert', prev?.status || null, status)
+      }
+    }
+    setManageBulkTarget(null)
+    loadAll()
   }
 
   async function loadLogs() {
@@ -563,8 +634,9 @@ function ManageView({ profileId, myName, year, month }: {
       {/* ── 섹션 2: 전지점 월간 그리드 ── */}
       {section === 'grid' && (
         <div>
-          <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>
-            지점명 눌러서 접기/펼치기 · {year}년 {month+1}월
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+            <span style={{ fontSize:11, color:'#aaa' }}>지점명 눌러서 접기/펼치기</span>
+            <YearMonthPicker year={year} month={month} onChange={(y,m) => { setYear(y); setMonth(m) }} color="#6C5CE7" />
           </div>
           {storeItems.map((member: any) => {
             const sid = member.stores?.id
@@ -591,9 +663,9 @@ function ManageView({ profileId, myName, year, month }: {
                 {/* 그리드 테이블 */}
                 {isExpanded && (
                   <div style={{ overflowX:'auto' }}>
-                    <table style={{ borderCollapse:'collapse', fontSize:10, minWidth: staff.length * 36 + 70, width:'100%', tableLayout:'fixed' }}>
+                    <table style={{ borderCollapse:'collapse', fontSize:10, minWidth: staff.length * 36 + 70, width:'100%', tableLayout:'fixed', userSelect:'none' }}>
                       <colgroup>
-                        <col style={{ width:26 }} />
+                        <col style={{ width:34 }} />
                         {staff.map((_,i) => <col key={i} style={{ width: Math.max(36, Math.floor((500 - 60) / Math.max(staff.length, 1))) }} />)}
                       </colgroup>
                       <thead>
@@ -616,25 +688,38 @@ function ManageView({ profileId, myName, year, month }: {
                           return (
                             <tr key={day} style={{ background: isToday ? 'rgba(108,92,231,0.05)' : isSun ? 'rgba(232,67,147,0.02)' : '#fff', borderTop: dow===1&&day!==1 ? '2px solid #D0D4E8' : undefined }}>
                               <td style={{ padding:'1px 2px', borderBottom:'1px solid #F4F6F9', borderRight:'2px solid #E8ECF0', height:24, position:'sticky', left:0, background: isToday ? 'rgba(108,92,231,0.07)' : isSun ? 'rgba(232,67,147,0.05)' : isSat ? 'rgba(108,92,231,0.03)' : '#FAFBFC', zIndex:1 }}>
-                                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:0 }}>
-                                  <span style={{ fontSize:9, fontWeight:isToday?700:400, color:isToday?'#6C5CE7':isSun?'#E84393':isSat?'#6C5CE7':'#555', lineHeight:1.2 }}>{day}</span>
+                                <div style={{ display:'flex', flexDirection:'row', alignItems:'center', justifyContent:'center', gap:2 }}>
+                                  <span style={{ fontSize:9, fontWeight:isToday?700:400, color:isToday?'#6C5CE7':isSun?'#E84393':isSat?'#6C5CE7':'#555', lineHeight:1 }}>{day}</span>
                                   <span style={{ fontSize:7, color:isSun?'#E84393':isSat?'#6C5CE7':'#ccc', lineHeight:1 }}>{DOW_LABEL[dow]}</span>
                                 </div>
                               </td>
                               {staff.map(name => {
                                 const sc = schedMap[`${name}-${dateStr}`]
+                                const inDrag = manageDragSel?.sid === sid && manageDragSel?.staff === name &&
+                                  day >= Math.min(manageDragSel.startDay, manageDragSel.endDay) &&
+                                  day <= Math.max(manageDragSel.startDay, manageDragSel.endDay)
                                 return (
                                   <td key={name}
-                                    onClick={() => setEditPopup({ sid, staff: name, date: dateStr, current: sc || null })}
-                                    style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:24, textAlign:'center', verticalAlign:'middle', background: sc ? STATUS_BG[sc.status] : undefined, padding:0, cursor:'pointer' }}
-                                    onMouseEnter={e => { if (!sc) (e.currentTarget as HTMLElement).style.background='rgba(108,92,231,0.06)' }}
-                                    onMouseLeave={e => { if (!sc) (e.currentTarget as HTMLElement).style.background='' }}>
+                                    onMouseDown={() => {
+                                      manageMouseDown.current = true
+                                      const drag = { sid, staff: name, startDay: day, endDay: day }
+                                      manageDragRef.current = drag
+                                      setManageDragSel(drag)
+                                    }}
+                                    onMouseEnter={() => {
+                                      if (manageMouseDown.current && manageDragRef.current?.sid === sid && manageDragRef.current?.staff === name) {
+                                        const updated = { ...manageDragRef.current, endDay: day }
+                                        manageDragRef.current = updated
+                                        setManageDragSel({ ...updated })
+                                      }
+                                    }}
+                                    style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:24, textAlign:'center', verticalAlign:'middle', background: inDrag ? 'rgba(108,92,231,0.22)' : sc ? STATUS_BG[sc.status] : undefined, padding:0, cursor:'crosshair', outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px', transition:'background 0.04s' }}>
                                     {sc ? (
                                       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
-                                        <span style={{ fontSize:8, fontWeight:700, color:STATUS_COLOR[sc.status], lineHeight:1.3 }}>{STATUS_LABEL[sc.status]}</span>
+                                        <span style={{ fontSize:8, fontWeight:700, color: inDrag ? '#6C5CE7' : STATUS_COLOR[sc.status], lineHeight:1.3 }}>{STATUS_LABEL[sc.status]}</span>
                                         {sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
                                       </div>
-                                    ) : <span style={{ fontSize:12, color:'#e8e8e8' }}>+</span>}
+                                    ) : <span style={{ fontSize:12, color: inDrag ? '#6C5CE7' : '#e8e8e8' }}>+</span>}
                                   </td>
                                 )
                               })}
@@ -812,6 +897,16 @@ function ManageView({ profileId, myName, year, month }: {
             </div>
           )}
         </div>
+      )}
+
+      {/* 관리탭 드래그 일괄편집 팝업 */}
+      {manageBulkTarget && (
+        <BulkPopup
+          staff={manageBulkTarget.staff}
+          dates={manageBulkTarget.dates}
+          onApply={handleManageBulkApply}
+          onClose={() => setManageBulkTarget(null)}
+        />
       )}
 
       {/* 관리탭 그리드 편집 팝업 */}
