@@ -135,7 +135,7 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
       memo: memo.trim() || null,
       requested_at: requestedAt ? new Date(requestedAt).toISOString() : null,
       ordered_by: userName,
-      status: 'pending',
+      status: 'requested',
     })
     onSaved(); onClose()
   }
@@ -394,6 +394,49 @@ function IssueModal({ order, userName, onClose, onSaved }: { order: any; userNam
   )
 }
 
+// ─── 주문 확인 모달 ───
+function ConfirmOrderModal({ order, userName, onClose, onSaved }: { order: any; userName: string; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [confirmedBy, setConfirmedBy] = useState(userName)
+  const [memo, setMemo] = useState('')
+
+  async function handleSubmit() {
+    await supabase.from('orders').update({
+      status: 'ordered',
+      confirmed_by: confirmedBy.trim() || userName,
+      confirmed_at: new Date().toISOString(),
+      memo: memo.trim() ? (order.memo ? order.memo + ' / ' + memo.trim() : memo.trim()) : order.memo,
+    }).eq('id', order.id)
+    onSaved(); onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>✅ 주문 확인</div>
+        <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} · {order.quantity}{order.unit}</div>
+        <div style={{ background: '#F8F9FB', borderRadius: 10, padding: '10px 12px', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>📋 요청 정보</div>
+          <div style={{ fontSize: 12, color: '#1a1a2e' }}>{order.ordered_by} · {new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
+          {order.supplier_name && <div style={{ fontSize: 11, color: '#2DC6D6', marginTop: 2 }}>🏪 {order.supplier_name}</div>}
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>주문자 <span style={{ color: '#aaa', fontWeight: 400 }}>(직접 주문한 사람)</span></div>
+          <input value={confirmedBy} onChange={e => setConfirmedBy(e.target.value)} placeholder="주문자 이름" style={inp} />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 네이버로 주문, 배송 3-4일" style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>주문 완료 처리</button>
+          <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── 반품/교환 모달 ───
 function ReturnModal({ receipt, order, userName, onClose, onSaved }: { receipt: any; order: any; userName: string; onClose: () => void; onSaved: () => void }) {
   const supabase = createSupabaseBrowserClient()
@@ -452,6 +495,7 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
   const [showEditReceipt, setShowEditReceipt] = useState(false)
   const [showIssue, setShowIssue] = useState(false)
   const [showReturn, setShowReturn] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   useEffect(() => {
     if (expanded) loadDetail()
@@ -467,11 +511,30 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
   const now = new Date()
   const orderedAt = new Date(order.ordered_at)
   const diffDays = (now.getTime() - orderedAt.getTime()) / (1000 * 60 * 60 * 24)
-  const isOverdue = order.status === 'pending' && diffDays > 2
+  const isOverdue = (order.status === 'requested' || order.status === 'ordered') && diffDays > 2
 
-  const statusColor: Record<string, string> = { pending: '#B8860B', received: '#00B894', issue: '#E84393' }
-  const statusLabel: Record<string, string> = { pending: '미수령', received: '수령완료', issue: '이슈있음' }
-  const statusBg: Record<string, string> = { pending: 'rgba(184,134,11,0.1)', received: 'rgba(0,184,148,0.1)', issue: 'rgba(232,67,147,0.1)' }
+  const statusColor: Record<string, string> = {
+    requested: '#FF6B35',
+    ordered: '#6C5CE7',
+    received: '#00B894',
+    issue: '#E84393',
+    pending: '#B8860B', // 구 데이터 호환
+  }
+  const statusLabel: Record<string, string> = {
+    requested: '요청됨',
+    ordered: '주문완료',
+    received: '수령완료',
+    issue: '이슈있음',
+    pending: '미수령',
+  }
+  const statusBg: Record<string, string> = {
+    requested: 'rgba(255,107,53,0.12)',
+    ordered: 'rgba(108,92,231,0.12)',
+    received: 'rgba(0,184,148,0.1)',
+    issue: 'rgba(232,67,147,0.1)',
+    pending: 'rgba(184,134,11,0.1)',
+  }
+  const borderColor = isOverdue ? '#E84393' : statusColor[order.status] || '#E8ECF0'
 
   return (
     <>
@@ -479,12 +542,13 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
       {showEditReceipt && receipt && <EditReceiptModal receipt={receipt} order={order} userName={userName} onClose={() => setShowEditReceipt(false)} onSaved={() => { loadDetail() }} />}
       {showIssue && <IssueModal order={order} userName={userName} onClose={() => setShowIssue(false)} onSaved={onRefresh} />}
       {showReturn && receipt && <ReturnModal receipt={receipt} order={order} userName={userName} onClose={() => setShowReturn(false)} onSaved={() => { loadDetail() }} />}
+      {showConfirm && <ConfirmOrderModal order={order} userName={userName} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
 
       <div style={{
         background: '#fff', borderRadius: 14, marginBottom: 8,
-        border: isOverdue ? '1px solid rgba(232,67,147,0.4)' : order.status === 'issue' ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0',
+        border: `1px solid ${isOverdue ? 'rgba(232,67,147,0.4)' : '#E8ECF0'}`,
         overflow: 'hidden',
-        borderLeft: `4px solid ${isOverdue ? '#E84393' : statusColor[order.status]}`,
+        borderLeft: `4px solid ${borderColor}`,
       }}>
         {/* 상단 요약 */}
         <div onClick={() => setExpanded(v => !v)} style={{ cursor: 'pointer', padding: '12px 14px 10px 14px' }}>
@@ -495,7 +559,7 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
               {isOverdue && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#E84393', color: '#fff', fontWeight: 700, flexShrink: 0, whiteSpace: 'nowrap' }}>🔴 {Math.floor(diffDays)}일</span>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
-              <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: statusBg[order.status], color: statusColor[order.status], fontWeight: 700 }}>{statusLabel[order.status]}</span>
+              <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: statusBg[order.status] || statusBg.pending, color: statusColor[order.status] || statusColor.pending, fontWeight: 700 }}>{statusLabel[order.status] || '미수령'}</span>
               <span style={{ fontSize: 11, color: '#ccc' }}>{expanded ? '▲' : '▼'}</span>
             </div>
           </div>
@@ -505,17 +569,33 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
             {order.supplier_name && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 5, background: 'rgba(45,198,214,0.1)', color: '#2DC6D6' }}>🏪 {order.supplier_name}</span>}
             {order.inventory_item_id && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>재고연동</span>}
           </div>
-          {/* 3행: 발주자 · 날짜 · 메모 */}
+          {/* 3행: 요청자 · 날짜 · (주문자 정보) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: '#aaa' }}>{order.ordered_by}</span>
+            <span style={{ fontSize: 11, color: '#aaa' }}>요청: {order.ordered_by}</span>
             <span style={{ fontSize: 10, color: '#ddd' }}>·</span>
             <span style={{ fontSize: 11, color: '#aaa' }}>{new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+            {(order.status === 'ordered' || order.status === 'received') && order.confirmed_by && (
+              <span style={{ fontSize: 11, color: '#6C5CE7', marginLeft: 4 }}>· 주문: {order.confirmed_by}</span>
+            )}
             {order.memo && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 4 }}>📝 {order.memo}</span>}
           </div>
         </div>
 
-        {/* 액션 버튼 — 하단 분리 영역 */}
-        {order.status === 'pending' && (
+        {/* 액션 버튼 — 3단계 워크플로우 */}
+        {(order.status === 'requested') && (
+          <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
+            <button onClick={() => setShowConfirm(true)}
+              style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>
+              ✅ 주문 확인
+            </button>
+            <div style={{ width: 1, background: 'rgba(255,255,255,0.3)' }} />
+            <button onClick={() => setShowIssue(true)}
+              style={{ width: 80, padding: '10px 0', background: 'rgba(232,67,147,0.08)', border: 'none', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>
+              🚨 이슈
+            </button>
+          </div>
+        )}
+        {(order.status === 'ordered' || order.status === 'pending') && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
             <button onClick={() => setShowReceive(true)}
               style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>
@@ -715,7 +795,7 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
     return d.getFullYear() === selYear && d.getMonth() + 1 === selMonth
   }), [orders, selYear, selMonth])
 
-  const pendingOrders = useMemo(() => orders.filter(o => o.status === 'pending'), [orders])
+  const pendingOrders = useMemo(() => orders.filter(o => o.status === 'pending' || o.status === 'requested' || o.status === 'ordered'), [orders])
   const overdueOrders = useMemo(() => pendingOrders.filter(o => {
     const diff = (now.getTime() - new Date(o.ordered_at).getTime()) / (1000 * 60 * 60 * 24)
     return diff > 2
