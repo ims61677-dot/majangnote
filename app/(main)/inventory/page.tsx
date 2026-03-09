@@ -1,5 +1,5 @@
 ﻿'use client'
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import OrderTab from '@/components/OrderTab'
@@ -783,6 +783,14 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
 // 메인
 // ═══════════════════════════════════════
 export default function InventoryPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#bbb' }}>불러오는 중...</div>}>
+      <InventoryPageInner />
+    </Suspense>
+  )
+}
+
+function InventoryPageInner() {
   const supabase = createSupabaseBrowserClient()
   const searchParams = useSearchParams()
   const router = useRouter()
