@@ -1356,15 +1356,17 @@ export default function InventoryPage() {
       )}
 
       {/* 헤더 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>📦 재고관리</span>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => setShowLog(true)} style={{ padding: '6px 12px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>변경이력</button>
-          <button onClick={() => setShowStats(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', fontSize: 11, cursor: 'pointer' }}>📊 통계</button>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>📦 재고관리</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: isEdit ? '1fr 1fr 1fr 1fr' : '1fr 1fr', gap: 6 }}>
+          <button onClick={() => setShowLog(true)} style={{ padding: '8px 0', borderRadius: 9, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>📋 변경이력</button>
+          <button onClick={() => setShowStats(true)} style={{ padding: '8px 0', borderRadius: 9, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', fontSize: 11, cursor: 'pointer', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>📊 통계</button>
           {isEdit && (
             <>
-              <button onClick={() => setShowPlaceMgr(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', color: '#2DC6D6', fontSize: 11, cursor: 'pointer' }}>📍 장소관리</button>
-              <button onClick={() => setShowAdd(p => !p)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35', fontSize: 11, cursor: 'pointer' }}>+ 품목추가</button>
+              <button onClick={() => setShowPlaceMgr(true)} style={{ padding: '8px 0', borderRadius: 9, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', color: '#2DC6D6', fontSize: 11, cursor: 'pointer', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>📍 장소관리</button>
+              <button onClick={() => setShowAdd(p => !p)} style={{ padding: '8px 0', borderRadius: 9, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)', color: '#FF6B35', fontSize: 11, cursor: 'pointer', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>+ 품목추가</button>
             </>
           )}
         </div>

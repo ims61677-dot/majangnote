@@ -835,19 +835,25 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
               )}
               {pendingOrders.length === 0
                 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>🎉 미수령 발주가 없어요!</div>
-                : pendingOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)
+                : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 0 }}>
+                    {pendingOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)}
+                  </div>
               }
             </>
           )}
           {subTab === 'all' && (
             filteredOrders.length === 0
               ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div>
-              : filteredOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)
+              : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 0 }}>
+                  {filteredOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)}
+                </div>
           )}
           {subTab === 'issues' && (
             issueOrders.length === 0
               ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 이슈 내역이 없어요</div>
-              : issueOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)
+              : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 0 }}>
+                  {issueOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)}
+                </div>
           )}
           {subTab === 'stats' && <OrderStats storeId={storeId} year={selYear} month={selMonth} />}
         </>
