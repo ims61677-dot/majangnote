@@ -534,7 +534,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
           return { store, todos, closingTodos, allDates }
         })),
-        supabase.from('notices').select('notice_date, content').eq('store_id', storeId).eq('is_from_closing', false).eq('title', '__PERSONAL_CHECKLIST__')
+        supabase.from('notices').select('notice_date, content').eq('is_from_closing', false).eq('title', '__PERSONAL_CHECKLIST__').eq('created_by', user.nm || '')
       ])
 
       setAllTodosMap(storeResults.map(({ store, todos, closingTodos }) => ({ store, todos, closingTodos })))
@@ -710,17 +710,23 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   async function saveChecklist(date: string, items: any[]) {
     if (!storeId) { console.error('saveChecklist: storeId 없음'); return }
+    // 유저별 고유 타이틀로 지점 무관하게 1개만 유지
+    const clTitle = '__PERSONAL_CHECKLIST__'
     const jsonContent = JSON.stringify(items)
     try {
-      const { data: existing, error: selectErr } = await supabase.from('notices').select('id')
-        .eq('store_id', storeId).eq('notice_date', date).eq('title', '__PERSONAL_CHECKLIST__').maybeSingle()
-      if (selectErr) { console.error('select error:', selectErr); return }
-      if (existing) {
-        const { error: updateErr } = await supabase.from('notices').update({ content: jsonContent }).eq('id', existing.id)
+      // store_id + created_by + date 조합으로 검색 (유저 기준)
+      const { data: rows } = await supabase.from('notices').select('id')
+        .eq('notice_date', date).eq('title', clTitle).eq('created_by', userName)
+      if (rows && rows.length > 0) {
+        // 중복 있으면 첫 번째만 남기고 나머지 삭제
+        if (rows.length > 1) {
+          await supabase.from('notices').delete().in('id', rows.slice(1).map((r: any) => r.id))
+        }
+        const { error: updateErr } = await supabase.from('notices').update({ content: jsonContent }).eq('id', rows[0].id)
         if (updateErr) { console.error('update error:', updateErr); alert('저장 실패: ' + updateErr.message); return }
       } else {
         const { error: insertErr } = await supabase.from('notices').insert({
-          store_id: storeId, title: '__PERSONAL_CHECKLIST__', content: jsonContent,
+          store_id: storeId, title: clTitle, content: jsonContent,
           notice_date: date, created_by: userName, is_from_closing: false, is_pinned: false,
           attachment_url: null, attachment_type: null
         })
@@ -765,11 +771,28 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     const text = checklistInput.trim(); if (!text) return
     setSavingChecklist(true)
     const items = [...(checklistMap[selectedCalDate] || [])]
-    const newItem = { id: Date.now().toString(), text, done: false, time: checklistTime || null, repeat: checklistRepeat }
+    const newItem = { id: Date.now().toString(), text, done: false, time: checklistTime || null, repeat: checklistRepeat, urgent: false }
     items.push(newItem)
     await saveChecklist(selectedCalDate, items)
     setChecklistInput(''); setChecklistTime(''); setChecklistRepeat('none')
     setSavingChecklist(false)
+  }
+
+  async function toggleUrgent(date: string, itemId: string) {
+    const items = (checklistMap[date] || []).map((item: any) =>
+      item.id === itemId ? { ...item, urgent: !item.urgent } : item
+    )
+    await saveChecklist(date, items)
+  }
+
+  async function moveChecklistItem(date: string, itemId: string, dir: 'up' | 'down') {
+    const items = [...(checklistMap[date] || [])]
+    const idx = items.findIndex((i: any) => i.id === itemId)
+    if (dir === 'up' && idx === 0) return
+    if (dir === 'down' && idx === items.length - 1) return
+    const swap = dir === 'up' ? idx - 1 : idx + 1
+    ;[items[idx], items[swap]] = [items[swap], items[idx]]
+    await saveChecklist(date, items)
   }
 
   async function toggleChecklistItem(date: string, itemId: string) {
@@ -1115,29 +1138,43 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           <div style={{ marginBottom: 10 }}>
             {checklistItems.map((item: any) => (
               <div key={item.id}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 4px', borderBottom: movePopup !== null && movePopup.itemId === item.id ? 'none' : '1px solid #F4F6F9' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 4px', background: item.urgent && !item.done ? 'rgba(255,107,53,0.05)' : 'transparent', borderBottom: movePopup !== null && movePopup.itemId === item.id ? 'none' : '1px solid #F4F6F9', borderRadius: item.urgent && !item.done ? 6 : 0 }}>
+                {/* ▲▼ 순서 변경 */}
+                <div style={{ display:'flex', flexDirection:'column', flexShrink:0 }}>
+                  <button onClick={() => moveChecklistItem(selectedCalDate, item.id, 'up')}
+                    style={{ fontSize: 8, background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#ccc', lineHeight: 1 }}>▲</button>
+                  <button onClick={() => moveChecklistItem(selectedCalDate, item.id, 'down')}
+                    style={{ fontSize: 8, background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#ccc', lineHeight: 1 }}>▼</button>
+                </div>
+                {/* 완료 체크 */}
                 <button onClick={() => toggleChecklistItem(selectedCalDate, item.id)}
-                  style={{ fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: 0, color: item.done ? '#00B894' : '#ddd' }}>
+                  style={{ fontSize: 15, background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: 0, color: item.done ? '#00B894' : '#ddd' }}>
                   {item.done ? '✅' : '○'}
                 </button>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, color: item.done ? '#bbb' : '#1a1a2e', textDecoration: item.done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.text}</div>
+                  <div style={{ fontSize: 13, fontWeight: item.urgent && !item.done ? 700 : 400, color: item.done ? '#bbb' : item.urgent ? '#FF6B35' : '#1a1a2e', textDecoration: item.done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.urgent && !item.done ? '⚡ ' : ''}{item.text}
+                  </div>
                   <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
+                    {item.carriedFrom && (
+                      <span style={{ fontSize: 9, color: '#FF6B35', background: 'rgba(255,107,53,0.1)', padding: '1px 5px', borderRadius: 4 }}>↩ {item.carriedFrom.slice(5).replace('-','/')} 이월</span>
+                    )}
                     {item.time && (
-                      <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>
-                        🔔 {item.time}
-                      </span>
+                      <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>🔔 {item.time}</span>
                     )}
                     {item.repeat === 'weekly' && (
-                      <span style={{ fontSize: 9, color: '#00B894', background: 'rgba(0,184,148,0.1)', padding: '1px 5px', borderRadius: 4 }}>
-                        📆 매주
-                      </span>
+                      <span style={{ fontSize: 9, color: '#00B894', background: 'rgba(0,184,148,0.1)', padding: '1px 5px', borderRadius: 4 }}>📆 매주</span>
                     )}
                   </div>
                 </div>
-                <div style={{ display:'flex', gap:3, flexShrink:0 }}>
+                <div style={{ display:'flex', gap:2, flexShrink:0 }}>
+                  {/* ⚡ 중요 표시 */}
+                  <button onClick={() => toggleUrgent(selectedCalDate, item.id)} title="중요 표시"
+                    style={{ fontSize: 12, background: item.urgent ? 'rgba(255,107,53,0.15)' : 'none', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '0 3px', color: item.urgent ? '#FF6B35' : '#ddd' }}>⚡</button>
+                  {/* 📅 날짜 이동 */}
                   <button onClick={() => setMovePopup(p => p !== null && p.itemId === item.id ? null : { itemId: item.id, fromDate: selectedCalDate })}
-                    style={{ fontSize: 10, color: movePopup !== null && movePopup.itemId === item.id ? '#6C5CE7' : '#bbb', background: movePopup !== null && movePopup.itemId === item.id ? 'rgba(108,92,231,0.1)' : 'none', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '0 4px' }} title="다른 날짜로 이동">📅</button>
+                    style={{ fontSize: 10, color: movePopup !== null && movePopup.itemId === item.id ? '#6C5CE7' : '#bbb', background: movePopup !== null && movePopup.itemId === item.id ? 'rgba(108,92,231,0.1)' : 'none', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '0 3px' }}>📅</button>
+                  {/* ✕ 삭제 */}
                   <button onClick={() => deleteChecklistItem(selectedCalDate, item.id)}
                     style={{ fontSize: 11, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}>✕</button>
                 </div>
@@ -1208,7 +1245,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // ── PC vs 모바일 레이아웃 ──
   if (isPC) {
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '240px minmax(0, 1fr)', gap: 16, alignItems: 'start', width: '100%', minWidth: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 16, alignItems: 'start', width: '100%', minWidth: 0 }}>
         {/* 좌: 캘린더 + 메모 (sticky) */}
         <div style={{ position: 'sticky', top: 72, minWidth: 0 }}>
           {calendarMemoSection}
@@ -1250,6 +1287,7 @@ export default function NoticePage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
   const [userName, setUserName] = useState('')
+  const [userId, setUserId] = useState('')
   const [userRole, setUserRole] = useState('')
   const [isPC, setIsPC] = useState(false)
   const today = toDateStr(new Date())
@@ -1333,7 +1371,7 @@ export default function NoticePage() {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
     const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
     if (!store.id) return
-    setStoreId(store.id); setUserName(user.nm || ''); setUserRole(user.role || '')
+    setStoreId(store.id); setUserName(user.nm || ''); setUserRole(user.role || ''); setUserId(user.id || user.nm || '')
     loadNotices(store.id); loadTodoDates(store.id); loadOverdueTodos(store.id)
   }, [])
 
