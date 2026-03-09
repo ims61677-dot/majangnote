@@ -1,5 +1,6 @@
 ﻿'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import OrderTab from '@/components/OrderTab'
 
@@ -783,7 +784,12 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
 // ═══════════════════════════════════════
 export default function InventoryPage() {
   const supabase = createSupabaseBrowserClient()
-  const [mainTab, setMainTab] = useState<'stock' | 'order'>('stock')
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const mainTab = (searchParams.get('tab') === 'order' ? 'order' : 'stock') as 'stock' | 'order'
+  function setMainTab(tab: 'stock' | 'order') {
+    router.replace(`?tab=${tab}`, { scroll: false })
+  }
   const [storeId, setStoreId] = useState('')
   const [userName, setUserName] = useState('')
   const [isEdit, setIsEdit] = useState(false)
