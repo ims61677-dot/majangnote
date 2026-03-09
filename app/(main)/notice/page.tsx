@@ -1,5 +1,8 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import YearMonthPicker from '@/components/YearMonthPicker'
 
@@ -416,6 +419,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [selectedCalDate, setSelectedCalDate] = useState(today)
   const [allTodoDates, setAllTodoDates] = useState<Set<string>>(new Set())
 
+  // dnd-kit sensors
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   // 체크리스트 날짜 이동 팝업
   const [movePopup, setMovePopup] = useState<{itemId: string, fromDate: string} | null>(null)
   // 개인 체크리스트 (메모 대체)
@@ -734,6 +739,17 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       }
       setChecklistMap(p => ({ ...p, [date]: items }))
     } catch (e: any) { console.error('saveChecklist error:', e); alert('저장 중 오류: ' + e?.message) }
+  }
+
+  function handleChecklistDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const items = [...(checklistMap[selectedCalDate] || [])]
+    const oldIdx = items.findIndex((i: any) => i.id === active.id)
+    const newIdx = items.findIndex((i: any) => i.id === over.id)
+    if (oldIdx === -1 || newIdx === -1) return
+    const reordered = arrayMove(items, oldIdx, newIdx)
+    saveChecklist(selectedCalDate, reordered)
   }
 
   // 전날 미완료 항목 오늘로 자동 이월
@@ -1135,76 +1151,26 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         {checklistItems.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '12px 0', color: '#ccc', fontSize: 12 }}>오늘 스케줄을 추가해보세요</div>
         ) : (
-          <div style={{ marginBottom: 10 }}>
-            {checklistItems.map((item: any) => (
-              <div key={item.id}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 4px', background: item.urgent && !item.done ? 'rgba(255,107,53,0.05)' : 'transparent', borderBottom: movePopup !== null && movePopup.itemId === item.id ? 'none' : '1px solid #F4F6F9', borderRadius: item.urgent && !item.done ? 6 : 0 }}>
-                {/* ▲▼ 순서 변경 */}
-                <div style={{ display:'flex', flexDirection:'column', flexShrink:0 }}>
-                  <button onClick={() => moveChecklistItem(selectedCalDate, item.id, 'up')}
-                    style={{ fontSize: 8, background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#ccc', lineHeight: 1 }}>▲</button>
-                  <button onClick={() => moveChecklistItem(selectedCalDate, item.id, 'down')}
-                    style={{ fontSize: 8, background: 'none', border: 'none', cursor: 'pointer', padding: '1px 2px', color: '#ccc', lineHeight: 1 }}>▼</button>
-                </div>
-                {/* 완료 체크 */}
-                <button onClick={() => toggleChecklistItem(selectedCalDate, item.id)}
-                  style={{ fontSize: 15, background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: 0, color: item.done ? '#00B894' : '#ddd' }}>
-                  {item.done ? '✅' : '○'}
-                </button>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: item.urgent && !item.done ? 700 : 400, color: item.done ? '#bbb' : item.urgent ? '#FF6B35' : '#1a1a2e', textDecoration: item.done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {item.urgent && !item.done ? '⚡ ' : ''}{item.text}
-                  </div>
-                  <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
-                    {item.carriedFrom && (
-                      <span style={{ fontSize: 9, color: '#FF6B35', background: 'rgba(255,107,53,0.1)', padding: '1px 5px', borderRadius: 4 }}>↩ {item.carriedFrom.slice(5).replace('-','/')} 이월</span>
-                    )}
-                    {item.time && (
-                      <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>🔔 {item.time}</span>
-                    )}
-                    {item.repeat === 'weekly' && (
-                      <span style={{ fontSize: 9, color: '#00B894', background: 'rgba(0,184,148,0.1)', padding: '1px 5px', borderRadius: 4 }}>📆 매주</span>
-                    )}
-                  </div>
-                </div>
-                <div style={{ display:'flex', gap:2, flexShrink:0 }}>
-                  {/* ⚡ 중요 표시 */}
-                  <button onClick={() => toggleUrgent(selectedCalDate, item.id)} title="중요 표시"
-                    style={{ fontSize: 12, background: item.urgent ? 'rgba(255,107,53,0.15)' : 'none', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '0 3px', color: item.urgent ? '#FF6B35' : '#ddd' }}>⚡</button>
-                  {/* 📅 날짜 이동 */}
-                  <button onClick={() => setMovePopup(p => p !== null && p.itemId === item.id ? null : { itemId: item.id, fromDate: selectedCalDate })}
-                    style={{ fontSize: 10, color: movePopup !== null && movePopup.itemId === item.id ? '#6C5CE7' : '#bbb', background: movePopup !== null && movePopup.itemId === item.id ? 'rgba(108,92,231,0.1)' : 'none', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '0 3px' }}>📅</button>
-                  {/* ✕ 삭제 */}
-                  <button onClick={() => deleteChecklistItem(selectedCalDate, item.id)}
-                    style={{ fontSize: 11, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}>✕</button>
-                </div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleChecklistDragEnd}>
+            <SortableContext items={checklistItems.map((i: any) => i.id)} strategy={verticalListSortingStrategy}>
+              <div style={{ marginBottom: 10 }}>
+                {checklistItems.map((item: any) => (
+                  <SortableChecklistItem
+                    key={item.id}
+                    item={item}
+                    date={selectedCalDate}
+                    movePopup={movePopup}
+                    setMovePopup={setMovePopup}
+                    toggleChecklistItem={toggleChecklistItem}
+                    toggleUrgent={toggleUrgent}
+                    deleteChecklistItem={deleteChecklistItem}
+                    moveItemToDate={moveItemToDate}
+                    setMovePopupNull={() => setMovePopup(null)}
+                  />
+                ))}
               </div>
-              {/* 인라인 날짜 이동 패널 */}
-              {movePopup !== null && movePopup.itemId === item.id && (() => {
-                const getRelDate = (days: number) => {
-                  const d = new Date(movePopup.fromDate); d.setDate(d.getDate() + days)
-                  return d.toISOString().slice(0, 10)
-                }
-                return (
-                  <div style={{ background: 'rgba(108,92,231,0.06)', borderRadius: '0 0 10px 10px', padding: '8px 10px 10px', borderBottom: '1px solid #F4F6F9', marginBottom: 2 }}>
-                    <div style={{ fontSize: 10, color: '#888', marginBottom: 6 }}>📅 언제로 이동?</div>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                      {[['내일', 1], ['모레', 2], ['+1주', 7]].map(([label, days]) => (
-                        <button key={label} onClick={() => { moveItemToDate(movePopup.fromDate, movePopup.itemId, getRelDate(Number(days))); setMovePopup(null) }}
-                          style={{ flex: 1, padding: '5px 0', borderRadius: 7, border: '1px solid rgba(108,92,231,0.3)', background: 'rgba(108,92,231,0.1)', color: '#6C5CE7', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <input type="date" defaultValue={getRelDate(1)}
-                      onChange={e => { if (e.target.value) { moveItemToDate(movePopup.fromDate, movePopup.itemId, e.target.value); setMovePopup(null) } }}
-                      style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: '1px solid #E8ECF0', fontSize: 12, outline: 'none', color: '#1a1a2e', boxSizing: 'border-box' as const }} />
-                  </div>
-                )
-              })()}
-              </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
         )}
 
         {/* 새 항목 추가 */}
@@ -1283,6 +1249,70 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 // ══════════════════════════════════════════
 // 메인 페이지
 // ══════════════════════════════════════════
+// ── 드래그 가능한 체크리스트 아이템 ──
+function SortableChecklistItem({ item, date, movePopup, setMovePopup, toggleChecklistItem, toggleUrgent, deleteChecklistItem, moveItemToDate, setMovePopupNull }: any) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 999 : 'auto' as any,
+  }
+  const isOpen = movePopup !== null && movePopup.itemId === item.id
+  const getRelDate = (days: number) => {
+    const d = new Date(movePopup?.fromDate || date); d.setDate(d.getDate() + days)
+    return d.toISOString().slice(0, 10)
+  }
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 4px', background: item.urgent && !item.done ? 'rgba(255,107,53,0.05)' : 'transparent', borderBottom: isOpen ? 'none' : '1px solid #F4F6F9', borderRadius: item.urgent && !item.done ? 6 : 0 }}>
+        {/* 드래그 핸들 */}
+        <div {...attributes} {...listeners} style={{ cursor: 'grab', flexShrink: 0, color: '#ccc', fontSize: 13, padding: '0 2px', touchAction: 'none' }}>⠿</div>
+        {/* 완료 체크 */}
+        <button onClick={() => toggleChecklistItem(date, item.id)}
+          style={{ fontSize: 15, background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: 0, color: item.done ? '#00B894' : '#ddd' }}>
+          {item.done ? '✅' : '○'}
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: item.urgent && !item.done ? 700 : 400, color: item.done ? '#bbb' : item.urgent ? '#FF6B35' : '#1a1a2e', textDecoration: item.done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {item.urgent && !item.done ? '⚡ ' : ''}{item.text}
+          </div>
+          <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' as const }}>
+            {item.carriedFrom && <span style={{ fontSize: 9, color: '#FF6B35', background: 'rgba(255,107,53,0.1)', padding: '1px 5px', borderRadius: 4 }}>↩ {item.carriedFrom.slice(5).replace('-','/')} 이월</span>}
+            {item.time && <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>🔔 {item.time}</span>}
+            {item.repeat === 'weekly' && <span style={{ fontSize: 9, color: '#00B894', background: 'rgba(0,184,148,0.1)', padding: '1px 5px', borderRadius: 4 }}>📆 매주</span>}
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:2, flexShrink:0 }}>
+          <button onClick={() => toggleUrgent(date, item.id)} title="중요 표시"
+            style={{ fontSize: 12, background: item.urgent ? 'rgba(255,107,53,0.15)' : 'none', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '0 3px', color: item.urgent ? '#FF6B35' : '#ddd' }}>⚡</button>
+          <button onClick={() => setMovePopup((p: any) => p !== null && p.itemId === item.id ? null : { itemId: item.id, fromDate: date })}
+            style={{ fontSize: 10, color: isOpen ? '#6C5CE7' : '#bbb', background: isOpen ? 'rgba(108,92,231,0.1)' : 'none', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '0 3px' }}>📅</button>
+          <button onClick={() => deleteChecklistItem(date, item.id)}
+            style={{ fontSize: 11, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}>✕</button>
+        </div>
+      </div>
+      {isOpen && (
+        <div style={{ background: 'rgba(108,92,231,0.06)', borderRadius: '0 0 10px 10px', padding: '8px 10px 10px', borderBottom: '1px solid #F4F6F9', marginBottom: 2 }}>
+          <div style={{ fontSize: 10, color: '#888', marginBottom: 6 }}>📅 언제로 이동?</div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            {([['내일', 1], ['모레', 2], ['+1주', 7]] as [string, number][]).map(([label, days]) => (
+              <button key={label} onClick={() => { moveItemToDate(movePopup.fromDate, movePopup.itemId, getRelDate(days)); setMovePopupNull() }}
+                style={{ flex: 1, padding: '5px 0', borderRadius: 7, border: '1px solid rgba(108,92,231,0.3)', background: 'rgba(108,92,231,0.1)', color: '#6C5CE7', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <input type="date" defaultValue={getRelDate(1)}
+            onChange={e => { if (e.target.value) { moveItemToDate(movePopup.fromDate, movePopup.itemId, e.target.value); setMovePopupNull() } }}
+            style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: '1px solid #E8ECF0', fontSize: 12, outline: 'none', color: '#1a1a2e', boxSizing: 'border-box' as const }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function NoticePage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
