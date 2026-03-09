@@ -480,43 +480,58 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
       {showIssue && <IssueModal order={order} userName={userName} onClose={() => setShowIssue(false)} onSaved={onRefresh} />}
       {showReturn && receipt && <ReturnModal receipt={receipt} order={order} userName={userName} onClose={() => setShowReturn(false)} onSaved={() => { loadDetail() }} />}
 
-      <div style={{ ...bx, border: isOverdue ? '1px solid rgba(232,67,147,0.5)' : order.status === 'issue' ? '1px solid rgba(232,67,147,0.4)' : '1px solid #E8ECF0', background: isOverdue ? '#FFF5F8' : '#fff' }}>
+      <div style={{
+        background: '#fff', borderRadius: 14, marginBottom: 8,
+        border: isOverdue ? '1px solid rgba(232,67,147,0.4)' : order.status === 'issue' ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0',
+        overflow: 'hidden',
+        borderLeft: `4px solid ${isOverdue ? '#E84393' : statusColor[order.status]}`,
+      }}>
         {/* 상단 요약 */}
-        <div onClick={() => setExpanded(v => !v)} style={{ cursor: 'pointer' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e', wordBreak: 'break-word' }}>{order.item_name}</span>
-                {isOverdue && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700, flexShrink: 0 }}>🔴 {Math.floor(diffDays)}일 경과</span>}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, color: '#aaa' }}>{order.quantity}{order.unit}</span>
-                {order.supplier_name && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(45,198,214,0.1)', color: '#2DC6D6' }}>🏪 {order.supplier_name}</span>}
-                {order.inventory_item_id && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>재고연동</span>}
-              </div>
+        <div onClick={() => setExpanded(v => !v)} style={{ cursor: 'pointer', padding: '12px 14px 10px 14px' }}>
+          {/* 1행: 품목명 + 상태뱃지 */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', wordBreak: 'break-word' }}>{order.item_name}</span>
+              {isOverdue && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#E84393', color: '#fff', fontWeight: 700, flexShrink: 0, whiteSpace: 'nowrap' }}>🔴 {Math.floor(diffDays)}일</span>}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
               <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: statusBg[order.status], color: statusColor[order.status], fontWeight: 700 }}>{statusLabel[order.status]}</span>
-              <span style={{ fontSize: 12, color: '#ccc' }}>{expanded ? '▲' : '▼'}</span>
+              <span style={{ fontSize: 11, color: '#ccc' }}>{expanded ? '▲' : '▼'}</span>
             </div>
           </div>
-          <div style={{ fontSize: 10, color: '#bbb' }}>
-            {order.ordered_by} · {new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-            {order.memo && <span style={{ marginLeft: 8, color: '#aaa' }}>📝 {order.memo}</span>}
+          {/* 2행: 수량 · 발주처 · 재고연동 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#555', background: '#F4F6F9', padding: '2px 8px', borderRadius: 5 }}>{order.quantity} {order.unit}</span>
+            {order.supplier_name && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 5, background: 'rgba(45,198,214,0.1)', color: '#2DC6D6' }}>🏪 {order.supplier_name}</span>}
+            {order.inventory_item_id && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>재고연동</span>}
+          </div>
+          {/* 3행: 발주자 · 날짜 · 메모 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: '#aaa' }}>{order.ordered_by}</span>
+            <span style={{ fontSize: 10, color: '#ddd' }}>·</span>
+            <span style={{ fontSize: 11, color: '#aaa' }}>{new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+            {order.memo && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 4 }}>📝 {order.memo}</span>}
           </div>
         </div>
 
-        {/* 액션 버튼 */}
+        {/* 액션 버튼 — 하단 분리 영역 */}
         {order.status === 'pending' && (
-          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-            <button onClick={() => setShowReceive(true)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>📦 수령처리</button>
-            <button onClick={() => setShowIssue(true)} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>🚨 이슈</button>
+          <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
+            <button onClick={() => setShowReceive(true)}
+              style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>
+              📦 수령처리
+            </button>
+            <div style={{ width: 1, background: 'rgba(255,255,255,0.3)' }} />
+            <button onClick={() => setShowIssue(true)}
+              style={{ width: 80, padding: '10px 0', background: 'rgba(232,67,147,0.08)', border: 'none', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>
+              🚨 이슈
+            </button>
           </div>
         )}
 
         {/* 상세 펼치기 */}
         {expanded && (
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #F4F6F9' }}>
+          <div style={{ margin: '0 14px 14px 14px', paddingTop: 12, borderTop: '1px solid #F4F6F9' }}>
             {receipt ? (
               <div>
                 {/* 수령 정보 */}
