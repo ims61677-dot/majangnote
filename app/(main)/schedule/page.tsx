@@ -90,7 +90,7 @@ async function logScheduleEdit(
 
 // ─── BulkPopup (NEW) ─────────────────────────────────────────
 function BulkPopup({ staffName, dates, onApply, onClose }: {
-  staffName: string; dates: string[]; onApply: (s: string) => void; onClose: () => void
+  staffName: string; dates: string[]; onApply: (s: string) => void | Promise<void>; onClose: () => void
 }) {
   const sorted = [...dates].sort()
   const fmt = (d: string) => d.split('-').slice(1).map(Number).join('/')
@@ -902,7 +902,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
       {/* 관리탭 드래그 일괄편집 팝업 */}
       {manageBulkTarget && (
         <BulkPopup
-          staff={manageBulkTarget.staff}
+          staffName={manageBulkTarget.staff}
           dates={manageBulkTarget.dates}
           onApply={handleManageBulkApply}
           onClose={() => setManageBulkTarget(null)}
