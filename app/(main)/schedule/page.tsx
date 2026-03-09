@@ -593,12 +593,12 @@ function ManageView({ profileId, myName, year, month }: {
                   <div style={{ overflowX:'auto' }}>
                     <table style={{ borderCollapse:'collapse', fontSize:10, minWidth: staff.length * 36 + 70, width:'100%', tableLayout:'fixed' }}>
                       <colgroup>
-                        <col style={{ width:38 }} />
+                        <col style={{ width:26 }} />
                         {staff.map((_,i) => <col key={i} style={{ width: Math.max(36, Math.floor((500 - 60) / Math.max(staff.length, 1))) }} />)}
                       </colgroup>
                       <thead>
                         <tr style={{ background:'#F8F9FB' }}>
-                          <th style={{ padding:'4px 4px', borderBottom:'1px solid #E8ECF0', borderRight:'2px solid #E8ECF0', color:'#aaa', fontWeight:700, fontSize:9, textAlign:'left', position:'sticky', left:0, background:'#F8F9FB', zIndex:2 }}>날짜</th>
+                          <th style={{ padding:'3px 2px', borderBottom:'1px solid #E8ECF0', borderRight:'2px solid #E8ECF0', color:'#aaa', fontWeight:700, fontSize:8, textAlign:'center', position:'sticky', left:0, background:'#F8F9FB', zIndex:2 }}>날</th>
                           {staff.map(name => (
                             <th key={name} style={{ padding:'5px 2px', borderBottom:'1px solid #E8ECF0', borderRight:'1px solid #ECEEF2', color:'#1a1a2e', fontWeight:700, textAlign:'center', fontSize:10 }}>
                               {name.length > 3 ? name.slice(0,3) + '.' : name}
@@ -615,11 +615,10 @@ function ManageView({ profileId, myName, year, month }: {
                           const workCnt = staff.filter(s => { const sc = schedMap[`${s}-${dateStr}`]; return sc && (sc.status==='work'||sc.status==='half'||sc.status==='early') }).length
                           return (
                             <tr key={day} style={{ background: isToday ? 'rgba(108,92,231,0.05)' : isSun ? 'rgba(232,67,147,0.02)' : '#fff', borderTop: dow===1&&day!==1 ? '2px solid #D0D4E8' : undefined }}>
-                              <td style={{ padding:'2px 3px', borderBottom:'1px solid #F4F6F9', borderRight:'2px solid #E8ECF0', height:26, position:'sticky', left:0, background: isToday ? 'rgba(108,92,231,0.07)' : isSun ? 'rgba(232,67,147,0.05)' : isSat ? 'rgba(108,92,231,0.03)' : '#FAFBFC', zIndex:1 }}>
-                                <div style={{ display:'flex', alignItems:'center', gap:2 }}>
-                                  <span style={{ fontSize:10, fontWeight:isToday?700:400, color:isToday?'#6C5CE7':isSun?'#E84393':isSat?'#6C5CE7':'#555' }}>{day}</span>
-                                  <span style={{ fontSize:7, color:isSun?'#E84393':isSat?'#6C5CE7':'#ccc' }}>{DOW_LABEL[dow]}</span>
-                                  {workCnt > 0 && <span style={{ marginLeft:'auto', fontSize:8, fontWeight:700, color: workCnt < 2 ? '#E84393' : '#6C5CE7' }}>{workCnt}</span>}
+                              <td style={{ padding:'1px 2px', borderBottom:'1px solid #F4F6F9', borderRight:'2px solid #E8ECF0', height:24, position:'sticky', left:0, background: isToday ? 'rgba(108,92,231,0.07)' : isSun ? 'rgba(232,67,147,0.05)' : isSat ? 'rgba(108,92,231,0.03)' : '#FAFBFC', zIndex:1 }}>
+                                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:0 }}>
+                                  <span style={{ fontSize:9, fontWeight:isToday?700:400, color:isToday?'#6C5CE7':isSun?'#E84393':isSat?'#6C5CE7':'#555', lineHeight:1.2 }}>{day}</span>
+                                  <span style={{ fontSize:7, color:isSun?'#E84393':isSat?'#6C5CE7':'#ccc', lineHeight:1 }}>{DOW_LABEL[dow]}</span>
                                 </div>
                               </td>
                               {staff.map(name => {
@@ -627,7 +626,7 @@ function ManageView({ profileId, myName, year, month }: {
                                 return (
                                   <td key={name}
                                     onClick={() => setEditPopup({ sid, staff: name, date: dateStr, current: sc || null })}
-                                    style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:26, textAlign:'center', verticalAlign:'middle', background: sc ? STATUS_BG[sc.status] : undefined, padding:0, cursor:'pointer' }}
+                                    style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:24, textAlign:'center', verticalAlign:'middle', background: sc ? STATUS_BG[sc.status] : undefined, padding:0, cursor:'pointer' }}
                                     onMouseEnter={e => { if (!sc) (e.currentTarget as HTMLElement).style.background='rgba(108,92,231,0.06)' }}
                                     onMouseLeave={e => { if (!sc) (e.currentTarget as HTMLElement).style.background='' }}>
                                     {sc ? (
@@ -1116,7 +1115,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
       <div style={{ overflowX:'auto', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 1px 6px rgba(0,0,0,0.05)' }}>
         <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed', minWidth:600, userSelect:'none' }}>
-          <colgroup><col style={{ width:72 }} />{visibleStaff.map((_,i) => <col key={i} />)}<col style={{ width:52 }} /></colgroup>
+          <colgroup><col style={{ width:90 }} />{visibleStaff.map((_,i) => <col key={i} />)}<col style={{ width:44 }} /></colgroup>
           <thead>
             <tr>
               <th style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'2px solid #E8ECF0', padding:'10px 8px', fontSize:10, color:'#aaa', fontWeight:700, textAlign:'left', position:'sticky', top:0, zIndex:3 }}>날짜</th>
@@ -1151,12 +1150,14 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
               const workCnt = visibleStaff.filter(s => { const sc = scheduleMap[`${s}-${dateStr}`]; return sc && (sc.status==='work'||sc.status==='half'||sc.status==='early') }).length
               return (
                 <tr key={day} style={{ background: isSun?'rgba(232,67,147,0.025)':isSat?'rgba(108,92,231,0.025)':isToday?'rgba(108,92,231,0.04)':'#fff', borderTop: dow===1&&day!==1?'2px solid #D0D4E8':undefined }}>
-                  <td style={{ borderBottom:'1px solid #ECEEF2', borderRight:'2px solid #E8ECF0', padding:'0 8px', height:40, background: isSun||holidays[dateStr]?'rgba(232,67,147,0.06)':isSat?'rgba(108,92,231,0.05)':isToday?'rgba(108,92,231,0.07)':'#FAFBFC', position:'sticky', left:0, zIndex:1 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' }}>
-                      <span style={{ fontSize:13, fontWeight:isToday?700:500, color:isToday?'#6C5CE7':(isSun||holidays[dateStr])?'#E84393':isSat?'#6C5CE7':'#1a1a2e' }}>{day}</span>
-                      <span style={{ fontSize:10, fontWeight:600, color:(isSun||holidays[dateStr])?'#E84393':isSat?'#6C5CE7':'#bbb' }}>{DOW_LABEL[dow]}</span>
-                      {isToday && <span style={{ fontSize:8, background:'#6C5CE7', color:'#fff', borderRadius:4, padding:'1px 4px', fontWeight:700 }}>오늘</span>}
-                      {holidays[dateStr] && <span style={{ fontSize:8, color:'#E84393', fontWeight:600, whiteSpace:'nowrap' }}>{holidays[dateStr]}</span>}
+                  <td style={{ borderBottom:'1px solid #ECEEF2', borderRight:'2px solid #E8ECF0', padding:'0 8px', height:44, background: isSun||holidays[dateStr]?'rgba(232,67,147,0.06)':isSat?'rgba(108,92,231,0.05)':isToday?'rgba(108,92,231,0.07)':'#FAFBFC', position:'sticky', left:0, zIndex:1 }}>
+                    <div style={{ display:'flex', flexDirection:'column', justifyContent:'center', gap:1 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                        <span style={{ fontSize:13, fontWeight:isToday?700:500, color:isToday?'#6C5CE7':(isSun||holidays[dateStr])?'#E84393':isSat?'#6C5CE7':'#1a1a2e', lineHeight:1 }}>{day}</span>
+                        <span style={{ fontSize:10, fontWeight:600, color:(isSun||holidays[dateStr])?'#E84393':isSat?'#6C5CE7':'#bbb', lineHeight:1 }}>{DOW_LABEL[dow]}</span>
+                        {isToday && <span style={{ fontSize:8, background:'#6C5CE7', color:'#fff', borderRadius:3, padding:'1px 4px', fontWeight:700 }}>오늘</span>}
+                      </div>
+                      {holidays[dateStr] && <span style={{ fontSize:8, color:'#E84393', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:78, lineHeight:1.2 }}>{holidays[dateStr]}</span>}
                     </div>
                   </td>
                   {visibleStaff.map(staff => {
@@ -1173,7 +1174,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                         onMouseDown={e => handleCellMouseDown(staff, day, e)}
                         onMouseEnter={() => handleCellMouseEnter(staff, day)}
                         onClick={() => { if (isMouseDown.current) return; if (clickable && !dragSel) setPopup({ staff, date: dateStr }) }}
-                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:40, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: inDrag ? 'rgba(108,92,231,0.18)' : sc ? STATUS_BG[sc.status] : undefined, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
+                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:44, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: inDrag ? 'rgba(108,92,231,0.18)' : sc ? STATUS_BG[sc.status] : undefined, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
                         {inDrag ? (
                           <span style={{ fontSize:14, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                         ) : sc ? (
@@ -1187,7 +1188,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                       </td>
                     )
                   })}
-                  <td style={{ borderBottom:'1px solid #ECEEF2', padding:0, textAlign:'center', height:40 }}>{workCnt>0&&<span style={{ fontSize:12, fontWeight:700, color:workCnt<3?'#E84393':'#6C5CE7' }}>{workCnt}</span>}</td>
+                  <td style={{ borderBottom:'1px solid #ECEEF2', padding:0, textAlign:'center', height:44 }}>{workCnt>0&&<span style={{ fontSize:12, fontWeight:700, color:workCnt<3?'#E84393':'#6C5CE7' }}>{workCnt}</span>}</td>
                 </tr>
               )
             })}
