@@ -61,6 +61,33 @@ async function syncAttendance(
   }
 }
 
+
+// ── 수정이력 기록 헬퍼 ──────────────────────────────────────
+async function logScheduleEdit(
+  supabase: ReturnType<typeof createSupabaseBrowserClient>,
+  storeId: string,
+  editorName: string,
+  staffName: string,
+  scheduleDate: string,
+  action: string,        // 'upsert' | 'delete' | 'bulk_upsert' | 'bulk_delete'
+  oldStatus: string | null,
+  newStatus: string | null
+) {
+  try {
+    await supabase.from('schedule_edit_logs').insert({
+      store_id: storeId,
+      editor_name: editorName,
+      staff_name: staffName,
+      schedule_date: scheduleDate,
+      action,
+      old_status: oldStatus,
+      new_status: newStatus,
+    })
+  } catch (e) {
+    console.warn('log failed', e)
+  }
+}
+
 // ─── BulkPopup (NEW) ─────────────────────────────────────────
 function BulkPopup({ staffName, dates, onApply, onClose }: {
   staffName: string; dates: string[]; onApply: (s: string) => void; onClose: () => void
@@ -322,8 +349,11 @@ function ManageView({ profileId, myName, year, month }: {
   const [storeData, setStoreData] = useState<Record<string, { schedules: any[]; requests: any[]; staff: string[] }>>({})
   const [loading, setLoading] = useState(true)
   const [approvingId, setApprovingId] = useState<string | null>(null)
-  // 섹션 탭: today / grid / summary / requests
-  const [section, setSection] = useState<'today'|'grid'|'summary'|'requests'>('today')
+  // 섹션 탭
+  const [section, setSection] = useState<'today'|'grid'|'summary'|'requests'|'logs'>('today')
+  const [logs, setLogs] = useState<any[]>([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [editPopup, setEditPopup] = useState<{ sid: string; staff: string; date: string; current: any|null } | null>(null)
   // 월간 그리드: 펼친 지점
   const [gridExpanded, setGridExpanded] = useState<Record<string, boolean>>({})
 
@@ -366,6 +396,21 @@ function ManageView({ profileId, myName, year, month }: {
     const expanded: Record<string, boolean> = {}
     myStores.forEach((m: any) => { if (m.stores?.id) expanded[m.stores.id] = true })
     setGridExpanded(expanded)
+  }
+
+  async function loadLogs() {
+    setLogsLoading(true)
+    // gather all store ids
+    const sids = storeItems.map((m: any) => m.stores?.id).filter(Boolean)
+    if (sids.length === 0) { setLogsLoading(false); return }
+    const { data } = await supabase
+      .from('schedule_edit_logs')
+      .select('*')
+      .in('store_id', sids)
+      .order('created_at', { ascending: false })
+      .limit(200)
+    setLogs(data || [])
+    setLogsLoading(false)
   }
 
   async function handleApprove(sid: string, req: any) {
@@ -437,6 +482,7 @@ function ManageView({ profileId, myName, year, month }: {
           📋 요청
           {totalPending > 0 && <span style={{ position:'absolute', top:2, right:2, background:'#E84393', color:'#fff', borderRadius:6, padding:'0 4px', fontSize:8, fontWeight:700 }}>{totalPending}</span>}
         </button>
+        <button style={secBtn(section==='logs')} onClick={() => { setSection('logs'); loadLogs() }}>🕐 이력</button>
       </div>
 
       {/* ── 섹션 1: 오늘 / 내일 출근자 ── */}
@@ -579,13 +625,17 @@ function ManageView({ profileId, myName, year, month }: {
                               {staff.map(name => {
                                 const sc = schedMap[`${name}-${dateStr}`]
                                 return (
-                                  <td key={name} style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:28, textAlign:'center', verticalAlign:'middle', background: sc ? STATUS_BG[sc.status] : undefined, padding:0 }}>
+                                  <td key={name}
+                                    onClick={() => setEditPopup({ sid, staff: name, date: dateStr, current: sc || null })}
+                                    style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:28, textAlign:'center', verticalAlign:'middle', background: sc ? STATUS_BG[sc.status] : undefined, padding:0, cursor:'pointer' }}
+                                    onMouseEnter={e => { if (!sc) (e.currentTarget as HTMLElement).style.background='rgba(108,92,231,0.06)' }}
+                                    onMouseLeave={e => { if (!sc) (e.currentTarget as HTMLElement).style.background='' }}>
                                     {sc ? (
                                       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
                                         <span style={{ fontSize:8, fontWeight:700, color:STATUS_COLOR[sc.status], lineHeight:1.3 }}>{STATUS_LABEL[sc.status]}</span>
                                         {sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
                                       </div>
-                                    ) : null}
+                                    ) : <span style={{ fontSize:12, color:'#e8e8e8' }}>+</span>}
                                   </td>
                                 )
                               })}
@@ -714,6 +764,86 @@ function ManageView({ profileId, myName, year, month }: {
           })}
         </div>
       )}
+
+      {/* ── 섹션 5: 수정이력 ── */}
+      {section === 'logs' && (
+        <div>
+          {logsLoading ? (
+            <div style={{ textAlign:'center', padding:40, color:'#aaa', fontSize:13 }}>⏳ 불러오는 중...</div>
+          ) : logs.length === 0 ? (
+            <div style={{ textAlign:'center', padding:40, color:'#bbb' }}>
+              <div style={{ fontSize:24, marginBottom:8 }}>📋</div>
+              <div style={{ fontSize:13 }}>수정 이력이 없습니다</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>최근 200건 · 전 지점</div>
+              {logs.map((log: any) => {
+                const storeName = storeItems.find((m: any) => m.stores?.id === log.store_id)?.stores?.name || ''
+                const dt = new Date(log.created_at)
+                const dateLabel = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+                const actionLabel: Record<string,string> = { upsert:'개별변경', delete:'개별삭제', bulk_upsert:'일괄변경', bulk_delete:'일괄삭제' }
+                const isBulk = log.action.startsWith('bulk')
+                const isDel = log.action.includes('delete')
+                return (
+                  <div key={log.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'#fff', borderRadius:12, border:'1px solid #F0F2F5', marginBottom:6 }}>
+                    <div style={{ width:34, height:34, borderRadius:10, background: isDel ? 'rgba(232,67,147,0.1)' : 'rgba(108,92,231,0.1)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>
+                      {isDel ? '🗑' : '✏️'}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                        <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>{log.editor_name}</span>
+                        <span style={{ fontSize:10, color:'#aaa' }}>→</span>
+                        <span style={{ fontSize:12, color:'#555', fontWeight:600 }}>{log.staff_name}</span>
+                        <span style={{ fontSize:10, color:'#bbb' }}>{log.schedule_date}</span>
+                        {isBulk && <span style={{ fontSize:9, background:'rgba(108,92,231,0.1)', color:'#6C5CE7', borderRadius:5, padding:'1px 5px', fontWeight:700 }}>일괄</span>}
+                      </div>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:3 }}>
+                        {log.old_status && <span style={{ fontSize:10, color:STATUS_COLOR[log.old_status], background:STATUS_BG[log.old_status], padding:'1px 6px', borderRadius:5, fontWeight:700 }}>{STATUS_LABEL[log.old_status]}</span>}
+                        {log.old_status && log.new_status && <span style={{ fontSize:10, color:'#ccc' }}>→</span>}
+                        {log.new_status && <span style={{ fontSize:10, color:STATUS_COLOR[log.new_status], background:STATUS_BG[log.new_status], padding:'1px 6px', borderRadius:5, fontWeight:700 }}>{STATUS_LABEL[log.new_status]}</span>}
+                        {isDel && !log.old_status && <span style={{ fontSize:10, color:'#E84393' }}>삭제됨</span>}
+                        <span style={{ marginLeft:'auto', fontSize:9, color:'#bbb', flexShrink:0 }}>{storeName}</span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize:10, color:'#bbb', flexShrink:0 }}>{dateLabel}</div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 관리탭 그리드 편집 팝업 */}
+      {editPopup && (
+        <CellPopup
+          staffName={editPopup.staff}
+          dateStr={editPopup.date}
+          current={editPopup.current}
+          role="owner"
+          myName={myName}
+          onSave={async (status, position, note) => {
+            await supabase.from('schedules').upsert(
+              { store_id: editPopup.sid, staff_name: editPopup.staff, schedule_date: editPopup.date, status, position: position||null, note: note||null },
+              { onConflict: 'store_id,staff_name,schedule_date' }
+            )
+            const earlyMatch = note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
+            await syncAttendance(supabase, editPopup.sid, editPopup.staff, editPopup.date, status, earlyMatch?.[1])
+            await logScheduleEdit(supabase, editPopup.sid, myName, editPopup.staff, editPopup.date, 'upsert', editPopup.current?.status||null, status)
+            setEditPopup(null); loadAll()
+          }}
+          onRequest={async () => {}}
+          onDelete={async () => {
+            if (!editPopup.current) return
+            await supabase.from('schedules').delete().eq('id', editPopup.current.id)
+            await syncAttendance(supabase, editPopup.sid, editPopup.staff, editPopup.date, 'work')
+            await logScheduleEdit(supabase, editPopup.sid, myName, editPopup.staff, editPopup.date, 'delete', editPopup.current?.status||null, null)
+            setEditPopup(null); loadAll()
+          }}
+          onClose={() => setEditPopup(null)}
+        />
+      )}
     </div>
   )
 }
@@ -805,17 +935,21 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
     if (!bulkTarget) return
     if (status === '__delete__') {
       for (const dateStr of bulkTarget.dates) {
+        const prev = scheduleMap[`${bulkTarget.staff}-${dateStr}`]
         await supabase.from('schedules').delete()
           .eq('store_id', storeId).eq('staff_name', bulkTarget.staff).eq('schedule_date', dateStr)
         await syncAttendance(supabase, storeId, bulkTarget.staff, dateStr, 'work')
+        await logScheduleEdit(supabase, storeId, myName, bulkTarget.staff, dateStr, 'bulk_delete', prev?.status || null, null)
       }
     } else {
       for (const dateStr of bulkTarget.dates) {
+        const prev = scheduleMap[`${bulkTarget.staff}-${dateStr}`]
         await supabase.from('schedules').upsert(
           { store_id: storeId, staff_name: bulkTarget.staff, schedule_date: dateStr, status, position: null, note: null },
           { onConflict: 'store_id,staff_name,schedule_date' }
         )
         await syncAttendance(supabase, storeId, bulkTarget.staff, dateStr, status)
+        await logScheduleEdit(supabase, storeId, myName, bulkTarget.staff, dateStr, 'bulk_upsert', prev?.status || null, status)
       }
     }
     setBulkTarget(null)
@@ -877,12 +1011,14 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
   async function handleSave(status: string, position: string, note: string) {
     if (!popup) return
+    const prev = scheduleMap[`${popup.staff}-${popup.date}`]
     await supabase.from('schedules').upsert(
       { store_id: storeId, staff_name: popup.staff, schedule_date: popup.date, status, position: position || null, note: note || null },
       { onConflict: 'store_id,staff_name,schedule_date' }
     )
     const earlyMatch = note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
     await syncAttendance(supabase, storeId, popup.staff, popup.date, status, earlyMatch?.[1])
+    await logScheduleEdit(supabase, storeId, myName, popup.staff, popup.date, 'upsert', prev?.status || null, status)
     setPopup(null); onSaved()
   }
 
@@ -895,8 +1031,10 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
   async function handleDelete() {
     if (!popup || !popupData) return
+    const prev = scheduleMap[`${popup.staff}-${popup.date}`]
     await supabase.from('schedules').delete().eq('id', popupData.id)
     await syncAttendance(supabase, storeId, popup.staff, popup.date, 'work')
+    await logScheduleEdit(supabase, storeId, myName, popup.staff, popup.date, 'delete', prev?.status || null, null)
     setPopup(null); onSaved()
   }
 
@@ -978,10 +1116,10 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
       <div style={{ overflowX:'auto', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 1px 6px rgba(0,0,0,0.05)' }}>
         <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed', minWidth:600, userSelect:'none' }}>
-          <colgroup><col style={{ width:72 }} />{visibleStaff.map((_,i) => <col key={i} />)}<col style={{ width:52 }} /></colgroup>
+          <colgroup><col style={{ width:52 }} />{visibleStaff.map((_,i) => <col key={i} />)}<col style={{ width:52 }} /></colgroup>
           <thead>
             <tr>
-              <th style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'2px solid #E8ECF0', padding:'10px 8px', fontSize:10, color:'#aaa', fontWeight:700, textAlign:'left', position:'sticky', top:0, zIndex:3 }}>날짜</th>
+              <th style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'2px solid #E8ECF0', padding:'7px 6px', fontSize:10, color:'#aaa', fontWeight:700, textAlign:'left', position:'sticky', top:0, zIndex:3 }}>날짜</th>
               {visibleStaff.map(name => (
                 <th key={name} style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'1px solid #ECEEF2', padding:'8px 4px', fontSize:12, color:'#1a1a2e', fontWeight:700, textAlign:'center', position:'sticky', top:0, zIndex:3 }}>
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
@@ -1013,7 +1151,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
               const workCnt = visibleStaff.filter(s => { const sc = scheduleMap[`${s}-${dateStr}`]; return sc && (sc.status==='work'||sc.status==='half'||sc.status==='early') }).length
               return (
                 <tr key={day} style={{ background: isSun?'rgba(232,67,147,0.025)':isSat?'rgba(108,92,231,0.025)':isToday?'rgba(108,92,231,0.04)':'#fff', borderTop: dow===1&&day!==1?'2px solid #D0D4E8':undefined }}>
-                  <td style={{ borderBottom:'1px solid #ECEEF2', borderRight:'2px solid #E8ECF0', padding:'0 8px', height:40, background: isSun||holidays[dateStr]?'rgba(232,67,147,0.06)':isSat?'rgba(108,92,231,0.05)':isToday?'rgba(108,92,231,0.07)':'#FAFBFC', position:'sticky', left:0, zIndex:1 }}>
+                  <td style={{ borderBottom:'1px solid #ECEEF2', borderRight:'2px solid #E8ECF0', padding:'0 6px', height:32, background: isSun||holidays[dateStr]?'rgba(232,67,147,0.06)':isSat?'rgba(108,92,231,0.05)':isToday?'rgba(108,92,231,0.07)':'#FAFBFC', position:'sticky', left:0, zIndex:1 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' }}>
                       <span style={{ fontSize:13, fontWeight:isToday?700:500, color:isToday?'#6C5CE7':(isSun||holidays[dateStr])?'#E84393':isSat?'#6C5CE7':'#1a1a2e' }}>{day}</span>
                       <span style={{ fontSize:10, fontWeight:600, color:(isSun||holidays[dateStr])?'#E84393':isSat?'#6C5CE7':'#bbb' }}>{DOW_LABEL[dow]}</span>
@@ -1035,7 +1173,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                         onMouseDown={e => handleCellMouseDown(staff, day, e)}
                         onMouseEnter={() => handleCellMouseEnter(staff, day)}
                         onClick={() => { if (isMouseDown.current) return; if (clickable && !dragSel) setPopup({ staff, date: dateStr }) }}
-                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:40, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: inDrag ? 'rgba(108,92,231,0.18)' : sc ? STATUS_BG[sc.status] : undefined, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
+                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:32, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: inDrag ? 'rgba(108,92,231,0.18)' : sc ? STATUS_BG[sc.status] : undefined, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
                         {inDrag ? (
                           <span style={{ fontSize:14, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                         ) : sc ? (
@@ -1049,7 +1187,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                       </td>
                     )
                   })}
-                  <td style={{ borderBottom:'1px solid #ECEEF2', padding:0, textAlign:'center', height:40 }}>{workCnt>0&&<span style={{ fontSize:12, fontWeight:700, color:workCnt<3?'#E84393':'#6C5CE7' }}>{workCnt}</span>}</td>
+                  <td style={{ borderBottom:'1px solid #ECEEF2', padding:0, textAlign:'center', height:32 }}>{workCnt>0&&<span style={{ fontSize:12, fontWeight:700, color:workCnt<3?'#E84393':'#6C5CE7' }}>{workCnt}</span>}</td>
                 </tr>
               )
             })}
@@ -1134,16 +1272,19 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
   async function applyBulk(status: string) {
     for (const key of selected) {
       const [staff, dateStr] = key.split('|')
+      const prev = scheduleMap[`${staff}-${dateStr}`]
       if (status === '__delete__') {
         await supabase.from('schedules').delete()
           .eq('store_id', storeId).eq('staff_name', staff).eq('schedule_date', dateStr)
         await syncAttendance(supabase, storeId, staff, dateStr, 'work')
+        await logScheduleEdit(supabase, storeId, myName, staff, dateStr, 'bulk_delete', prev?.status || null, null)
       } else {
         await supabase.from('schedules').upsert(
           { store_id: storeId, staff_name: staff, schedule_date: dateStr, status, position: null, note: null },
           { onConflict: 'store_id,staff_name,schedule_date' }
         )
         await syncAttendance(supabase, storeId, staff, dateStr, status)
+        await logScheduleEdit(supabase, storeId, myName, staff, dateStr, 'bulk_upsert', prev?.status || null, status)
       }
     }
     setSelected(new Set()); setMultiMode(false); onSaved()
@@ -1151,12 +1292,14 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
 
   async function handleSave(status: string, position: string, note: string) {
     if (!popup) return
+    const prev = scheduleMap[`${popup.staff}-${popup.date}`]
     await supabase.from('schedules').upsert(
       { store_id: storeId, staff_name: popup.staff, schedule_date: popup.date, status, position: position||null, note: note||null },
       { onConflict: 'store_id,staff_name,schedule_date' }
     )
     const earlyMatch = note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
     await syncAttendance(supabase, storeId, popup.staff, popup.date, status, earlyMatch?.[1])
+    await logScheduleEdit(supabase, storeId, myName, popup.staff, popup.date, 'upsert', prev?.status || null, status)
     setPopup(null); onSaved()
   }
 
@@ -1169,8 +1312,10 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
 
   async function handleDelete() {
     if (!popup || !popupData) return
+    const prev = scheduleMap[`${popup.staff}-${popup.date}`]
     await supabase.from('schedules').delete().eq('id', popupData.id)
     await syncAttendance(supabase, storeId, popup.staff, popup.date, 'work')
+    await logScheduleEdit(supabase, storeId, myName, popup.staff, popup.date, 'delete', prev?.status || null, null)
     setPopup(null); onSaved()
   }
 
