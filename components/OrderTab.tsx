@@ -902,27 +902,31 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
           <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="비고 메모" style={inp} />
         </div>
 
-        {/* 주문완료 상태면 요청됨으로 되돌리기 버튼 표시 */}
+        {/* 주문완료 → 요청됨 되돌리기 */}
         {order.status === 'ordered' && (
           <div style={{ marginBottom: 12 }}>
             <button onClick={async () => {
               if (!confirm('주문 확인을 취소하고 요청됨 상태로 되돌릴까요?')) return
-              await supabase.from('orders').update({
-                status: 'requested',
-                confirmed_by: null,
-                confirmed_at: null,
-              }).eq('id', order.id)
-              await supabase.from('order_receipt_logs').insert({
-                order_id: order.id,
-                changed_by: userName,
-                field_name: '주문 취소',
-                before_value: `주문완료 (${order.confirmed_by})`,
-                after_value: '요청됨으로 되돌림',
-                memo: null,
-              })
+              await supabase.from('orders').update({ status: 'requested', confirmed_by: null, confirmed_at: null }).eq('id', order.id)
+              await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '주문 취소', before_value: `주문완료 (${order.confirmed_by})`, after_value: '요청됨으로 되돌림', memo: null })
               onSaved(); onClose()
             }} style={{ width: '100%', padding: '10px 0', borderRadius: 10, background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.25)', color: '#FF6B35', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               ↩️ 주문 확인 취소 (요청됨으로 되돌리기)
+            </button>
+          </div>
+        )}
+        {/* 수령완료 → 주문완료 되돌리기 */}
+        {order.status === 'received' && (
+          <div style={{ marginBottom: 12 }}>
+            <button onClick={async () => {
+              if (!confirm('수령 완료를 취소하고 주문완료 상태로 되돌릴까요?\n(수령 정보가 삭제됩니다)')) return
+              // 수령 정보 삭제
+              await supabase.from('order_receipts').delete().eq('order_id', order.id)
+              await supabase.from('orders').update({ status: 'ordered' }).eq('id', order.id)
+              await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '수령 취소', before_value: '수령완료', after_value: '주문완료로 되돌림', memo: null })
+              onSaved(); onClose()
+            }} style={{ width: '100%', padding: '10px 0', borderRadius: 10, background: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.25)', color: '#00B894', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              ↩️ 수령 취소 (주문완료로 되돌리기)
             </button>
           </div>
         )}
@@ -941,6 +945,32 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
             취소
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── 타임라인 아이템 ───
+function TimelineItem({ color, icon, title, who, when, note }: {
+  color: string; icon: string; title: string
+  who: string | null; when: string | null; note?: string
+}) {
+  return (
+    <div style={{ position: 'relative', paddingLeft: 16, paddingBottom: 14 }}>
+      {/* 점 */}
+      <div style={{ position: 'absolute', left: -8, top: 2, width: 14, height: 14, borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, zIndex: 1 }}>
+        {icon}
+      </div>
+      <div style={{ background: '#F8F9FB', borderRadius: 8, padding: '8px 10px', border: `1px solid ${color}22` }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>{title}</div>
+        {(who || when) && (
+          <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>
+            {who && <span style={{ color: '#555', fontWeight: 600 }}>{who}</span>}
+            {who && when && <span> · </span>}
+            {when && <span>{new Date(when).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(when).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>}
+          </div>
+        )}
+        {note && <div style={{ fontSize: 10, color, marginTop: 3, fontWeight: 600 }}>{note}</div>}
       </div>
     </div>
   )
@@ -1028,7 +1058,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, onRefre
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
               <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: statusBg[order.status] || statusBg.pending, color: statusColor[order.status] || statusColor.pending, fontWeight: 700 }}>{statusLabel[order.status] || '미수령'}</span>
-              {(order.status === 'requested' || order.status === 'ordered') && (
+              {(order.status === 'requested' || order.status === 'ordered' || order.status === 'received') && (
                 <button onClick={e => { e.stopPropagation(); setShowEdit(true) }}
                   style={{ fontSize: 11, padding: '2px 7px', borderRadius: 6, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#888', cursor: 'pointer' }}>
                   ✏️
@@ -1099,70 +1129,88 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, onRefre
         {/* 상세 펼치기 */}
         {expanded && (
           <div style={{ margin: '0 14px 14px 14px', paddingTop: 12, borderTop: '1px solid #F4F6F9' }}>
-            {receipt ? (
-              <div>
-                {/* 수령 정보 */}
-                <div style={{ background: 'rgba(0,184,148,0.06)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#00B894', marginBottom: 6 }}>📦 수령 정보</div>
-                  <div style={{ fontSize: 12, color: '#1a1a2e' }}>수령 수량: <strong>{receipt.received_quantity}{order.unit}</strong></div>
-                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{receipt.received_by} · {new Date(receipt.received_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(receipt.received_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
-                  {receipt.inventory_applied && <div style={{ fontSize: 10, color: '#6C5CE7', marginTop: 4 }}>✓ 재고 반영 완료 ({receipt.inventory_applied_by})</div>}
-                  {receipt.return_type && (
-                    <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 8, background: receipt.return_type === 'return' ? 'rgba(232,67,147,0.08)' : 'rgba(108,92,231,0.08)', border: `1px solid ${receipt.return_type === 'return' ? 'rgba(232,67,147,0.2)' : 'rgba(108,92,231,0.2)'}` }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: receipt.return_type === 'return' ? '#E84393' : '#6C5CE7' }}>{receipt.return_type === 'return' ? '↩️ 반품' : '🔄 교환'} 처리됨</div>
-                      <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>{receipt.return_by} · {new Date(receipt.return_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })}</div>
-                      {receipt.return_memo && <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>{receipt.return_memo}</div>}
-                    </div>
-                  )}
-                  {/* 수령 완료 버튼들 */}
-                  <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                    <button onClick={() => setShowEditReceipt(true)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>✏️ 수령 수정</button>
-                    {!receipt.return_type && <button onClick={() => setShowReturn(true)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.2)', color: '#6C5CE7', fontSize: 10, cursor: 'pointer' }}>↩️ 반품/교환</button>}
-                    {!receipt.inventory_applied && order.inventory_item_id && (
-                      <button onClick={async () => {
-                        const { data: existing } = await supabase.from('inventory_stock').select('quantity').eq('item_id', order.inventory_item_id).eq('place', '입고대기').single()
-                        const currentQty = existing?.quantity ?? 0
-                        await supabase.from('inventory_stock').upsert({ item_id: order.inventory_item_id, place: '입고대기', quantity: currentQty + receipt.received_quantity, updated_by: userName, updated_at: new Date().toISOString() }, { onConflict: 'item_id,place' })
-                        await supabase.from('order_receipts').update({ inventory_applied: true, inventory_applied_at: new Date().toISOString(), inventory_applied_by: userName }).eq('id', receipt.id)
-                        loadDetail()
-                      }} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.2)', color: '#6C5CE7', fontSize: 10, cursor: 'pointer' }}>📊 재고 반영</button>
-                    )}
-                  </div>
-                </div>
 
-                {/* 수령 이력 */}
-                {logs.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>📋 수정 이력</div>
-                    {logs.map(log => (
-                      <div key={log.id} style={{ fontSize: 10, color: '#888', padding: '4px 0', borderBottom: '1px solid #F4F6F9', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>
-                          <strong style={{ color: log.field_name.includes('수정') ? '#FF6B35' : log.field_name.includes('삭제') ? '#E84393' : '#1a1a2e' }}>{log.changed_by}</strong>
-                          {' · '}{log.field_name}
-                          {log.before_value ? <span style={{ color: '#ccc' }}> {log.before_value} → <span style={{ color: '#1a1a2e' }}>{log.after_value}</span></span> : <span> {log.after_value}</span>}
-                          {log.memo && <span style={{ color: '#bbb' }}> "{log.memo}"</span>}
-                        </span>
-                        <span style={{ flexShrink: 0, marginLeft: 8 }}>{new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
-                      </div>
-                    ))}
-                  </div>
+            {/* ── 타임라인 ── */}
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 10 }}>📋 처리 흐름</div>
+            <div style={{ position: 'relative', paddingLeft: 20 }}>
+              {/* 세로선 */}
+              <div style={{ position: 'absolute', left: 6, top: 6, bottom: 6, width: 2, background: '#E8ECF0', borderRadius: 2 }} />
+
+              {/* 1. 요청 */}
+              <TimelineItem color="#FF6B35" icon="📋"
+                title="발주 요청"
+                who={order.ordered_by}
+                when={order.ordered_at} />
+
+              {/* 2. 주문확인 */}
+              {order.confirmed_by && (
+                <TimelineItem color="#6C5CE7" icon="✅"
+                  title={`주문 확인${order.supplier_name ? ` · ${order.supplier_name}` : ''}`}
+                  who={order.confirmed_by}
+                  when={order.confirmed_at} />
+              )}
+
+              {/* 3. 이슈 신고 */}
+              {order.status === 'issue' && (
+                <TimelineItem color="#E84393" icon="🚨"
+                  title="이슈 신고"
+                  who={null}
+                  when={null}
+                  note="이슈 처리 대기 중" />
+              )}
+
+              {/* 4. 수령 */}
+              {receipt && (
+                <TimelineItem color="#00B894" icon="📦"
+                  title={`수령 완료 · ${receipt.received_quantity}${order.unit}`}
+                  who={receipt.received_by}
+                  when={receipt.received_at}
+                  note={receipt.inventory_applied ? `✓ 재고 반영 (${receipt.inventory_applied_by})` : undefined} />
+              )}
+
+              {/* 5. 반품/교환 */}
+              {receipt?.return_type && (
+                <TimelineItem
+                  color={receipt.return_type === 'return' ? '#E84393' : '#6C5CE7'}
+                  icon={receipt.return_type === 'return' ? '↩️' : '🔄'}
+                  title={receipt.return_type === 'return' ? '반품 처리' : '교환 처리'}
+                  who={receipt.return_by}
+                  when={receipt.return_at}
+                  note={receipt.return_memo || undefined} />
+              )}
+            </div>
+
+            {/* ── 수정 버튼들 ── */}
+            {receipt && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                <button onClick={() => setShowEditReceipt(true)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>✏️ 수령 수정</button>
+                {!receipt.return_type && <button onClick={() => setShowReturn(true)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.2)', color: '#6C5CE7', fontSize: 10, cursor: 'pointer' }}>↩️ 반품/교환</button>}
+                {!receipt.inventory_applied && order.inventory_item_id && (
+                  <button onClick={async () => {
+                    const { data: existing } = await supabase.from('inventory_stock').select('quantity').eq('item_id', order.inventory_item_id).eq('place', '입고대기').single()
+                    const currentQty = existing?.quantity ?? 0
+                    await supabase.from('inventory_stock').upsert({ item_id: order.inventory_item_id, place: '입고대기', quantity: currentQty + receipt.received_quantity, updated_by: userName, updated_at: new Date().toISOString() }, { onConflict: 'item_id,place' })
+                    await supabase.from('order_receipts').update({ inventory_applied: true, inventory_applied_at: new Date().toISOString(), inventory_applied_by: userName }).eq('id', receipt.id)
+                    loadDetail()
+                  }} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.2)', color: '#6C5CE7', fontSize: 10, cursor: 'pointer' }}>📊 재고 반영</button>
                 )}
               </div>
-            ) : (
-              <div style={{ textAlign: 'center', padding: 12, color: '#bbb', fontSize: 12 }}>수령 정보 없음</div>
             )}
-            {/* 수령 없어도 이력은 표시 */}
-            {!receipt && logs.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>📋 수정 이력</div>
+
+            {/* ── 수정 이력 (발주 자체 수정) ── */}
+            {logs.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>🔍 수정 이력</div>
                 {logs.map(log => (
-                  <div key={log.id} style={{ fontSize: 10, color: '#888', padding: '4px 0', borderBottom: '1px solid #F4F6F9', display: 'flex', justifyContent: 'space-between' }}>
+                  <div key={log.id} style={{ fontSize: 10, color: '#888', padding: '4px 0', borderBottom: '1px solid #F4F6F9', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                     <span>
-                      <strong style={{ color: log.field_name.includes('수정') ? '#FF6B35' : log.field_name.includes('삭제') ? '#E84393' : '#1a1a2e' }}>{log.changed_by}</strong>
+                      <strong style={{ color: log.field_name.includes('수정') ? '#FF6B35' : log.field_name.includes('삭제') || log.field_name.includes('취소') ? '#E84393' : '#6C5CE7' }}>{log.changed_by}</strong>
                       {' · '}{log.field_name}
-                      {log.before_value ? <span style={{ color: '#ccc' }}> {log.before_value} → <span style={{ color: '#1a1a2e' }}>{log.after_value}</span></span> : <span> {log.after_value}</span>}
+                      {log.before_value && <span style={{ color: '#ccc' }}> <span style={{ textDecoration: 'line-through' }}>{log.before_value}</span> → <span style={{ color: '#1a1a2e' }}>{log.after_value}</span></span>}
+                      {!log.before_value && log.after_value && <span> {log.after_value}</span>}
+                      {log.memo && <span style={{ color: '#bbb' }}> "{log.memo}"</span>}
                     </span>
-                    <span style={{ flexShrink: 0, marginLeft: 8 }}>{new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                    <span style={{ flexShrink: 0 }}>{new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
                   </div>
                 ))}
               </div>
