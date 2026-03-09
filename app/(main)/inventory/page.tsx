@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'rea
 import { useSearchParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import OrderTab from '@/components/OrderTab'
+import AdminOrderTab from '@/components/AdminOrderTab'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
@@ -794,8 +795,8 @@ function InventoryPageInner() {
   const supabase = createSupabaseBrowserClient()
   const searchParams = useSearchParams()
   const router = useRouter()
-  const mainTab = (searchParams.get('tab') === 'order' ? 'order' : 'stock') as 'stock' | 'order'
-  function setMainTab(tab: 'stock' | 'order') {
+  const mainTab = (['order', 'admin'].includes(searchParams.get('tab') || '') ? searchParams.get('tab') : 'stock') as 'stock' | 'order' | 'admin'
+  function setMainTab(tab: 'stock' | 'order' | 'admin') {
     router.replace(`?tab=${tab}`, { scroll: false })
   }
   const [storeId, setStoreId] = useState('')
@@ -1052,6 +1053,18 @@ function InventoryPageInner() {
           {k === 'stock' ? '📦 재고' : '📋 발주'}
         </button>
       ))}
+      {userRole === 'owner' && (
+        <button onClick={() => setMainTab('admin')} style={{ flex: 1, padding: '10px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: mainTab === 'admin' ? 700 : 400, background: mainTab === 'admin' ? 'linear-gradient(135deg,#6C5CE7,#a29bfe)' : 'transparent', color: mainTab === 'admin' ? '#fff' : '#aaa', boxShadow: mainTab === 'admin' ? '0 2px 8px rgba(108,92,231,0.3)' : 'none' }}>
+          👑 관리자
+        </button>
+      )}
+    </div>
+  )
+
+  if (mainTab === 'admin') return (
+    <div style={{ padding: isPC ? '20px 28px' : '0' }}>
+      <MainTabBar />
+      <AdminOrderTab userName={userName} />
     </div>
   )
 
