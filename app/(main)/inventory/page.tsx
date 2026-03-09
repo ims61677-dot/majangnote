@@ -80,7 +80,7 @@ function PlaceGroupSection({ grp, gPlaces, editingId, editName, editGroup, setEd
   )
 }
 
-// ─── PlaceManager (큰 카테고리 순서 변경 추가) ───
+// ─── PlaceManager ───
 function PlaceManager({ storeId, onClose, onSaved, groupOrder, onGroupReorder }: {
   storeId: string; onClose: () => void; onSaved: () => void
   groupOrder: string[]; onGroupReorder: (newOrder: string[]) => void
@@ -95,7 +95,6 @@ function PlaceManager({ storeId, onClose, onSaved, groupOrder, onGroupReorder }:
   const [customGroup, setCustomGroup] = useState('')
   const [isAdding, setIsAdding] = useState(false)
   const [activeTab, setActiveTab] = useState<'places' | 'groups'>('places')
-  // 큰 카테고리 순서 드래그
   const [localGroupOrder, setLocalGroupOrder] = useState<string[]>(groupOrder)
   const groupDragItem = useRef<number | null>(null)
   const groupDragOver = useRef<number | null>(null)
@@ -137,7 +136,6 @@ function PlaceManager({ storeId, onClose, onSaved, groupOrder, onGroupReorder }:
     loadPlaces(); onSaved()
   }
 
-  // 큰 카테고리 드래그
   function onGroupDragStart(e: React.DragEvent, idx: number) {
     groupDragItem.current = idx
     e.dataTransfer.effectAllowed = 'move'
@@ -160,7 +158,6 @@ function PlaceManager({ storeId, onClose, onSaved, groupOrder, onGroupReorder }:
     return acc
   }, {})
 
-  // groupOrder 순서로 정렬
   const orderedGroups = [...localGroupOrder.filter(g => grouped[g]), ...Object.keys(grouped).filter(g => !localGroupOrder.includes(g))]
 
   return (
@@ -171,7 +168,6 @@ function PlaceManager({ storeId, onClose, onSaved, groupOrder, onGroupReorder }:
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
         </div>
 
-        {/* 탭: 장소 관리 / 카테고리 순서 */}
         <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 16 }}>
           <button onClick={() => setActiveTab('places')} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: activeTab === 'places' ? 700 : 400, background: activeTab === 'places' ? '#fff' : 'transparent', color: activeTab === 'places' ? '#1a1a2e' : '#aaa', boxShadow: activeTab === 'places' ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>장소 관리</button>
           <button onClick={() => setActiveTab('groups')} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: activeTab === 'groups' ? 700 : 400, background: activeTab === 'groups' ? '#fff' : 'transparent', color: activeTab === 'groups' ? '#FF6B35' : '#aaa', boxShadow: activeTab === 'groups' ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>카테고리 순서</button>
@@ -248,11 +244,12 @@ function PlaceManager({ storeId, onClose, onSaved, groupOrder, onGroupReorder }:
   )
 }
 
-// ─── 전역 검색 패널 (클릭 시 탭 이동 추가) ───
+// ─── 전역 검색 패널 ───
+// [수정] onNavigate에 itemId 파라미터 추가
 function GlobalSearchPanel({ query, items, places, stock, onClose, onNavigate }: {
   query: string; items: any[]; places: any[]; stock: Record<string, any>
   onClose: () => void
-  onNavigate: (group: string, placeName: string) => void
+  onNavigate: (group: string, placeName: string, itemId?: string) => void
 }) {
   const getQty = (itemId: string, placeName: string) => stock[itemId + '-' + placeName]?.quantity ?? -1
   const hasStockFn = (itemId: string, placeName: string) => (itemId + '-' + placeName) in stock
@@ -283,20 +280,22 @@ function GlobalSearchPanel({ query, items, places, stock, onClose, onNavigate }:
           const color = s === 'low' ? '#E84393' : s === 'warn' ? '#B8860B' : '#1a1a2e'
           return (
             <div key={item.id} style={{ ...bx, border: s === 'low' ? '1px solid rgba(232,67,147,0.35)' : s === 'warn' ? '1px solid rgba(253,196,0,0.5)' : '1px solid #E8ECF0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {s === 'low' && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>🔴 부족</span>}
-                  {s === 'warn' && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(253,196,0,0.15)', color: '#B8860B', fontWeight: 700 }}>🟡 주의</span>}
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8 }}>
+                {/* [수정] 이름+뱃지 레이아웃 개선 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
+                  {s === 'low' && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700, flexShrink: 0 }}>🔴 부족</span>}
+                  {s === 'warn' && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(253,196,0,0.15)', color: '#B8860B', fontWeight: 700, flexShrink: 0 }}>🟡 주의</span>}
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', wordBreak: 'break-word' }}>{item.name}</span>
                 </div>
-                <span style={{ fontSize: 16, fontWeight: 800, color }}>{item.total}{item.unit}</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color, flexShrink: 0 }}>{item.total}{item.unit}</span>
               </div>
               {item.locations.length > 0 ? (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {item.locations.map((loc: any) => (
                     <button
                       key={loc.name}
-                      onClick={() => { onNavigate(loc.group, loc.name); onClose() }}
+                      // [수정] item.id를 함께 전달
+                      onClick={() => { onNavigate(loc.group, loc.name, item.id); onClose() }}
                       style={{
                         fontSize: 10, padding: '3px 10px', borderRadius: 20,
                         background: 'rgba(108,92,231,0.08)', color: '#6C5CE7',
@@ -348,7 +347,7 @@ function LogTab({ storeId, items }: { storeId: string; items: any[] }) {
   )
 }
 
-// ─── 통계 탭 (고도화) ───
+// ─── 통계 탭 ───
 function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; stock: Record<string, any> }) {
   const supabase = createSupabaseBrowserClient()
   const now = new Date()
@@ -375,24 +374,16 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
   async function loadAll() {
     setLoading(true)
     const itemIds = items.map(x => x.id)
-
-    // 이번달
     const from = `${year}-${String(month).padStart(2, '0')}-01`
     const to = new Date(year, month, 1).toISOString().split('T')[0]
-
-    // 작년 같은달
     const lyFrom = `${year - 1}-${String(month).padStart(2, '0')}-01`
     const lyTo = new Date(year - 1, month, 1).toISOString().split('T')[0]
-
-    // 최근 6개월 트렌드
     const trendFrom = new Date(year, month - 7, 1).toISOString().split('T')[0]
-
     const [cur, ly, trend] = await Promise.all([
       supabase.from('inventory_logs').select('*, inventory_items(name,unit)').in('item_id', itemIds).gte('created_at', from).lt('created_at', to),
       supabase.from('inventory_logs').select('*, inventory_items(name,unit)').in('item_id', itemIds).gte('created_at', lyFrom).lt('created_at', lyTo),
       supabase.from('inventory_logs').select('*, inventory_items(name,unit)').in('item_id', itemIds).gte('created_at', trendFrom).lt('created_at', to),
     ])
-
     setLogs(cur.data || [])
     setLastYearLogs(ly.data || [])
     setTrendLogs(trend.data || [])
@@ -423,7 +414,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
     if (month === 12) { setYear(y => y + 1); setMonth(1) } else setMonth(m => m + 1)
   }
 
-  // 소모 계산 헬퍼
   function calcConsume(logList: any[]) {
     const map: Record<string, { name: string; unit: string; total: number; itemId: string }> = {}
     logList.filter(l => l.after_qty < l.before_qty).forEach(l => {
@@ -437,23 +427,18 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
   const stocked = logs.filter(l => l.after_qty > l.before_qty)
   const totalConsumed = consumed.reduce((s, l) => s + (l.before_qty - l.after_qty), 0)
   const totalStocked = stocked.reduce((s, l) => s + (l.after_qty - l.before_qty), 0)
-
   const consumeMap = calcConsume(logs)
   const lyConsumeMap = calcConsume(lastYearLogs)
   const consumeRank = Object.values(consumeMap).sort((a, b) => b.total - a.total).slice(0, 10)
-
   const stockByItem: Record<string, { name: string; unit: string; total: number }> = {}
   stocked.forEach(l => {
     if (!stockByItem[l.item_id]) stockByItem[l.item_id] = { name: l.inventory_items?.name || '', unit: l.inventory_items?.unit || '', total: 0 }
     stockByItem[l.item_id].total += (l.after_qty - l.before_qty)
   })
   const stockRank = Object.values(stockByItem).sort((a, b) => b.total - a.total).slice(0, 10)
-
   const byStaff: Record<string, number> = {}
   logs.forEach(l => { if (l.changed_by) byStaff[l.changed_by] = (byStaff[l.changed_by] || 0) + 1 })
   const staffRank = Object.entries(byStaff).sort((a, b) => b[1] - a[1])
-
-  // 월별 트렌드 (최근 6개월)
   const monthlyTrend: Record<string, number> = {}
   for (let i = 5; i >= 0; i--) {
     const d = new Date(year, month - 1 - i, 1)
@@ -466,29 +451,21 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
   })
   const trendEntries = Object.entries(monthlyTrend)
   const trendMax = Math.max(...Object.values(monthlyTrend), 1)
-
-  // 소진 예상일 (현재재고 ÷ 작년같은달 일평균 or 이번달 일평균)
   const daysInMonth = new Date(year, month, 0).getDate()
   const todayDay = year === now.getFullYear() && month === now.getMonth() + 1 ? now.getDate() : daysInMonth
   const depletionList = items.map(item => {
     const currentStock = Object.keys(stock).filter(k => k.startsWith(item.id + '-')).reduce((s, k) => s + (stock[k]?.quantity ?? 0), 0)
     const thisMonthConsume = consumeMap[item.id]?.total ?? 0
     const lyConsume = lyConsumeMap[item.id]?.total ?? 0
-
-    // 작년 데이터 있으면 작년 기준, 없으면 이번달 기준
     const refConsume = lyConsume > 0 ? lyConsume : thisMonthConsume
     const dailyAvg = refConsume > 0 ? refConsume / daysInMonth : 0
-
     if (dailyAvg <= 0 || currentStock <= 0) return null
     const daysLeft = Math.floor(currentStock / dailyAvg)
     const depletionDate = new Date(now)
     depletionDate.setDate(depletionDate.getDate() + daysLeft)
-
-    // 작년 vs 이번달 비교
     const lyDailyAvg = lyConsume / daysInMonth
     const thisDailyAvg = thisMonthConsume > 0 ? thisMonthConsume / todayDay : 0
     const changeRate = lyDailyAvg > 0 ? ((thisDailyAvg - lyDailyAvg) / lyDailyAvg) * 100 : null
-
     return { id: item.id, name: item.name, unit: item.unit, currentStock, daysLeft, depletionDate, changeRate, hasLastYear: lyConsume > 0 }
   }).filter(Boolean).sort((a: any, b: any) => a.daysLeft - b.daysLeft).slice(0, 15) as any[]
 
@@ -505,15 +482,12 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
 
   return (
     <div>
-      {/* 년/월 선택 */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        {/* 년도 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button onClick={() => setYear(y => y - 1)} style={{ width: 28, height: 28, borderRadius: 7, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 12, color: '#888' }}>«</button>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#6C5CE7', minWidth: 60, textAlign: 'center' }}>{year}년</span>
           <button onClick={() => { if (year < now.getFullYear()) setYear(y => y + 1) }} style={{ width: 28, height: 28, borderRadius: 7, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 12, color: year < now.getFullYear() ? '#888' : '#ddd' }}>»</button>
         </div>
-        {/* 월 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button onClick={prevMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 14, color: '#888' }}>‹</button>
           <div style={{ display: 'flex', gap: 4 }}>
@@ -533,7 +507,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
         </div>
       </div>
 
-      {/* 섹션 탭 */}
       <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 16, gap: 2 }}>
         {tabBtn('summary', '📊 요약')}
         {tabBtn('trend', '📈 트렌드')}
@@ -546,7 +519,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
         <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>불러오는 중...</div>
       ) : (
         <>
-          {/* ── 요약 ── */}
           {activeSection === 'summary' && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
@@ -566,8 +538,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
                   <div style={{ fontSize: 10, color: '#bbb' }}>합산</div>
                 </div>
               </div>
-
-              {/* 작년 비교 요약 */}
               {lastYearLogs.length > 0 && (
                 <div style={{ ...card, background: 'linear-gradient(135deg,rgba(108,92,231,0.06),rgba(45,198,214,0.06))', border: '1px solid rgba(108,92,231,0.15)' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', marginBottom: 10 }}>🗓️ 작년 {month}월 vs 이번 {month}월</div>
@@ -595,7 +565,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
                   </div>
                 </div>
               )}
-
               {consumeRank.length > 0 && (
                 <div style={card}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📉 소모량 TOP {consumeRank.length}</div>
@@ -620,7 +589,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
                   })}
                 </div>
               )}
-
               {stockRank.length > 0 && (
                 <div style={card}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📦 입고량 TOP {stockRank.length}</div>
@@ -641,7 +609,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
             </>
           )}
 
-          {/* ── 트렌드 ── */}
           {activeSection === 'trend' && (
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 16 }}>📈 월별 소모량 추이 (최근 6개월)</div>
@@ -667,7 +634,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
             </div>
           )}
 
-          {/* ── 소진 예상 ── */}
           {activeSection === 'depletion' && (
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>⏳ 소진 예상일</div>
@@ -706,31 +672,25 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
             </div>
           )}
 
-          {/* ── 캘린더 ── */}
           {activeSection === 'calendar' && (
             <div>
               {calLoading ? (
                 <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>불러오는 중...</div>
               ) : (
                 <>
-                  {/* 캘린더 그리드 */}
                   <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📅 {year}년 {month}월 마감 기록</div>
-                    {/* 요일 헤더 */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
                       {['일', '월', '화', '수', '목', '금', '토'].map(d => (
                         <div key={d} style={{ textAlign: 'center', fontSize: 10, color: '#aaa', fontWeight: 600, padding: '4px 0' }}>{d}</div>
                       ))}
                     </div>
-                    {/* 날짜 셀 */}
                     {(() => {
                       const firstDay = new Date(year, month - 1, 1).getDay()
                       const daysInMonth = new Date(year, month, 0).getDate()
                       const snapshotDates = new Set(snapshots.map(s => s.snapshot_date))
                       const cells = []
-                      // 빈 칸
                       for (let i = 0; i < firstDay; i++) cells.push(<div key={`e${i}`} />)
-                      // 날짜
                       for (let d = 1; d <= daysInMonth; d++) {
                         const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`
                         const hasSnap = snapshotDates.has(dateStr)
@@ -755,11 +715,8 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
                     })()}
                     <div style={{ fontSize: 10, color: '#bbb', marginTop: 10 }}>● 기록 있는 날짜 · 오늘 주황 테두리 · 날짜 클릭하면 상세 보기</div>
                   </div>
-
-                  {/* 선택 날짜 상세 */}
                   {selectedDate && (() => {
                     const daySnaps = snapshots.filter(s => s.snapshot_date === selectedDate)
-                    // 품목별 합산
                     const byItem: Record<string, { name: string; unit: string; total: number }> = {}
                     daySnaps.forEach(s => {
                       if (!byItem[s.item_id]) byItem[s.item_id] = { name: s.inventory_items?.name || '', unit: s.inventory_items?.unit || '', total: 0 }
@@ -784,7 +741,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
                       </div>
                     )
                   })()}
-
                   {snapshots.length === 0 && (
                     <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>
                       이 달 마감 기록이 없어요<br/>
@@ -796,7 +752,6 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
             </div>
           )}
 
-          {/* ── 직원 ── */}
           {activeSection === 'staff' && (
             <div style={card}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>👤 직원별 업데이트</div>
@@ -850,14 +805,16 @@ export default function InventoryPage() {
   const [alertOpen, setAlertOpen] = useState(false)
   const [showPlaceMgr, setShowPlaceMgr] = useState(false)
   const [itemOrders, setItemOrders] = useState<Record<string, Record<string, number>>>({})
-  // 큰 카테고리 순서 (localStorage에 저장)
   const [groupOrder, setGroupOrder] = useState<string[]>([])
   const [isPC, setIsPC] = useState(false)
+  // [추가] 검색으로 이동 시 하이라이트 할 품목 ID
+  const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null)
   const dragItem = useRef<string | null>(null)
   const dragOver = useRef<string | null>(null)
   const initializedRef = useRef(false)
+  // [추가] 검색 이동 시 group useEffect가 subTab 초기화하는 버그 방지용 ref
+  const navigatingRef = useRef(false)
 
-  // PC/모바일 감지
   useEffect(() => {
     const check = () => setIsPC(window.innerWidth >= 768)
     check()
@@ -865,7 +822,6 @@ export default function InventoryPage() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // groups: groupOrder 순서로 정렬
   const groups = useMemo(() => {
     const all = [...new Set(places.map(p => p.group_name).filter(Boolean))]
     if (groupOrder.length === 0) return all
@@ -879,14 +835,18 @@ export default function InventoryPage() {
     setStoreId(store.id)
     setUserName(user.nm)
     setIsEdit(user.role === 'owner' || user.role === 'manager')
-    // 카테고리 순서 localStorage에서 복원
     const savedGroupOrder = JSON.parse(localStorage.getItem(`inv_group_order_${store.id}`) || '[]')
     if (savedGroupOrder.length > 0) setGroupOrder(savedGroupOrder)
     loadAll(store.id)
   }, [])
 
+  // [수정] navigatingRef 체크 추가 — 검색으로 이동 시 subTab 초기화 방지
   useEffect(() => {
     if (!initializedRef.current) return
+    if (navigatingRef.current) {
+      navigatingRef.current = false
+      return
+    }
     if (!group || places.length === 0) return
     const subs = places.filter(p => p.group_name === group)
     setSubTab(subs[0]?.name || '')
@@ -925,23 +885,27 @@ export default function InventoryPage() {
     setItemOrders(om)
   }
 
-  // 카테고리 순서 변경 → localStorage 저장
   function handleGroupReorder(newOrder: string[]) {
     setGroupOrder(newOrder)
     if (storeId) localStorage.setItem(`inv_group_order_${storeId}`, JSON.stringify(newOrder))
-    // 현재 선택된 그룹이 새 순서의 첫 번째와 다르면 첫 번째로 이동
     if (newOrder.length > 0 && !newOrder.includes(group)) {
       setGroup(newOrder[0])
     }
   }
 
-  // 검색 결과 클릭 → 해당 그룹+장소로 이동
-  function handleNavigate(targetGroup: string, targetPlace: string) {
+  // [수정] navigatingRef 플래그 세팅 + 하이라이트 적용
+  function handleNavigate(targetGroup: string, targetPlace: string, targetItemId?: string) {
+    navigatingRef.current = true
     setGroup(targetGroup)
     setSubTab(targetPlace)
     setShowAll(false)
     setSearchQ('')
     setShowSearchPanel(false)
+    if (targetItemId) {
+      setHighlightedItemId(targetItemId)
+      // 3초 후 하이라이트 해제
+      setTimeout(() => setHighlightedItemId(null), 3000)
+    }
   }
 
   const getQty = useCallback((itemId: string, place: string) => stock[itemId + '-' + place]?.quantity ?? -1, [stock])
@@ -1031,15 +995,13 @@ export default function InventoryPage() {
     return order[getStatus(totalQty(a.id), a.min_qty, a.warn_qty ?? 3)] - order[getStatus(totalQty(b.id), b.min_qty, b.warn_qty ?? 3)]
   }), [totalQty])
 
-  // ── 전체 목록: 장소 미배치 품목 포함 전체 표시 ──
   const allItems = sortByStatus(filteredBySearch(items))
-
   const currentItems = sortItemsByPlace(filteredBySearch(items.filter(item => hasStock(item.id, subTab))), subTab)
 
   const statusBadge = (tot: number, minQ: number, warnQ: number) => {
     const s = getStatus(tot, minQ, warnQ)
-    if (s === 'low') return <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700 }}>🔴 부족</span>
-    if (s === 'warn') return <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(253,196,0,0.15)', color: '#B8860B', fontWeight: 700 }}>🟡 주의</span>
+    if (s === 'low') return <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.12)', color: '#E84393', fontWeight: 700, flexShrink: 0 }}>🔴 부족</span>
+    if (s === 'warn') return <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(253,196,0,0.15)', color: '#B8860B', fontWeight: 700, flexShrink: 0 }}>🟡 주의</span>
     return null
   }
 
@@ -1048,6 +1010,18 @@ export default function InventoryPage() {
     if (s === 'low') return '1px solid rgba(232,67,147,0.35)'
     if (s === 'warn') return '1px solid rgba(253,196,0,0.5)'
     return '1px solid #E8ECF0'
+  }
+
+  // [수정] 하이라이트 품목 카드 스타일
+  const getCardStyle = (itemId: string, tot: number, minQ: number, warnQ: number, extraStyle?: any) => {
+    const isHighlighted = highlightedItemId === itemId
+    return {
+      ...bx,
+      border: isHighlighted ? '2px solid #6C5CE7' : borderColor(tot, minQ, warnQ),
+      background: isHighlighted ? 'rgba(108,92,231,0.04)' : '#fff',
+      transition: 'border 0.4s, background 0.4s',
+      ...extraStyle,
+    }
   }
 
   const groupEmoji: Record<string, string> = { '홀': '🍽', '주방': '👨‍🍳', '창고': '📦' }
@@ -1130,7 +1104,6 @@ export default function InventoryPage() {
           </div>
         </div>
 
-        {/* 품목 추가 */}
         {showAdd && (
           <div style={{ ...bx, border: '1px solid rgba(255,107,53,0.3)', marginBottom: 16, maxWidth: 480 }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1146,7 +1119,6 @@ export default function InventoryPage() {
           </div>
         )}
 
-        {/* 재고 알림 */}
         {(lowItems.length > 0 || warnItems.length > 0) && (
           <div style={{ borderRadius: 12, marginBottom: 16, overflow: 'hidden', border: '1px solid rgba(232,67,147,0.25)' }}>
             <button onClick={() => setAlertOpen(p => !p)}
@@ -1172,9 +1144,8 @@ export default function InventoryPage() {
 
         {/* PC 2컬럼 레이아웃 */}
         <div style={{ display: 'flex', gap: 20 }}>
-          {/* 좌측: 그룹/탭 + 검색 */}
+          {/* 좌측 */}
           <div style={{ width: 220, flexShrink: 0 }}>
-            {/* 검색 */}
             <div style={{ position: 'relative', marginBottom: 12 }}>
               <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#bbb' }}>🔍</span>
               <input value={searchQ} onChange={e => { setSearchQ(e.target.value); if (e.target.value.trim()) setShowSearchPanel(true) }}
@@ -1183,12 +1154,10 @@ export default function InventoryPage() {
                 style={{ ...inp, paddingLeft: 30, paddingRight: searchQ ? 30 : 10 }} />
               {searchQ && <button onClick={() => { setSearchQ(''); setShowSearchPanel(false) }} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>}
             </div>
-            {/* 전체 목록 버튼 */}
             <button onClick={() => { setShowAll(p => !p); setSearchQ('') }}
               style={{ width: '100%', padding: '8px 0', borderRadius: 8, border: showAll ? '1px solid rgba(108,92,231,0.4)' : '1px solid #E8ECF0', background: showAll ? 'rgba(108,92,231,0.08)' : '#F4F6F9', color: showAll ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: showAll ? 700 : 400, cursor: 'pointer', marginBottom: 12 }}>
               {showAll ? '▲ 전체 목록 닫기' : '▼ 전체 목록 보기'}
             </button>
-            {/* 그룹 탭 */}
             {groups.map(g => (
               <div key={g}>
                 <button onClick={() => { setGroup(g); setShowAll(false) }}
@@ -1205,9 +1174,8 @@ export default function InventoryPage() {
             ))}
           </div>
 
-          {/* 우측: 아이템 목록 */}
+          {/* 우측 */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            {/* 전체 목록 */}
             {showAll && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
                 {allItems.map(item => {
@@ -1215,13 +1183,14 @@ export default function InventoryPage() {
                   const wq = item.warn_qty ?? 3
                   const assignedPlaces = placeNames.filter(pl => hasStock(item.id, pl))
                   return (
-                    <div key={item.id} style={{ ...bx, border: borderColor(tot, item.min_qty, wq), margin: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                    <div key={item.id} style={getCardStyle(item.id, tot, item.min_qty, wq, { margin: 0 })}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8 }}>
+                        {/* [수정] 이름+뱃지 레이아웃 개선 */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', wordBreak: 'break-word' }}>{item.name}</span>
                           {statusBadge(tot, item.min_qty, wq)}
                         </div>
-                        <div style={{ textAlign: 'right' }}>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
                           <div style={{ fontSize: 18, fontWeight: 800, color: tot <= item.min_qty ? '#E84393' : tot <= wq ? '#B8860B' : '#1a1a2e' }}>{tot}</div>
                           <div style={{ fontSize: 9, color: '#bbb' }}>최소{item.min_qty} / 주의{wq}{item.unit}</div>
                         </div>
@@ -1255,7 +1224,6 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* 장소별 품목 */}
             {!showAll && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
                 {currentItems.length === 0 ? (
@@ -1275,19 +1243,21 @@ export default function InventoryPage() {
                       onDragEnter={() => isEdit && onItemDragEnter(item.id)}
                       onDragEnd={() => isEdit && onItemDragEnd(currentItems, subTab)}
                       onDragOver={e => e.preventDefault()}
-                      style={{ ...bx, border: borderColor(tot, item.min_qty, wq), cursor: isEdit ? 'grab' : 'default', margin: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      style={getCardStyle(item.id, tot, item.min_qty, wq, { cursor: isEdit ? 'grab' : 'default', margin: 0 })}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                        {/* [수정] 좌측 이름 영역 */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                           {isEdit && <span style={{ fontSize: 14, color: '#ddd', flexShrink: 0 }}>☰</span>}
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', wordBreak: 'break-word' }}>{item.name}</span>
                               {statusBadge(tot, item.min_qty, wq)}
                             </div>
                             <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>전체 {tot}{item.unit}</div>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {/* 우측 수량 버튼 */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                           <button onClick={() => updateQty(item.id, subTab, q - 1)}
                             style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
                           <input type="number" value={q < 0 ? 0 : q} onChange={e => updateQty(item.id, subTab, Number(e.target.value))}
@@ -1318,7 +1288,7 @@ export default function InventoryPage() {
     )
   }
 
-  // ── 모바일 레이아웃 (기존 유지) ──
+  // ── 모바일 레이아웃 ──
   return (
     <div>
       {showPlaceMgr && (
@@ -1341,7 +1311,6 @@ export default function InventoryPage() {
         />
       )}
 
-      {/* 품목 수정 모달 */}
       {editItem && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
@@ -1379,7 +1348,6 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* 품목 추가 폼 */}
       {showAdd && (
         <div style={{ ...bx, border: '1px solid rgba(255,107,53,0.3)', marginBottom: 12 }}>
           <input value={nm} onChange={e => setNm(e.target.value)} placeholder="품목명" style={{ ...inp, marginBottom: 8 }} />
@@ -1397,7 +1365,6 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* 재고 알림 */}
       {(lowItems.length > 0 || warnItems.length > 0) && (
         <div style={{ borderRadius: 12, marginBottom: 12, overflow: 'hidden', border: '1px solid rgba(232,67,147,0.25)' }}>
           <button onClick={() => setAlertOpen(p => !p)}
@@ -1436,13 +1403,11 @@ export default function InventoryPage() {
         ))}
       </div>
 
-      {/* 전체 보기 버튼 */}
       <button onClick={() => { setShowAll(p => !p); setSearchQ('') }}
         style={{ width: '100%', padding: '6px 0', borderRadius: 8, border: showAll ? '1px solid rgba(108,92,231,0.4)' : '1px solid #E8ECF0', background: showAll ? 'rgba(108,92,231,0.08)' : '#F4F6F9', color: showAll ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: showAll ? 700 : 400, cursor: 'pointer', marginBottom: 10 }}>
         {showAll ? '▲ 전체 목록 닫기' : '▼ 전체 목록 보기 (합산 · 품목수정 · 장소배치)'}
       </button>
 
-      {/* 검색 */}
       <div style={{ position: 'relative', marginBottom: 12 }}>
         <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#bbb' }}>🔍</span>
         <input value={searchQ} onChange={e => { setSearchQ(e.target.value); if (e.target.value.trim()) setShowSearchPanel(true) }}
@@ -1452,7 +1417,6 @@ export default function InventoryPage() {
         {searchQ && <button onClick={() => { setSearchQ(''); setShowSearchPanel(false) }} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>}
       </div>
 
-      {/* 서브 탭 */}
       {!showAll && (
         <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
           {subPlaces.map(pl => (
@@ -1464,19 +1428,20 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* 전체 목록 (모든 장소 합산) */}
+      {/* 전체 목록 */}
       {showAll && allItems.map(item => {
         const tot = totalQty(item.id)
         const wq = item.warn_qty ?? 3
         const assignedPlaces = placeNames.filter(pl => hasStock(item.id, pl))
         return (
-          <div key={item.id} style={{ ...bx, border: borderColor(tot, item.min_qty, wq) }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+          <div key={item.id} style={getCardStyle(item.id, tot, item.min_qty, wq)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8 }}>
+              {/* [수정] 이름+뱃지 레이아웃 개선 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', wordBreak: 'break-word' }}>{item.name}</span>
                 {statusBadge(tot, item.min_qty, wq)}
               </div>
-              <div style={{ textAlign: 'right' }}>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: tot <= item.min_qty ? '#E84393' : tot <= wq ? '#B8860B' : '#1a1a2e' }}>{tot}</div>
                 <div style={{ fontSize: 9, color: '#bbb' }}>최소{item.min_qty} / 주의{wq}{item.unit}</div>
               </div>
@@ -1532,19 +1497,20 @@ export default function InventoryPage() {
                 onDragEnter={() => isEdit && onItemDragEnter(item.id)}
                 onDragEnd={() => isEdit && onItemDragEnd(currentItems, subTab)}
                 onDragOver={e => e.preventDefault()}
-                style={{ ...bx, border: borderColor(tot, item.min_qty, wq), cursor: isEdit ? 'grab' : 'default' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                style={getCardStyle(item.id, tot, item.min_qty, wq, { cursor: isEdit ? 'grab' : 'default' })}>
+                {/* [수정] 레이아웃 개선 - 이름이 길어도 버튼이 밀리지 않음 */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                     {isEdit && <span style={{ fontSize: 14, color: '#ddd', flexShrink: 0 }}>☰</span>}
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.name}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', wordBreak: 'break-word' }}>{item.name}</span>
                         {statusBadge(tot, item.min_qty, wq)}
                       </div>
                       <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>전체 {tot}{item.unit}</div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     <button onClick={() => updateQty(item.id, subTab, q - 1)}
                       style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
                     <input

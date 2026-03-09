@@ -13,13 +13,13 @@ const TABS = [
 
 const MORE_ITEMS = [
   { href: '/analytics',   ic: '📈', l: '분석' },
-  { href: '/inventory',   ic: '📦', l: '재고' },
+  { href: '/inventory',   ic: '📦', l: '재고&발주' },
   { href: '/recipe',      ic: '🍳', l: '레시피' },
   { href: '/staff',       ic: '👥', l: '직원관리' },
   { href: '/goal',        ic: '🎯', l: '목표매출' },
   { href: '/attendance',  ic: '🕐', l: '출퇴근' },
   { href: '/placerank',   ic: '📍', l: '순위' },
-  { href: '/suggestions', ic: '💬', l: '건의&제보' },  // ← 추가
+  { href: '/suggestions', ic: '💬', l: '건의&제보' },
   { href: '/mypage',      ic: '📋', l: '마이페이지' },
   { href: '/export',      ic: '📥', l: '내보내기' },
 ]
@@ -96,7 +96,6 @@ export default function BottomNav({ current }: { current: string }) {
                 }}>
                   <div style={{ fontSize: 22, position: 'relative', display: 'inline-block' }}>
                     {item.ic}
-                    {/* 건의&제보 알림 뱃지 */}
                     {isSuggestions && badge > 0 && (
                       <span style={{
                         position: 'absolute', top: -4, right: -8,
@@ -144,7 +143,6 @@ export default function BottomNav({ current }: { current: string }) {
               >
                 <div style={{ fontSize: 18, position: 'relative', display: 'inline-block' }}>
                   {t.ic}
-                  {/* 더보기 버튼에도 뱃지 */}
                   {badge > 0 && (
                     <span style={{
                       position: 'absolute', top: -4, right: -8,
