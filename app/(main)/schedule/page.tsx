@@ -86,7 +86,7 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
             </button>
           ))}
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8 }}>
           {(['absent','early'] as const).map(s => (
             <button key={s} onClick={() => onApply(s)}
               style={{ padding:'14px 0', borderRadius:12, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:13, fontWeight:700, cursor:'pointer' }}>
@@ -98,6 +98,10 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
             취소
           </button>
         </div>
+        <button onClick={() => onApply('__delete__')}
+          style={{ width:'100%', padding:'12px 0', borderRadius:12, border:'1.5px solid rgba(232,67,147,0.4)', background:'rgba(232,67,147,0.07)', color:'#E84393', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+          🗑 선택 {dates.length}일 전체 삭제
+        </button>
       </div>
     </div>
   )
@@ -308,7 +312,7 @@ function RequestPanel({ storeId, myName, onClose, onApproved }: {
 }
 
 // ════════════════════════════════════════
-// ManageView - 전지점 관리 탭 (NEW)
+// ManageView - 전지점 관리 탭
 // ════════════════════════════════════════
 function ManageView({ profileId, myName, year, month }: {
   profileId: string; myName: string; year: number; month: number
@@ -317,8 +321,14 @@ function ManageView({ profileId, myName, year, month }: {
   const [storeItems, setStoreItems] = useState<any[]>([])
   const [storeData, setStoreData] = useState<Record<string, { schedules: any[]; requests: any[]; staff: string[] }>>({})
   const [loading, setLoading] = useState(true)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [approvingId, setApprovingId] = useState<string | null>(null)
+  // 섹션 탭: today / grid / summary / requests
+  const [section, setSection] = useState<'today'|'grid'|'summary'|'requests'>('today')
+  // 월간 그리드: 펼친 지점
+  const [gridExpanded, setGridExpanded] = useState<Record<string, boolean>>({})
+
+  const today = toDateStr(new Date())
+  const tomorrow = toDateStr(new Date(Date.now() + 86400000))
 
   useEffect(() => { loadAll() }, [year, month])
 
@@ -352,10 +362,10 @@ function ManageView({ profileId, myName, year, month }: {
 
     setStoreData(newData)
     setLoading(false)
-
-    // 요청 있는 첫 지점 자동 펼침
-    const firstWithReqs = myStores.find((m: any) => (newData[m.stores?.id]?.requests?.length || 0) > 0)
-    setExpandedId(firstWithReqs?.stores?.id || myStores[0]?.stores?.id || null)
+    // 기본 전부 펼침
+    const expanded: Record<string, boolean> = {}
+    myStores.forEach((m: any) => { if (m.stores?.id) expanded[m.stores.id] = true })
+    setGridExpanded(expanded)
   }
 
   async function handleApprove(sid: string, req: any) {
@@ -385,144 +395,325 @@ function ManageView({ profileId, myName, year, month }: {
 
   const totalPending = Object.values(storeData).reduce((s, d) => s + d.requests.length, 0)
   const totalStaff = Object.values(storeData).reduce((s, d) => s + d.staff.length, 0)
+  const daysInMonth = getDaysInMonth(year, month)
+  const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
+  const allDays = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+
+  // 섹션 탭 버튼 스타일
+  const secBtn = (active: boolean) => ({
+    flex: 1, padding: '8px 4px', borderRadius: 9, border: 'none', cursor: 'pointer' as const,
+    fontSize: 11, fontWeight: active ? 700 : 400,
+    background: active ? '#fff' : 'transparent',
+    color: active ? '#1a1a2e' : '#aaa',
+    boxShadow: active ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+    whiteSpace: 'nowrap' as const,
+  })
 
   return (
     <div>
-      {/* 상단 요약 */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:20 }}>
-        <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:'14px 10px', textAlign:'center' }}>
+      {/* 상단 요약 카드 */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:16 }}>
+        <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:'12px 8px', textAlign:'center' }}>
           <div style={{ fontSize:22, fontWeight:800, color:'#6C5CE7' }}>{storeItems.length}</div>
-          <div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>전체 지점</div>
+          <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>전체 지점</div>
         </div>
-        <div style={{ background: totalPending > 0 ? 'rgba(232,67,147,0.05)' : '#fff', borderRadius:14, border:`1.5px solid ${totalPending > 0 ? 'rgba(232,67,147,0.3)' : '#E8ECF0'}`, padding:'14px 10px', textAlign:'center' }}>
+        <div style={{ background: totalPending > 0 ? 'rgba(232,67,147,0.05)' : '#fff', borderRadius:14, border:`1.5px solid ${totalPending > 0 ? 'rgba(232,67,147,0.3)' : '#E8ECF0'}`, padding:'12px 8px', textAlign:'center', cursor:'pointer' }}
+          onClick={() => setSection('requests')}>
           <div style={{ fontSize:22, fontWeight:800, color: totalPending > 0 ? '#E84393' : '#bbb' }}>{totalPending}</div>
-          <div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>승인 대기</div>
+          <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>승인 대기</div>
         </div>
-        <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:'14px 10px', textAlign:'center' }}>
+        <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:'12px 8px', textAlign:'center' }}>
           <div style={{ fontSize:22, fontWeight:800, color:'#FF6B35' }}>{totalStaff}</div>
-          <div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>전체 직원</div>
+          <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>전체 직원</div>
         </div>
       </div>
 
-      {/* 매장별 카드 */}
-      {storeItems.map((member: any) => {
-        const sid = member.stores?.id
-        if (!sid) return null
-        const storeName = member.stores?.name || ''
-        const d = storeData[sid]
-        if (!d) return null
-        const { schedules: scheds, requests, staff } = d
-        const isExpanded = expandedId === sid
-        const pendingCount = requests.length
+      {/* 섹션 탭 */}
+      <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:16, gap:2 }}>
+        <button style={secBtn(section==='today')} onClick={() => setSection('today')}>👥 오늘/내일</button>
+        <button style={secBtn(section==='grid')} onClick={() => setSection('grid')}>📊 월간그리드</button>
+        <button style={secBtn(section==='summary')} onClick={() => setSection('summary')}>📈 근무요약</button>
+        <button style={{ ...secBtn(section==='requests'), position:'relative' }} onClick={() => setSection('requests')}>
+          📋 요청
+          {totalPending > 0 && <span style={{ position:'absolute', top:2, right:2, background:'#E84393', color:'#fff', borderRadius:6, padding:'0 4px', fontSize:8, fontWeight:700 }}>{totalPending}</span>}
+        </button>
+      </div>
 
-        const summary = staff.map(name => {
-          const ss = scheds.filter(s => s.staff_name === name)
-          return {
-            name,
-            work: ss.filter(s => s.status === 'work').length,
-            off: ss.filter(s => s.status === 'off').length,
-            half: ss.filter(s => s.status === 'half').length,
-            absent: ss.filter(s => s.status === 'absent').length,
-            early: ss.filter(s => s.status === 'early').length,
-          }
-        })
-
-        return (
-          <div key={sid} style={{ background:'#fff', borderRadius:18, border: pendingCount > 0 ? '1.5px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0', marginBottom:14, overflow:'hidden', boxShadow:'0 2px 8px rgba(0,0,0,0.05)' }}>
-            {/* 헤더 */}
-            <div onClick={() => setExpandedId(isExpanded ? null : sid)}
-              style={{ display:'flex', alignItems:'center', padding:'14px 16px', cursor:'pointer', background: isExpanded ? '#FAFBFC' : '#fff', borderBottom: isExpanded ? '1px solid #F0F2F5' : 'none' }}>
-              <div style={{ width:40, height:40, borderRadius:12, background:'linear-gradient(135deg,#FF6B35,#E84393)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, fontWeight:800, color:'#fff', marginRight:12, flexShrink:0 }}>
-                {storeName.charAt(0)}
-              </div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>{storeName}</div>
-                <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>직원 {staff.length}명 · 스케줄 {scheds.length}건</div>
-              </div>
-              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                {pendingCount > 0 && (
-                  <span style={{ background:'#E84393', color:'#fff', borderRadius:10, padding:'3px 9px', fontSize:11, fontWeight:700 }}>📋 {pendingCount}</span>
-                )}
-                {pendingCount === 0 && <span style={{ fontSize:11, color:'#bbb', background:'#F4F6F9', borderRadius:8, padding:'3px 9px' }}>✓ 완료</span>}
-                <span style={{ fontSize:12, color:'#ccc' }}>{isExpanded ? '▲' : '▼'}</span>
-              </div>
-            </div>
-
-            {isExpanded && (
-              <div style={{ padding:'16px 16px' }}>
-                {/* 승인 대기 요청 */}
-                {requests.length > 0 && (
-                  <div style={{ marginBottom:20 }}>
-                    <div style={{ fontSize:12, fontWeight:700, color:'#E84393', marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
-                      <span>📋 승인 대기 요청</span>
-                      <span style={{ background:'rgba(232,67,147,0.1)', color:'#E84393', borderRadius:8, padding:'1px 8px', fontSize:11 }}>{requests.length}건</span>
-                    </div>
-                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                      {requests.map((req: any) => (
-                        <div key={req.id} style={{ background:'#FFFBFE', border:'1px solid rgba(232,67,147,0.15)', borderRadius:12, padding:'12px 14px' }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: req.note ? 6 : 10 }}>
-                            <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{req.staff_name}</span>
-                            <span style={{ fontSize:11, color:'#bbb' }}>{req.schedule_date}</span>
-                            <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5 }}>
-                              {req.current_status && <span style={{ fontSize:10, color:STATUS_COLOR[req.current_status], background:STATUS_BG[req.current_status], padding:'2px 7px', borderRadius:5, fontWeight:700 }}>{STATUS_LABEL[req.current_status]}</span>}
-                              <span style={{ fontSize:10, color:'#bbb' }}>→</span>
-                              <span style={{ fontSize:10, color:STATUS_COLOR[req.requested_status], background:STATUS_BG[req.requested_status], padding:'2px 7px', borderRadius:5, fontWeight:700 }}>{STATUS_LABEL[req.requested_status]}</span>
-                            </div>
+      {/* ── 섹션 1: 오늘 / 내일 출근자 ── */}
+      {section === 'today' && (
+        <div>
+          {(['오늘', '내일'] as const).map((label, li) => {
+            const dateStr = li === 0 ? today : tomorrow
+            const dow = DOW_LABEL[new Date(dateStr).getDay()]
+            const parts = dateStr.split('-')
+            return (
+              <div key={label} style={{ marginBottom:20 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                  <span style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>
+                    {label === '오늘' ? '🌞' : '🌙'} {label}
+                  </span>
+                  <span style={{ fontSize:12, color:'#888' }}>{parts[1]}월 {parts[2]}일 ({dow})</span>
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {storeItems.map((member: any) => {
+                    const sid = member.stores?.id
+                    const storeName = member.stores?.name || ''
+                    const d = storeData[sid]
+                    if (!d) return null
+                    const workers = d.schedules.filter(s => s.schedule_date === dateStr && (s.status === 'work' || s.status === 'half' || s.status === 'early'))
+                    const offWorkers = d.schedules.filter(s => s.schedule_date === dateStr && s.status === 'off')
+                    const absentWorkers = d.schedules.filter(s => s.schedule_date === dateStr && s.status === 'absent')
+                    return (
+                      <div key={sid} style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:'12px 14px', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
+                        {/* 지점명 */}
+                        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                          <div style={{ width:28, height:28, borderRadius:8, background:'linear-gradient(135deg,#FF6B35,#E84393)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                            {storeName.charAt(0)}
                           </div>
-                          {req.note && <div style={{ fontSize:11, color:'#888', marginBottom:8, padding:'5px 9px', background:'#F8F9FB', borderRadius:7 }}>{req.note}</div>}
-                          <div style={{ fontSize:10, color:'#bbb', marginBottom:8 }}>요청자: {req.requester_nm} · {new Date(req.created_at).toLocaleDateString('ko')}</div>
-                          <div style={{ display:'flex', gap:8 }}>
-                            <button onClick={() => handleReject(sid, req)} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거절</button>
-                            <button onClick={() => handleApprove(sid, req)} disabled={approvingId === req.id}
-                              style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, opacity: approvingId === req.id ? 0.7 : 1 }}>
-                              {approvingId === req.id ? '처리 중...' : '✓ 승인'}
-                            </button>
-                          </div>
+                          <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{storeName}</span>
+                          <span style={{ marginLeft:'auto', fontSize:11, fontWeight:700, color: workers.length > 0 ? '#6C5CE7' : '#bbb' }}>
+                            {workers.length > 0 ? `${workers.length}명 출근` : '스케줄 없음'}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 이번달 근무 요약 */}
-                <div>
-                  <div style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>
-                    📊 {year}년 {month+1}월 근무 요약
-                  </div>
-                  {summary.length === 0 ? (
-                    <div style={{ textAlign:'center', padding:'16px 0', color:'#bbb', fontSize:12 }}>직원 데이터 없음</div>
-                  ) : (
-                    <div style={{ borderRadius:12, border:'1px solid #E8ECF0', overflow:'hidden' }}>
-                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
-                        <thead>
-                          <tr style={{ background:'#F8F9FB' }}>
-                            <th style={{ padding:'8px 12px', textAlign:'left', color:'#888', fontWeight:700, borderBottom:'1px solid #E8ECF0' }}>직원</th>
-                            {(['work','off','half','absent','early'] as const).map(s => (
-                              <th key={s} style={{ padding:'8px 6px', textAlign:'center', color:STATUS_COLOR[s], fontWeight:700, borderBottom:'1px solid #E8ECF0', fontSize:10 }}>{STATUS_LABEL[s]}</th>
+                        {/* 출근자 목록 */}
+                        {workers.length > 0 ? (
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                            {workers.map((s: any) => (
+                              <div key={s.id} style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 10px', borderRadius:20, background:STATUS_BG[s.status], border:`1px solid ${STATUS_COLOR[s.status]}40` }}>
+                                <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>{s.staff_name}</span>
+                                {s.status !== 'work' && (
+                                  <span style={{ fontSize:9, color:STATUS_COLOR[s.status], fontWeight:700 }}>{STATUS_LABEL[s.status]}</span>
+                                )}
+                                {s.position && (
+                                  <span style={{ fontSize:9, color:POS_COLOR[s.position], fontWeight:700 }}>{s.position}</span>
+                                )}
+                              </div>
                             ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {summary.map((s, idx) => (
-                            <tr key={s.name} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFBFC', borderBottom:'1px solid #F4F6F9' }}>
-                              <td style={{ padding:'9px 12px', fontWeight:600, color:'#1a1a2e', fontSize:12 }}>{s.name}</td>
-                              <td style={{ padding:'9px 6px', textAlign:'center', fontWeight:700, color: s.work > 0 ? STATUS_COLOR.work : '#ddd' }}>{s.work || '-'}</td>
-                              <td style={{ padding:'9px 6px', textAlign:'center', color: s.off > 0 ? STATUS_COLOR.off : '#ddd' }}>{s.off || '-'}</td>
-                              <td style={{ padding:'9px 6px', textAlign:'center', color: s.half > 0 ? STATUS_COLOR.half : '#ddd' }}>{s.half || '-'}</td>
-                              <td style={{ padding:'9px 6px', textAlign:'center', color: s.absent > 0 ? STATUS_COLOR.absent : '#ddd', fontWeight: s.absent > 0 ? 700 : 400 }}>{s.absent || '-'}</td>
-                              <td style={{ padding:'9px 6px', textAlign:'center', color: s.early > 0 ? STATUS_COLOR.early : '#ddd' }}>{s.early || '-'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize:12, color:'#bbb', padding:'4px 0' }}>등록된 출근자 없음</div>
+                        )}
+                        {/* 휴일/결근자 */}
+                        {(offWorkers.length > 0 || absentWorkers.length > 0) && (
+                          <div style={{ display:'flex', gap:6, marginTop:8, paddingTop:8, borderTop:'1px solid #F4F6F9', flexWrap:'wrap' }}>
+                            {offWorkers.map((s: any) => (
+                              <span key={s.id} style={{ fontSize:10, color:STATUS_COLOR.off, background:STATUS_BG.off, padding:'2px 8px', borderRadius:10 }}>{s.staff_name} 휴일</span>
+                            ))}
+                            {absentWorkers.map((s: any) => (
+                              <span key={s.id} style={{ fontSize:10, color:STATUS_COLOR.absent, background:STATUS_BG.absent, padding:'2px 8px', borderRadius:10, fontWeight:700 }}>{s.staff_name} 결근</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
-            )}
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── 섹션 2: 전지점 월간 그리드 ── */}
+      {section === 'grid' && (
+        <div>
+          <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>
+            지점명 눌러서 접기/펼치기 · {year}년 {month+1}월
           </div>
-        )
-      })}
+          {storeItems.map((member: any) => {
+            const sid = member.stores?.id
+            const storeName = member.stores?.name || ''
+            const d = storeData[sid]
+            if (!d) return null
+            const { schedules: scheds, staff } = d
+            const isExpanded = gridExpanded[sid] !== false
+            const schedMap: Record<string,any> = {}
+            scheds.forEach(s => { schedMap[`${s.staff_name}-${s.schedule_date}`] = s })
+
+            return (
+              <div key={sid} style={{ marginBottom:18, background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
+                {/* 지점 헤더 */}
+                <div onClick={() => setGridExpanded(prev => ({ ...prev, [sid]: !isExpanded }))}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', cursor:'pointer', background:'#F8F9FB', borderBottom: isExpanded ? '1px solid #E8ECF0' : 'none' }}>
+                  <div style={{ width:28, height:28, borderRadius:8, background:'linear-gradient(135deg,#FF6B35,#E84393)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                    {storeName.charAt(0)}
+                  </div>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', flex:1 }}>{storeName}</span>
+                  <span style={{ fontSize:11, color:'#bbb' }}>직원 {staff.length}명</span>
+                  <span style={{ fontSize:11, color:'#ccc', marginLeft:4 }}>{isExpanded ? '▲' : '▼'}</span>
+                </div>
+                {/* 그리드 테이블 */}
+                {isExpanded && (
+                  <div style={{ overflowX:'auto' }}>
+                    <table style={{ borderCollapse:'collapse', fontSize:10, minWidth: staff.length * 36 + 70, width:'100%', tableLayout:'fixed' }}>
+                      <colgroup>
+                        <col style={{ width:60 }} />
+                        {staff.map((_,i) => <col key={i} style={{ width: Math.max(36, Math.floor((500 - 60) / Math.max(staff.length, 1))) }} />)}
+                      </colgroup>
+                      <thead>
+                        <tr style={{ background:'#F8F9FB' }}>
+                          <th style={{ padding:'6px 8px', borderBottom:'1px solid #E8ECF0', borderRight:'2px solid #E8ECF0', color:'#aaa', fontWeight:700, fontSize:9, textAlign:'left', position:'sticky', left:0, background:'#F8F9FB', zIndex:2 }}>날짜</th>
+                          {staff.map(name => (
+                            <th key={name} style={{ padding:'5px 2px', borderBottom:'1px solid #E8ECF0', borderRight:'1px solid #ECEEF2', color:'#1a1a2e', fontWeight:700, textAlign:'center', fontSize:10 }}>
+                              {name.length > 3 ? name.slice(0,3) + '.' : name}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allDays.map(day => {
+                          const dateStr = `${monthStr}-${String(day).padStart(2,'0')}`
+                          const dow = new Date(dateStr).getDay()
+                          const isToday = dateStr === today
+                          const isSun = dow === 0; const isSat = dow === 6
+                          const workCnt = staff.filter(s => { const sc = schedMap[`${s}-${dateStr}`]; return sc && (sc.status==='work'||sc.status==='half'||sc.status==='early') }).length
+                          return (
+                            <tr key={day} style={{ background: isToday ? 'rgba(108,92,231,0.05)' : isSun ? 'rgba(232,67,147,0.02)' : '#fff', borderTop: dow===1&&day!==1 ? '2px solid #D0D4E8' : undefined }}>
+                              <td style={{ padding:'2px 8px', borderBottom:'1px solid #F4F6F9', borderRight:'2px solid #E8ECF0', height:28, position:'sticky', left:0, background: isToday ? 'rgba(108,92,231,0.07)' : isSun ? 'rgba(232,67,147,0.05)' : isSat ? 'rgba(108,92,231,0.03)' : '#FAFBFC', zIndex:1 }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:3 }}>
+                                  <span style={{ fontSize:11, fontWeight:isToday?700:400, color:isToday?'#6C5CE7':isSun?'#E84393':isSat?'#6C5CE7':'#555' }}>{day}</span>
+                                  <span style={{ fontSize:8, color:isSun?'#E84393':isSat?'#6C5CE7':'#ccc' }}>{DOW_LABEL[dow]}</span>
+                                  {workCnt > 0 && <span style={{ marginLeft:'auto', fontSize:9, fontWeight:700, color: workCnt < 2 ? '#E84393' : '#6C5CE7' }}>{workCnt}</span>}
+                                </div>
+                              </td>
+                              {staff.map(name => {
+                                const sc = schedMap[`${name}-${dateStr}`]
+                                return (
+                                  <td key={name} style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:28, textAlign:'center', verticalAlign:'middle', background: sc ? STATUS_BG[sc.status] : undefined, padding:0 }}>
+                                    {sc ? (
+                                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
+                                        <span style={{ fontSize:8, fontWeight:700, color:STATUS_COLOR[sc.status], lineHeight:1.3 }}>{STATUS_LABEL[sc.status]}</span>
+                                        {sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
+                                      </div>
+                                    ) : null}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── 섹션 3: 근무 요약 ── */}
+      {section === 'summary' && (
+        <div>
+          {storeItems.map((member: any) => {
+            const sid = member.stores?.id
+            const storeName = member.stores?.name || ''
+            const d = storeData[sid]
+            if (!d) return null
+            const { schedules: scheds, staff } = d
+            const summary = staff.map(name => {
+              const ss = scheds.filter(s => s.staff_name === name)
+              return {
+                name,
+                work: ss.filter(s => s.status === 'work').length,
+                off: ss.filter(s => s.status === 'off').length,
+                half: ss.filter(s => s.status === 'half').length,
+                absent: ss.filter(s => s.status === 'absent').length,
+                early: ss.filter(s => s.status === 'early').length,
+              }
+            })
+            return (
+              <div key={sid} style={{ marginBottom:16, background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'11px 14px', background:'#F8F9FB', borderBottom:'1px solid #E8ECF0' }}>
+                  <div style={{ width:26, height:26, borderRadius:7, background:'linear-gradient(135deg,#FF6B35,#E84393)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                    {storeName.charAt(0)}
+                  </div>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{storeName}</span>
+                  <span style={{ marginLeft:'auto', fontSize:11, color:'#aaa' }}>{year}년 {month+1}월</span>
+                </div>
+                {summary.length === 0 ? (
+                  <div style={{ padding:'16px', textAlign:'center', color:'#bbb', fontSize:12 }}>직원 없음</div>
+                ) : (
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+                    <thead>
+                      <tr style={{ background:'#FAFBFC' }}>
+                        <th style={{ padding:'7px 12px', textAlign:'left', color:'#888', fontWeight:700, borderBottom:'1px solid #F0F2F5', fontSize:10 }}>직원</th>
+                        {(['work','off','half','absent','early'] as const).map(s => (
+                          <th key={s} style={{ padding:'7px 6px', textAlign:'center', color:STATUS_COLOR[s], fontWeight:700, borderBottom:'1px solid #F0F2F5', fontSize:9 }}>{STATUS_LABEL[s]}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summary.map((s, idx) => (
+                        <tr key={s.name} style={{ background: idx % 2 === 0 ? '#fff' : '#FAFBFC', borderBottom:'1px solid #F4F6F9' }}>
+                          <td style={{ padding:'8px 12px', fontWeight:600, color:'#1a1a2e' }}>{s.name}</td>
+                          <td style={{ padding:'8px 6px', textAlign:'center', fontWeight:700, color: s.work > 0 ? STATUS_COLOR.work : '#ddd' }}>{s.work || '-'}</td>
+                          <td style={{ padding:'8px 6px', textAlign:'center', color: s.off > 0 ? STATUS_COLOR.off : '#ddd' }}>{s.off || '-'}</td>
+                          <td style={{ padding:'8px 6px', textAlign:'center', color: s.half > 0 ? STATUS_COLOR.half : '#ddd' }}>{s.half || '-'}</td>
+                          <td style={{ padding:'8px 6px', textAlign:'center', color: s.absent > 0 ? STATUS_COLOR.absent : '#ddd', fontWeight: s.absent > 0 ? 700 : 400 }}>{s.absent || '-'}</td>
+                          <td style={{ padding:'8px 6px', textAlign:'center', color: s.early > 0 ? STATUS_COLOR.early : '#ddd' }}>{s.early || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── 섹션 4: 승인 대기 요청 ── */}
+      {section === 'requests' && (
+        <div>
+          {totalPending === 0 ? (
+            <div style={{ textAlign:'center', padding:'40px 0', color:'#bbb' }}>
+              <div style={{ fontSize:28, marginBottom:8 }}>✅</div>
+              <div style={{ fontSize:13 }}>모든 지점 승인 대기 없음</div>
+            </div>
+          ) : storeItems.map((member: any) => {
+            const sid = member.stores?.id
+            const storeName = member.stores?.name || ''
+            const d = storeData[sid]
+            if (!d || d.requests.length === 0) return null
+            return (
+              <div key={sid} style={{ marginBottom:16 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                  <div style={{ width:24, height:24, borderRadius:6, background:'linear-gradient(135deg,#FF6B35,#E84393)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                    {storeName.charAt(0)}
+                  </div>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{storeName}</span>
+                  <span style={{ background:'rgba(232,67,147,0.1)', color:'#E84393', borderRadius:8, padding:'1px 8px', fontSize:11, fontWeight:700 }}>{d.requests.length}건</span>
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {d.requests.map((req: any) => (
+                    <div key={req.id} style={{ background:'#fff', border:'1px solid rgba(232,67,147,0.18)', borderRadius:12, padding:'12px 14px' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: req.note ? 6 : 10 }}>
+                        <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{req.staff_name}</span>
+                        <span style={{ fontSize:11, color:'#bbb' }}>{req.schedule_date}</span>
+                        <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5 }}>
+                          {req.current_status && <span style={{ fontSize:10, color:STATUS_COLOR[req.current_status], background:STATUS_BG[req.current_status], padding:'2px 7px', borderRadius:5, fontWeight:700 }}>{STATUS_LABEL[req.current_status]}</span>}
+                          <span style={{ fontSize:10, color:'#bbb' }}>→</span>
+                          <span style={{ fontSize:10, color:STATUS_COLOR[req.requested_status], background:STATUS_BG[req.requested_status], padding:'2px 7px', borderRadius:5, fontWeight:700 }}>{STATUS_LABEL[req.requested_status]}</span>
+                        </div>
+                      </div>
+                      {req.note && <div style={{ fontSize:11, color:'#888', marginBottom:8, padding:'5px 9px', background:'#F8F9FB', borderRadius:7 }}>{req.note}</div>}
+                      <div style={{ fontSize:10, color:'#bbb', marginBottom:8 }}>요청자: {req.requester_nm} · {new Date(req.created_at).toLocaleDateString('ko')}</div>
+                      <div style={{ display:'flex', gap:8 }}>
+                        <button onClick={() => handleReject(sid, req)} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거절</button>
+                        <button onClick={() => handleApprove(sid, req)} disabled={approvingId === req.id}
+                          style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, opacity: approvingId === req.id ? 0.7 : 1 }}>
+                          {approvingId === req.id ? '처리 중...' : '✓ 승인'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -612,12 +803,20 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
   async function handleBulkApply(status: string) {
     if (!bulkTarget) return
-    for (const dateStr of bulkTarget.dates) {
-      await supabase.from('schedules').upsert(
-        { store_id: storeId, staff_name: bulkTarget.staff, schedule_date: dateStr, status, position: null, note: null },
-        { onConflict: 'store_id,staff_name,schedule_date' }
-      )
-      await syncAttendance(supabase, storeId, bulkTarget.staff, dateStr, status)
+    if (status === '__delete__') {
+      for (const dateStr of bulkTarget.dates) {
+        await supabase.from('schedules').delete()
+          .eq('store_id', storeId).eq('staff_name', bulkTarget.staff).eq('schedule_date', dateStr)
+        await syncAttendance(supabase, storeId, bulkTarget.staff, dateStr, 'work')
+      }
+    } else {
+      for (const dateStr of bulkTarget.dates) {
+        await supabase.from('schedules').upsert(
+          { store_id: storeId, staff_name: bulkTarget.staff, schedule_date: dateStr, status, position: null, note: null },
+          { onConflict: 'store_id,staff_name,schedule_date' }
+        )
+        await syncAttendance(supabase, storeId, bulkTarget.staff, dateStr, status)
+      }
     }
     setBulkTarget(null)
     onSaved()
@@ -935,11 +1134,17 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
   async function applyBulk(status: string) {
     for (const key of selected) {
       const [staff, dateStr] = key.split('|')
-      await supabase.from('schedules').upsert(
-        { store_id: storeId, staff_name: staff, schedule_date: dateStr, status, position: null, note: null },
-        { onConflict: 'store_id,staff_name,schedule_date' }
-      )
-      await syncAttendance(supabase, storeId, staff, dateStr, status)
+      if (status === '__delete__') {
+        await supabase.from('schedules').delete()
+          .eq('store_id', storeId).eq('staff_name', staff).eq('schedule_date', dateStr)
+        await syncAttendance(supabase, storeId, staff, dateStr, 'work')
+      } else {
+        await supabase.from('schedules').upsert(
+          { store_id: storeId, staff_name: staff, schedule_date: dateStr, status, position: null, note: null },
+          { onConflict: 'store_id,staff_name,schedule_date' }
+        )
+        await syncAttendance(supabase, storeId, staff, dateStr, status)
+      }
     }
     setSelected(new Set()); setMultiMode(false); onSaved()
   }
@@ -1087,7 +1292,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
           <div style={{ fontSize:12, color:'#6C5CE7', fontWeight:700, marginBottom:10, textAlign:'center' }}>
             {selected.size}개 선택됨 — 적용할 상태를 선택하세요
           </div>
-          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:8 }}>
             {(['work','off','half','absent','early'] as const).map(s => (
               <button key={s} onClick={() => applyBulk(s)}
                 style={{ flex:1, minWidth:56, padding:'10px 0', borderRadius:10, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:12, fontWeight:700, cursor:'pointer' }}>
@@ -1095,6 +1300,10 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
               </button>
             ))}
           </div>
+          <button onClick={() => applyBulk('__delete__')}
+            style={{ width:'100%', padding:'10px 0', borderRadius:10, border:'1.5px solid rgba(232,67,147,0.4)', background:'rgba(232,67,147,0.07)', color:'#E84393', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+            🗑 선택 {selected.size}개 삭제
+          </button>
         </div>
       )}
 
