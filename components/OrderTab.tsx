@@ -572,11 +572,8 @@ function OrderCard({ order, userName, isEdit, onRefresh }: { order: any; userNam
 }
 
 // ─── 통계 ───
-function OrderStats({ storeId }: { storeId: string }) {
+function OrderStats({ storeId, year, month }: { storeId: string; year: number; month: number }) {
   const supabase = createSupabaseBrowserClient()
-  const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth() + 1)
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -606,20 +603,8 @@ function OrderStats({ storeId }: { storeId: string }) {
 
   const card = { background: '#fff', borderRadius: 14, border: '1px solid #E8ECF0', padding: 14, marginBottom: 10 }
 
-  function prevMonth() { if (month === 1) { setYear(y => y - 1); setMonth(12) } else setMonth(m => m - 1) }
-  function nextMonth() {
-    if (year === now.getFullYear() && month === now.getMonth() + 1) return
-    if (month === 12) { setYear(y => y + 1); setMonth(1) } else setMonth(m => m + 1)
-  }
-
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 16 }}>
-        <button onClick={prevMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 14, color: '#888' }}>‹</button>
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#6C5CE7' }}>{year}년 {month}월</span>
-        <button onClick={nextMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 14, color: '#888' }}>›</button>
-      </div>
-
       {loading ? <div style={{ textAlign: 'center', padding: 32, color: '#bbb' }}>불러오는 중...</div> : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
@@ -674,6 +659,7 @@ function OrderStats({ storeId }: { storeId: string }) {
   )
 }
 
+
 // ═══════════════════════════════════════
 // 메인 OrderTab
 // ═══════════════════════════════════════
@@ -687,6 +673,9 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [showSupplierMgr, setShowSupplierMgr] = useState(false)
   const [loading, setLoading] = useState(true)
+  const now = new Date()
+  const [selYear, setSelYear] = useState(now.getFullYear())
+  const [selMonth, setSelMonth] = useState(now.getMonth() + 1)
 
   useEffect(() => { if (storeId) { loadOrders(); loadSuppliers() } }, [storeId])
 
@@ -701,13 +690,28 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
     setSuppliers(data || [])
   }
 
-  const now = new Date()
+  // 드롭다운 선택지: 최근 24개월
+  const monthOptions = useMemo(() => {
+    const opts: { year: number; month: number; label: string }[] = []
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      opts.push({ year: d.getFullYear(), month: d.getMonth() + 1, label: `${d.getFullYear()}년 ${d.getMonth() + 1}월` })
+    }
+    return opts
+  }, [])
+
+  // 선택된 달 기준 필터 (전체/이슈/통계용)
+  const filteredOrders = useMemo(() => orders.filter(o => {
+    const d = new Date(o.ordered_at)
+    return d.getFullYear() === selYear && d.getMonth() + 1 === selMonth
+  }), [orders, selYear, selMonth])
+
   const pendingOrders = useMemo(() => orders.filter(o => o.status === 'pending'), [orders])
   const overdueOrders = useMemo(() => pendingOrders.filter(o => {
     const diff = (now.getTime() - new Date(o.ordered_at).getTime()) / (1000 * 60 * 60 * 24)
     return diff > 2
   }), [pendingOrders])
-  const issueOrders = useMemo(() => orders.filter(o => o.status === 'issue'), [orders])
+  const issueOrders = useMemo(() => filteredOrders.filter(o => o.status === 'issue'), [filteredOrders])
 
   const tabBtn = (key: typeof subTab, label: string, badgeCnt?: number) => (
     <button onClick={() => setSubTab(key)} style={{
@@ -745,12 +749,31 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
       </div>
 
       {/* 탭 */}
-      <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 14, gap: 2 }}>
+      <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 10, gap: 2 }}>
         {tabBtn('pending', `미수령 ${pendingOrders.length}`, overdueOrders.length)}
         {tabBtn('all', '전체 내역')}
         {tabBtn('issues', '이슈', issueOrders.length)}
         {tabBtn('stats', '📊 통계')}
       </div>
+
+      {/* 년/월 드롭다운 — 미수령 탭 제외 */}
+      {subTab !== 'pending' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <span style={{ fontSize: 11, color: '#aaa', flexShrink: 0 }}>📅 기간</span>
+          <select
+            value={`${selYear}-${selMonth}`}
+            onChange={e => {
+              const [y, m] = e.target.value.split('-').map(Number)
+              setSelYear(y); setSelMonth(m)
+            }}
+            style={{ flex: 1, padding: '7px 10px', borderRadius: 9, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#1a1a2e', fontSize: 13, outline: 'none', cursor: 'pointer', fontWeight: 600 }}
+          >
+            {monthOptions.map(o => (
+              <option key={`${o.year}-${o.month}`} value={`${o.year}-${o.month}`}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>불러오는 중...</div>
@@ -770,16 +793,16 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems }: 
             </>
           )}
           {subTab === 'all' && (
-            orders.length === 0
-              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>발주 내역이 없어요</div>
-              : orders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)
+            filteredOrders.length === 0
+              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div>
+              : filteredOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)
           )}
           {subTab === 'issues' && (
             issueOrders.length === 0
-              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>이슈 내역이 없어요</div>
+              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 이슈 내역이 없어요</div>
               : issueOrders.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} onRefresh={loadOrders} />)
           )}
-          {subTab === 'stats' && <OrderStats storeId={storeId} />}
+          {subTab === 'stats' && <OrderStats storeId={storeId} year={selYear} month={selMonth} />}
         </>
       )}
     </div>
