@@ -534,7 +534,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
           return { store, todos, closingTodos, allDates }
         })),
-        supabase.from('notices').select('notice_date, content').eq('is_from_closing', false).eq('title', '__PERSONAL_CHECKLIST__').eq('created_by', user.nm || '')
+        supabase.from('notices').select('notice_date, content').eq('is_from_closing', false).eq('title', '__PERSONAL_CHECKLIST__').eq('created_by', userName)
       ])
 
       setAllTodosMap(storeResults.map(({ store, todos, closingTodos }) => ({ store, todos, closingTodos })))
