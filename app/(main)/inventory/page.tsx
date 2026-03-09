@@ -1,6 +1,7 @@
 ﻿'use client'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import OrderTab from '@/components/OrderTab'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
@@ -782,6 +783,7 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
 // ═══════════════════════════════════════
 export default function InventoryPage() {
   const supabase = createSupabaseBrowserClient()
+  const [mainTab, setMainTab] = useState<'stock' | 'order'>('stock')
   const [storeId, setStoreId] = useState('')
   const [userName, setUserName] = useState('')
   const [isEdit, setIsEdit] = useState(false)
@@ -1026,6 +1028,24 @@ export default function InventoryPage() {
 
   const groupEmoji: Record<string, string> = { '홀': '🍽', '주방': '👨‍🍳', '창고': '📦' }
 
+  // ── 발주 탭 early return ──
+  const MainTabBar = () => (
+    <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 12, padding: 4, marginBottom: 16, gap: 4 }}>
+      {(['stock', 'order'] as const).map(k => (
+        <button key={k} onClick={() => setMainTab(k)} style={{ flex: 1, padding: '10px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: mainTab === k ? 700 : 400, background: mainTab === k ? 'linear-gradient(135deg,#FF6B35,#E84393)' : 'transparent', color: mainTab === k ? '#fff' : '#aaa', boxShadow: mainTab === k ? '0 2px 8px rgba(255,107,53,0.3)' : 'none' }}>
+          {k === 'stock' ? '📦 재고' : '📋 발주'}
+        </button>
+      ))}
+    </div>
+  )
+
+  if (mainTab === 'order') return (
+    <div style={{ padding: isPC ? '20px 28px' : '0' }}>
+      <MainTabBar />
+      <OrderTab storeId={storeId} userName={userName} isEdit={isEdit} inventoryItems={items} />
+    </div>
+  )
+
   if (showLog) return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
@@ -1050,6 +1070,7 @@ export default function InventoryPage() {
   if (isPC) {
     return (
       <div style={{ padding: '20px 28px' }}>
+        <MainTabBar />
         {showPlaceMgr && (
           <PlaceManager
             storeId={storeId}
@@ -1291,6 +1312,7 @@ export default function InventoryPage() {
   // ── 모바일 레이아웃 ──
   return (
     <div>
+      <MainTabBar />
       {showPlaceMgr && (
         <PlaceManager
           storeId={storeId}
