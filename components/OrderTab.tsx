@@ -756,6 +756,31 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
           <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="비고 메모" style={inp} />
         </div>
 
+        {/* 주문완료 상태면 요청됨으로 되돌리기 버튼 표시 */}
+        {order.status === 'ordered' && (
+          <div style={{ marginBottom: 12 }}>
+            <button onClick={async () => {
+              if (!confirm('주문 확인을 취소하고 요청됨 상태로 되돌릴까요?')) return
+              await supabase.from('orders').update({
+                status: 'requested',
+                confirmed_by: null,
+                confirmed_at: null,
+              }).eq('id', order.id)
+              await supabase.from('order_receipt_logs').insert({
+                order_id: order.id,
+                changed_by: userName,
+                field_name: '주문 취소',
+                before_value: `주문완료 (${order.confirmed_by})`,
+                after_value: '요청됨으로 되돌림',
+                memo: null,
+              })
+              onSaved(); onClose()
+            }} style={{ width: '100%', padding: '10px 0', borderRadius: 10, background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.25)', color: '#FF6B35', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              ↩️ 주문 확인 취소 (요청됨으로 되돌리기)
+            </button>
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={handleDelete}
             style={{ padding: '11px 14px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
