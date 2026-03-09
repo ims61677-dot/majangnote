@@ -416,6 +416,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [selectedCalDate, setSelectedCalDate] = useState(today)
   const [allTodoDates, setAllTodoDates] = useState<Set<string>>(new Set())
 
+  // 체크리스트 날짜 이동 팝업
+  const [movePopup, setMovePopup] = useState<{itemId: string, fromDate: string} | null>(null)
   // 개인 체크리스트 (메모 대체)
   // 구조: { '2026-03-08': [{id, text, done, time?, repeat?}] }
   const [checklistMap, setChecklistMap] = useState<Record<string, any[]>>({})
@@ -1133,11 +1135,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                   </div>
                 </div>
                 <div style={{ display:'flex', gap:3, flexShrink:0 }}>
-                  <button onClick={() => {
-                    const toDate = prompt('이동할 날짜 입력 (예: 2026-03-10):')
-                    if (toDate && /^\d{4}-\d{2}-\d{2}$/.test(toDate)) moveItemToDate(selectedCalDate, item.id, toDate)
-                    else if (toDate) alert('날짜 형식이 올바르지 않아요 (예: 2026-03-10)')
-                  }} style={{ fontSize: 10, color: '#6C5CE7', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }} title="다른 날짜로 이동">📅</button>
+                  <button onClick={() => setMovePopup({ itemId: item.id, fromDate: selectedCalDate })}
+                    style={{ fontSize: 10, color: '#6C5CE7', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }} title="다른 날짜로 이동">📅</button>
                   <button onClick={() => deleteChecklistItem(selectedCalDate, item.id)}
                     style={{ fontSize: 11, color: '#E84393', background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px' }}>✕</button>
                 </div>
@@ -1176,6 +1175,41 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         </div>
         <div style={{ fontSize: 9, color: '#bbb', marginTop: 4 }}>⏰ 시간 설정 시 해당 시간에 알림 (선택사항)</div>
       </div>
+
+      {/* 날짜 이동 팝업 */}
+      {movePopup && (() => {
+        const getRelDate = (days: number) => {
+          const d = new Date(movePopup.fromDate); d.setDate(d.getDate() + days)
+          return d.toISOString().slice(0, 10)
+        }
+        const btnStyle = (color: string) => ({
+          flex: 1, padding: '8px 0', borderRadius: 8, border: `1px solid ${color}20`,
+          background: `${color}12`, color, fontSize: 12, fontWeight: 700, cursor: 'pointer' as const
+        })
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+            onClick={() => setMovePopup(null)}>
+            <div style={{ background: '#fff', borderRadius: '20px 20px 0 0', padding: 20, width: '100%', maxWidth: 400 }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 16, textAlign: 'center' }}>📅 언제로 이동할까요?</div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button style={btnStyle('#6C5CE7')} onClick={() => { moveItemToDate(movePopup.fromDate, movePopup.itemId, getRelDate(1)); setMovePopup(null) }}>내일</button>
+                <button style={btnStyle('#6C5CE7')} onClick={() => { moveItemToDate(movePopup.fromDate, movePopup.itemId, getRelDate(2)); setMovePopup(null) }}>모레</button>
+                <button style={btnStyle('#00B894')} onClick={() => { moveItemToDate(movePopup.fromDate, movePopup.itemId, getRelDate(7)); setMovePopup(null) }}>+1주</button>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input type="date" defaultValue={getRelDate(1)}
+                  onChange={e => {
+                    if (e.target.value) { moveItemToDate(movePopup.fromDate, movePopup.itemId, e.target.value); setMovePopup(null) }
+                  }}
+                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #E8ECF0', fontSize: 13, outline: 'none', color: '#1a1a2e' }} />
+              </div>
+              <button onClick={() => setMovePopup(null)}
+                style={{ width: '100%', marginTop: 10, padding: '10px 0', borderRadius: 10, background: '#F4F6F9', border: 'none', color: '#aaa', fontSize: 13, cursor: 'pointer' }}>취소</button>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 
