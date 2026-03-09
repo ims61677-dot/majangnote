@@ -1148,7 +1148,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
           </div>
           {/* 2행: 수량 · 발주처 · 재고연동 */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#555', background: '#F4F6F9', padding: '2px 8px', borderRadius: 5 }}>{order.quantity} {order.unit}</span>
+            <span style={{ fontSize: 16, fontWeight: 800, color: '#1a1a2e', background: '#F0F2F8', padding: '2px 10px', borderRadius: 6, letterSpacing: '-0.3px' }}>{order.quantity}<span style={{ fontSize: 12, fontWeight: 600, color: '#888', marginLeft: 2 }}>{order.unit}</span></span>
             {order.supplier_name && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 5, background: 'rgba(45,198,214,0.1)', color: '#2DC6D6' }}>🏪 {order.supplier_name}</span>}
             {order.inventory_item_id && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>재고연동</span>}
           </div>
@@ -1536,8 +1536,14 @@ export default function OrderTab({ storeId, userName, isEdit, inventoryItems, pl
       if (!map[key]) map[key] = []
       map[key].push(o)
     })
-    // 날짜 내에서 created_at 오름차순 고정 → 액션해도 순서 안 바뀜
-    Object.values(map).forEach(items => items.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()))
+    // 날짜 내 정렬: 요청됨 → 주문완료 → 수령완료 순, 같은 상태끼리는 created_at 오름차순
+    const statusOrder: Record<string, number> = { requested: 0, ordered: 1, issue: 2, received: 3, returned: 4 }
+    Object.values(map).forEach(items => items.sort((a, b) => {
+      const sa = statusOrder[a.status] ?? 5
+      const sb = statusOrder[b.status] ?? 5
+      if (sa !== sb) return sa - sb
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    }))
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]))
   }
 
