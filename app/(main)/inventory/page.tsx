@@ -940,8 +940,6 @@ function InventoryPageInner() {
     setUserName(user.nm)
     setUserRole(user.role || '')
     setIsEdit(user.role === 'owner' || user.role === 'manager')
-    const savedGroupOrder = JSON.parse(localStorage.getItem(`inv_group_order_${store.id}`) || '[]')
-    if (savedGroupOrder.length > 0) setGroupOrder(savedGroupOrder)
     loadAll(store.id)
   }, [])
 
@@ -991,11 +989,21 @@ function InventoryPageInner() {
 
     const { data: sup } = await supabase.from('order_suppliers').select('*').eq('store_id', sid).order('name')
     setSuppliers(sup || [])
+
+    const { data: setting } = await supabase.from('store_settings').select('value').eq('store_id', sid).eq('key', 'group_order').maybeSingle()
+    if (setting?.value) {
+      try { setGroupOrder(JSON.parse(setting.value)) } catch {}
+    }
   }
 
   function handleGroupReorder(newOrder: string[]) {
     setGroupOrder(newOrder)
-    if (storeId) localStorage.setItem(`inv_group_order_${storeId}`, JSON.stringify(newOrder))
+    if (storeId) {
+      supabase.from('store_settings').upsert(
+        { store_id: storeId, key: 'group_order', value: JSON.stringify(newOrder), updated_at: new Date().toISOString() },
+        { onConflict: 'store_id,key' }
+      )
+    }
     if (newOrder.length > 0 && !newOrder.includes(group)) {
       setGroup(newOrder[0])
     }
