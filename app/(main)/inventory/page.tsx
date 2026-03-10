@@ -783,7 +783,7 @@ function StatsTab({ storeId, items, stock }: { storeId: string; items: any[]; st
 // ═══════════════════════════════════════
 // 메인
 // ═══════════════════════════════════════
-export default // ─── 재고탭 빠른 발주요청 모달 ───
+// ─── 재고탭 빠른 발주요청 모달 ───
 function QuickOrderRequestModal({ item, storeId, userName, suppliers, onClose, onSaved }: {
   item: any; storeId: string; userName: string; suppliers: any[]; onClose: () => void; onSaved: () => void
 }) {
@@ -865,7 +865,7 @@ function QuickOrderRequestModal({ item, storeId, userName, suppliers, onClose, o
   )
 }
 
-function InventoryPage() {
+export default function InventoryPage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#bbb' }}>불러오는 중...</div>}>
       <InventoryPageInner />
