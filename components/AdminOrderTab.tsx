@@ -177,7 +177,7 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
   )
 }
 
-function AdminOrderCard({ order, userName, places, onRefresh }: { order: any; userName: string; places: any[]; onRefresh: () => void }) {
+function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { order: any; userName: string; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [showReceive, setShowReceive] = useState(false)
@@ -191,7 +191,7 @@ function AdminOrderCard({ order, userName, places, onRefresh }: { order: any; us
     <>
       {showConfirm && <ConfirmOrderModal order={order} userName={userName} onDone={() => { setShowConfirm(false); onRefresh() }} onClose={() => setShowConfirm(false)} />}
       {showReceive && <ReceiveModal order={order} userName={userName} places={places} onDone={() => { setShowReceive(false); onRefresh() }} onClose={() => setShowReceive(false)} />}
-      <div style={{ background: '#fff', borderRadius: 14, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
+      <div data-admin-order-id={order.id} style={{ background: '#fff', borderRadius: 14, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: highlighted ? `0 0 0 3px ${cfg.color}, 0 2px 12px ${cfg.color}44` : '0 1px 6px rgba(0,0,0,0.06)', transition: 'box-shadow 0.3s' }}>
         <div style={{ background: cfg.headerBg, padding: '7px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{cfg.label}</span>
@@ -315,6 +315,34 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
   const [showPicker, setShowPicker] = useState(false)
   const [pickerYear, setPickerYear] = useState(now.getFullYear())
 
+  const [searchQ, setSearchQ] = useState('')
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+
+  const searchResults = useMemo(() => {
+    const q = searchQ.trim()
+    if (!q) return []
+    return orders.filter(o =>
+      o.item_name?.includes(q) || o.ordered_by?.includes(q) || o.memo?.includes(q) || o.supplier_name?.includes(q)
+    ).slice(0, 20)
+  }, [searchQ, orders])
+
+  function goToOrder(orderId: string) {
+    const target = orders.find(o => o.id === orderId)
+    if (target) {
+      const d = new Date(target.ordered_at)
+      setSelYear(d.getFullYear())
+      setSelMonth(d.getMonth() + 1)
+    }
+    setSubTab('all')
+    setSearchQ('')
+    setHighlightId(orderId)
+    setTimeout(() => {
+      const el = document.querySelector(`[data-admin-order-id="${orderId}"]`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 300)
+    setTimeout(() => setHighlightId(null), 3000)
+  }
+
   useEffect(() => { loadOrders() }, [])
 
   async function loadOrders() {
@@ -370,7 +398,7 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
                 {items.map((o: any) => (
-                  <AdminOrderCard key={o.id} order={o} userName={userName} places={places} onRefresh={loadOrders} />
+                  <AdminOrderCard key={o.id} order={o} userName={userName} places={places} highlighted={highlightId === o.id} onRefresh={loadOrders} />
                 ))}
               </div>
             </div>
@@ -482,9 +510,60 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
               : <DateGroupedList list={requestedOrders} />
           )}
           {subTab === 'all' && (
-            monthlyOrders.length === 0
-              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div>
-              : <DateGroupedList list={monthlyOrders} />
+            <>
+              {/* 검색창 */}
+              <div style={{ position: 'relative', marginBottom: 12 }}>
+                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#aaa' }}>🔍</span>
+                <input
+                  value={searchQ}
+                  onChange={e => setSearchQ(e.target.value)}
+                  placeholder="품목명, 발주자, 메모 검색 (전체 기간)..."
+                  style={{ width: '100%', padding: '9px 32px 9px 32px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, color: '#1a1a2e' }}
+                />
+                {searchQ && (
+                  <button onClick={() => setSearchQ('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                )}
+                {searchQ.trim() && searchResults.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', borderRadius: 12, border: '1px solid #E0E4E8', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', marginTop: 4, maxHeight: 320, overflowY: 'auto' }}>
+                    {searchResults.map(o => {
+                      const cfg = STATUS_CONFIG[o.status]
+                      const store = STORES.find(s => s.id === o.store_id)
+                      const d = new Date(o.ordered_at)
+                      return (
+                        <div key={o.id} onClick={() => goToOrder(o.id)}
+                          style={{ padding: '10px 14px', borderBottom: '1px solid #F4F6F9', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#F8F9FB')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                        >
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: cfg?.color || '#aaa', flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 2 }}>{o.item_name}</div>
+                            <div style={{ fontSize: 11, color: '#aaa' }}>
+                              {d.getFullYear()}년 {d.getMonth()+1}월 {d.getDate()}일 · {o.ordered_by} · {o.quantity}{o.unit}
+                              {store && <span style={{ marginLeft: 6, color: store.color }}>{store.name}</span>}
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: (cfg?.color || '#aaa') + '18', color: cfg?.color || '#888', fontWeight: 700, flexShrink: 0 }}>
+                            {cfg?.label || o.status}
+                          </span>
+                        </div>
+                      )
+                    })}
+                    {searchResults.length === 20 && (
+                      <div style={{ padding: '8px 14px', fontSize: 11, color: '#bbb', textAlign: 'center' }}>상위 20건만 표시됩니다</div>
+                    )}
+                  </div>
+                )}
+                {searchQ.trim() && searchResults.length === 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', borderRadius: 12, border: '1px solid #E0E4E8', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', marginTop: 4, padding: '16px', textAlign: 'center', fontSize: 13, color: '#bbb' }}>
+                    검색 결과가 없어요
+                  </div>
+                )}
+              </div>
+              {monthlyOrders.length === 0
+                ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div>
+                : <DateGroupedList list={monthlyOrders} />}
+            </>
           )}
           {subTab === 'issues' && (
             issueOrders.length === 0

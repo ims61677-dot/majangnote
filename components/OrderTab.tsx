@@ -3,6 +3,15 @@ import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
+
+const STATUS_CONFIG: Record<string, { label: string; color: string; headerBg: string }> = {
+  requested: { label: '📋 주문요청', color: '#FF6B35', headerBg: 'linear-gradient(135deg,#FF6B35,#ff9a6c)' },
+  ordered:   { label: '✅ 주문완료', color: '#6C5CE7', headerBg: 'linear-gradient(135deg,#6C5CE7,#a29bfe)' },
+  received:  { label: '📦 수령완료', color: '#00B894', headerBg: 'linear-gradient(135deg,#00B894,#2DC6D6)' },
+  issue:     { label: '⚠️ 이슈있음', color: '#E84393', headerBg: 'linear-gradient(135deg,#E84393,#fd79a8)' },
+  returned:  { label: '↩️ 반품완료', color: '#999',    headerBg: 'linear-gradient(135deg,#bbb,#ddd)' },
+  pending:   { label: '⏳ 미수령',   color: '#B8860B', headerBg: 'linear-gradient(135deg,#B8860B,#e0a030)' },
+}
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
 
 const ISSUE_TYPES: Record<string, string> = {
@@ -1056,7 +1065,7 @@ function TimelineItem({ color, icon, title, who, when, note }: {
 }
 
 // ─── 발주 카드 상세 ───
-function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places, onRefresh }: { order: any; userName: string; isEdit: boolean; suppliers: any[]; inventoryItems: any[]; places: any[]; onRefresh: () => void }) {
+function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places, highlighted, onRefresh }: { order: any; userName: string; isEdit: boolean; suppliers: any[]; inventoryItems: any[]; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
   const [receipt, setReceipt] = useState<any>(null)
@@ -1111,18 +1120,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
   }
   const borderColor = isOverdue ? '#E84393' : statusColor[order.status] || '#E8ECF0'
 
-  const STATUS_HEADER: Record<string, string> = {
-    requested: 'linear-gradient(135deg,#FF6B35,#ff9a6c)',
-    ordered:   'linear-gradient(135deg,#6C5CE7,#a29bfe)',
-    received:  'linear-gradient(135deg,#00B894,#2DC6D6)',
-    issue:     'linear-gradient(135deg,#E84393,#fd79a8)',
-    returned:  'linear-gradient(135deg,#bbb,#ddd)',
-    pending:   'linear-gradient(135deg,#B8860B,#e0a030)',
-  }
-  const STATUS_EMOJI: Record<string, string> = {
-    requested: '📋 주문요청', ordered: '✅ 주문완료', received: '📦 수령완료',
-    issue: '⚠️ 이슈있음', returned: '↩️ 반품완료', pending: '⏳ 미수령',
-  }
+  const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending
 
   return (
     <>
@@ -1134,11 +1132,11 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
       {showEdit && <EditOrderModal order={order} userName={userName} inventoryItems={inventoryItems} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
       {showResolve && <ResolveIssueModal order={order} userName={userName} onClose={() => setShowResolve(false)} onSaved={onRefresh} />}
 
-      <div style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${isOverdue ? 'rgba(232,67,147,0.35)' : statusColor[order.status] + '33' || '#E8ECF0'}`, overflow: 'hidden', boxShadow: '0 1px 5px rgba(0,0,0,0.05)' }}>
+      <div data-order-id={order.id} style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${isOverdue ? 'rgba(232,67,147,0.35)' : statusColor[order.status] + '33' || '#E8ECF0'}`, overflow: 'hidden', boxShadow: highlighted ? '0 0 0 3px #6C5CE7, 0 2px 12px rgba(108,92,231,0.25)' : '0 1px 5px rgba(0,0,0,0.05)', transition: 'box-shadow 0.3s' }}>
         {/* 컬러 헤더 띠 */}
-        <div style={{ background: STATUS_HEADER[order.status] || STATUS_HEADER.pending, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ background: cfg.headerBg, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{STATUS_EMOJI[order.status] || order.status}</span>
+            <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{cfg.label}</span>
             {isOverdue && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.2)', color: '#fff', fontWeight: 700 }}>⏰ {Math.floor(diffDays)}일 지연</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1549,6 +1547,35 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
   const issueOrders = useMemo(() => orders.filter(o => o.status === 'issue'), [orders])
   const monthlyIssueOrders = useMemo(() => filteredOrders.filter(o => o.status === 'issue'), [filteredOrders])
 
+  // 검색
+  const [searchQ, setSearchQ] = useState('')
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+
+  const searchResults = useMemo(() => {
+    const q = searchQ.trim()
+    if (!q) return []
+    return orders.filter(o =>
+      o.item_name?.includes(q) || o.ordered_by?.includes(q) || o.memo?.includes(q) || o.supplier_name?.includes(q)
+    ).slice(0, 20)
+  }, [searchQ, orders])
+
+  function goToOrder(orderId: string) {
+    const target = orders.find(o => o.id === orderId)
+    if (target) {
+      const d = new Date(target.ordered_at)
+      setSelYear(d.getFullYear())
+      setSelMonth(d.getMonth() + 1)
+    }
+    setSubTab('all')
+    setSearchQ('')
+    setHighlightId(orderId)
+    setTimeout(() => {
+      const el = document.querySelector(`[data-order-id="${orderId}"]`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 300)
+    setTimeout(() => setHighlightId(null), 3000)
+  }
+
   // 날짜별 그룹핑
   function groupByDate(list: any[]) {
     const map: Record<string, any[]> = {}
@@ -1598,7 +1625,7 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
               </div>
               {/* 카드 그리드 */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 0 }}>
-                {items.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} suppliers={suppliers} inventoryItems={inventoryItems} places={places} onRefresh={loadOrders} />)}
+                {items.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} suppliers={suppliers} inventoryItems={inventoryItems} places={places} highlighted={highlightId === o.id} onRefresh={loadOrders} />)}
               </div>
             </div>
           )
@@ -1739,9 +1766,59 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
               : <DateGroupedList list={requestedOrders} />
           )}
           {subTab === 'all' && (
-            filteredOrders.length === 0
-              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div>
-              : <DateGroupedList list={filteredOrders} />
+            <>
+              {/* 검색창 */}
+              <div style={{ position: 'relative', marginBottom: 12 }}>
+                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#aaa' }}>🔍</span>
+                <input
+                  value={searchQ}
+                  onChange={e => setSearchQ(e.target.value)}
+                  placeholder="품목명, 발주자, 메모 검색..."
+                  style={{ width: '100%', padding: '9px 32px 9px 32px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, color: '#1a1a2e' }}
+                />
+                {searchQ && (
+                  <button onClick={() => setSearchQ('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                )}
+                {/* 검색 결과 드롭다운 */}
+                {searchQ.trim() && searchResults.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', borderRadius: 12, border: '1px solid #E0E4E8', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', marginTop: 4, maxHeight: 320, overflowY: 'auto' }}>
+                    {searchResults.map(o => {
+                      const cfg = STATUS_CONFIG[o.status]
+                      const d = new Date(o.ordered_at)
+                      return (
+                        <div key={o.id} onClick={() => goToOrder(o.id)}
+                          style={{ padding: '10px 14px', borderBottom: '1px solid #F4F6F9', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#F8F9FB')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                        >
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: cfg?.color || '#aaa', flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 2 }}>{o.item_name}</div>
+                            <div style={{ fontSize: 11, color: '#aaa' }}>
+                              {d.getFullYear()}년 {d.getMonth()+1}월 {d.getDate()}일 · {o.ordered_by} · {o.quantity}{o.unit}
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: cfg?.color + '18' || '#F4F6F9', color: cfg?.color || '#888', fontWeight: 700, flexShrink: 0 }}>
+                            {cfg?.label || o.status}
+                          </span>
+                        </div>
+                      )
+                    })}
+                    {searchResults.length === 20 && (
+                      <div style={{ padding: '8px 14px', fontSize: 11, color: '#bbb', textAlign: 'center' }}>상위 20건만 표시됩니다</div>
+                    )}
+                  </div>
+                )}
+                {searchQ.trim() && searchResults.length === 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', borderRadius: 12, border: '1px solid #E0E4E8', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', marginTop: 4, padding: '16px', textAlign: 'center', fontSize: 13, color: '#bbb' }}>
+                    검색 결과가 없어요
+                  </div>
+                )}
+              </div>
+              {filteredOrders.length === 0
+                ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div>
+                : <DateGroupedList list={filteredOrders} />}
+            </>
           )}
           {subTab === 'issues' && (
             issueOrders.length === 0
