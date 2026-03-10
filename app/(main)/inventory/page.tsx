@@ -993,16 +993,33 @@ function InventoryPageInner() {
     const { data: setting } = await supabase.from('store_settings').select('value').eq('store_id', sid).eq('key', 'group_order').maybeSingle()
     if (setting?.value) {
       try { setGroupOrder(JSON.parse(setting.value)) } catch {}
+    } else {
+      // DB에 없으면 localStorage에서 복원 (마이그레이션 전 데이터 대비)
+      const local = localStorage.getItem(`inv_group_order_${sid}`)
+      if (local) {
+        try {
+          const parsed = JSON.parse(local)
+          setGroupOrder(parsed)
+          // DB에도 올려줌
+          supabase.from('store_settings').upsert(
+            { store_id: sid, key: 'group_order', value: local, updated_at: new Date().toISOString() },
+            { onConflict: 'store_id,key' }
+          )
+        } catch {}
+      }
     }
   }
 
-  function handleGroupReorder(newOrder: string[]) {
+  async function handleGroupReorder(newOrder: string[]) {
     setGroupOrder(newOrder)
+    // localStorage에도 백업 저장 (오프라인/에러 대비)
+    if (storeId) localStorage.setItem(`inv_group_order_${storeId}`, JSON.stringify(newOrder))
     if (storeId) {
-      supabase.from('store_settings').upsert(
+      const { error } = await supabase.from('store_settings').upsert(
         { store_id: storeId, key: 'group_order', value: JSON.stringify(newOrder), updated_at: new Date().toISOString() },
         { onConflict: 'store_id,key' }
       )
+      if (error) console.error('카테고리 순서 저장 실패:', error)
     }
     if (newOrder.length > 0 && !newOrder.includes(group)) {
       setGroup(newOrder[0])
