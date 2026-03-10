@@ -69,42 +69,115 @@ function ConfirmOrderModal({ order, userName, onDone, onClose }: { order: any; u
   )
 }
 
-function ReceiveModal({ order, userName, onDone, onClose }: { order: any; userName: string; onDone: () => void; onClose: () => void }) {
+function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any; userName: string; places: any[]; onDone: () => void; onClose: () => void }) {
   const supabase = createSupabaseBrowserClient()
-  const [qty, setQty] = useState(order.quantity)
+  const [step, setStep] = useState<'qty' | 'place'>('qty')
+  const [recvQty, setRecvQty] = useState<number | ''>(order.quantity)
+  const [selectedPlace, setSelectedPlace] = useState('')
+  const [memo, setMemo] = useState('')
   const [saving, setSaving] = useState(false)
+  const hasInventoryLink = !!order.inventory_item_id
 
-  async function handleReceive() {
-    setSaving(true)
-    await supabase.from('orders').update({ status: 'received', received_quantity: qty, received_at: new Date().toISOString(), received_by: userName }).eq('id', order.id)
-    await supabase.from('order_receipts').insert({ order_id: order.id, received_quantity: qty, received_by: userName, inventory_applied: false })
-    await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '수령완료', before_value: '주문완료', after_value: `${qty}${order.unit} 수령`, memo: null })
-    setSaving(false); onDone()
+  async function handleQtyNext() {
+    if (!recvQty) return
+    if (hasInventoryLink) { setStep('place') } else { await doSave(null) }
   }
+
+  async function doSave(place: string | null) {
+    setSaving(true)
+    const { data: receipt } = await supabase.from('order_receipts').insert({
+      order_id: order.id, received_quantity: Number(recvQty), received_by: userName,
+      inventory_applied: !!place, inventory_applied_at: place ? new Date().toISOString() : null,
+      inventory_applied_by: place ? userName : null, inventory_place: place || null,
+      memo: memo.trim() || null,
+    }).select().single()
+    if (receipt) {
+      await supabase.from('order_receipt_logs').insert({
+        receipt_id: receipt.id, order_id: order.id, changed_by: userName, field_name: '최초수령',
+        before_value: null, after_value: place ? `${recvQty}${order.unit} → ${place}` : `${recvQty}${order.unit}`,
+        memo: memo.trim() || null,
+      })
+    }
+    if (place && order.inventory_item_id) {
+      const { data: existing } = await supabase.from('inventory_stock')
+        .select('quantity').eq('item_id', order.inventory_item_id).eq('place', place).single()
+      await supabase.from('inventory_stock').upsert({
+        item_id: order.inventory_item_id, place, quantity: (existing?.quantity ?? 0) + Number(recvQty),
+        updated_by: userName, updated_at: new Date().toISOString(),
+      }, { onConflict: 'item_id,place' })
+    }
+    await supabase.from('orders').update({ status: 'received' }).eq('id', order.id)
+    setSaving(false); onDone(); onClose()
+  }
+
+  const placeGroups = places.reduce((acc: Record<string, any[]>, p) => {
+    const g = p.group_name || '기타'; if (!acc[g]) acc[g] = []; acc[g].push(p); return acc
+  }, {})
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
-      <div style={{ background: '#fff', width: '100%', maxWidth: 480, borderRadius: '20px 20px 0 0', padding: 20 }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>📦 수령 확인</div>
-        <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>{order.item_name}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <button onClick={() => setQty((q: number) => Math.max(1, q - 1))} style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 18 }}>−</button>
-          <input type="number" value={qty} onChange={e => setQty(Number(e.target.value))} style={{ flex: 1, textAlign: 'center', fontSize: 20, fontWeight: 700, border: '1px solid #E8ECF0', borderRadius: 8, padding: '6px 0', outline: 'none' }} />
-          <span style={{ fontSize: 13, color: '#888', minWidth: 24 }}>{order.unit}</span>
-          <button onClick={() => setQty((q: number) => q + 1)} style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 18 }}>+</button>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={handleReceive} disabled={saving} style={{ flex: 1, padding: '12px 0', borderRadius: 12, background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-            {saving ? '처리 중...' : '📦 수령완료'}
-          </button>
-          <button onClick={onClose} style={{ padding: '12px 18px', borderRadius: 12, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
-        </div>
+      <div style={{ background: '#fff', width: '100%', maxWidth: 480, borderRadius: '20px 20px 0 0', padding: 20, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        {step === 'qty' && (
+          <>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>📦 수령 처리</div>
+            <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} · 발주수량 {order.quantity}{order.unit}</div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>실제 수령 수량</div>
+              <input type="number" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+            </div>
+            {hasInventoryLink && (
+              <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.2)', marginBottom: 10, fontSize: 12, color: '#6C5CE7' }}>
+                📦 재고 연동된 품목이에요 — 다음 단계에서 배치 장소를 선택해요
+              </div>
+            )}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
+              <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="특이사항 메모" style={inp} />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={handleQtyNext} disabled={!recvQty}
+                style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: recvQty ? 'linear-gradient(135deg,#00B894,#2DC6D6)' : '#E8ECF0', border: 'none', color: recvQty ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, cursor: recvQty ? 'pointer' : 'default' }}>
+                {hasInventoryLink ? '다음 →' : '수령 완료'}
+              </button>
+              <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+            </div>
+          </>
+        )}
+        {step === 'place' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <button onClick={() => setStep('qty')} style={{ background: 'none', border: 'none', color: '#aaa', fontSize: 18, cursor: 'pointer', padding: 0 }}>←</button>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>📍 배치 장소 선택</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} {recvQty}{order.unit} — 어디에 넣을까요?</div>
+            {Object.entries(placeGroups).map(([group, gPlaces]) => (
+              <div key={group} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>{group}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 6 }}>
+                  {(gPlaces as any[]).map((p: any) => (
+                    <button key={p.id} onClick={() => setSelectedPlace(p.name)}
+                      style={{ padding: '10px 8px', borderRadius: 10, border: selectedPlace === p.name ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: selectedPlace === p.name ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: selectedPlace === p.name ? '#6C5CE7' : '#555', fontSize: 12, fontWeight: selectedPlace === p.name ? 700 : 400, cursor: 'pointer' }}>
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {places.length === 0 && <div style={{ textAlign: 'center', padding: 24, color: '#bbb', fontSize: 12 }}>등록된 장소가 없어요</div>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button onClick={() => doSave(selectedPlace)} disabled={saving || !selectedPlace}
+                style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: selectedPlace ? 'linear-gradient(135deg,#00B894,#2DC6D6)' : '#E8ECF0', border: 'none', color: selectedPlace ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, cursor: selectedPlace ? 'pointer' : 'default' }}>
+                {saving ? '처리 중...' : `✅ ${selectedPlace || '장소 선택'} 배치 완료`}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
 }
 
-function AdminOrderCard({ order, userName, onRefresh }: { order: any; userName: string; onRefresh: () => void }) {
+function AdminOrderCard({ order, userName, places, onRefresh }: { order: any; userName: string; places: any[]; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [showReceive, setShowReceive] = useState(false)
@@ -117,7 +190,7 @@ function AdminOrderCard({ order, userName, onRefresh }: { order: any; userName: 
   return (
     <>
       {showConfirm && <ConfirmOrderModal order={order} userName={userName} onDone={() => { setShowConfirm(false); onRefresh() }} onClose={() => setShowConfirm(false)} />}
-      {showReceive && <ReceiveModal order={order} userName={userName} onDone={() => { setShowReceive(false); onRefresh() }} onClose={() => setShowReceive(false)} />}
+      {showReceive && <ReceiveModal order={order} userName={userName} places={places} onDone={() => { setShowReceive(false); onRefresh() }} onClose={() => setShowReceive(false)} />}
       <div style={{ background: '#fff', borderRadius: 14, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
         <div style={{ background: cfg.headerBg, padding: '7px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -230,7 +303,7 @@ function AdminStats({ orders, selYear, selMonth }: { orders: any[]; selYear: num
 
 type SubTab = 'pending' | 'requested' | 'all' | 'issues' | 'stats'
 
-export default function AdminOrderTab({ userName }: { userName: string }) {
+export default function AdminOrderTab({ userName, places }: { userName: string; places: any[] }) {
   const supabase = createSupabaseBrowserClient()
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -297,7 +370,7 @@ export default function AdminOrderTab({ userName }: { userName: string }) {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
                 {items.map((o: any) => (
-                  <AdminOrderCard key={o.id} order={o} userName={userName} onRefresh={loadOrders} />
+                  <AdminOrderCard key={o.id} order={o} userName={userName} places={places} onRefresh={loadOrders} />
                 ))}
               </div>
             </div>

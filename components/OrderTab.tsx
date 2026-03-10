@@ -1111,6 +1111,19 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
   }
   const borderColor = isOverdue ? '#E84393' : statusColor[order.status] || '#E8ECF0'
 
+  const STATUS_HEADER: Record<string, string> = {
+    requested: 'linear-gradient(135deg,#FF6B35,#ff9a6c)',
+    ordered:   'linear-gradient(135deg,#6C5CE7,#a29bfe)',
+    received:  'linear-gradient(135deg,#00B894,#2DC6D6)',
+    issue:     'linear-gradient(135deg,#E84393,#fd79a8)',
+    returned:  'linear-gradient(135deg,#bbb,#ddd)',
+    pending:   'linear-gradient(135deg,#B8860B,#e0a030)',
+  }
+  const STATUS_EMOJI: Record<string, string> = {
+    requested: '📋 주문요청', ordered: '✅ 주문완료', received: '📦 수령완료',
+    issue: '⚠️ 이슈있음', returned: '↩️ 반품완료', pending: '⏳ 미수령',
+  }
+
   return (
     <>
       {showReceive && <ReceiveModal order={order} userName={userName} places={places} onClose={() => setShowReceive(false)} onSaved={() => { onRefresh(); loadDetail() }} />}
@@ -1121,30 +1134,34 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
       {showEdit && <EditOrderModal order={order} userName={userName} inventoryItems={inventoryItems} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
       {showResolve && <ResolveIssueModal order={order} userName={userName} onClose={() => setShowResolve(false)} onSaved={onRefresh} />}
 
-      <div style={{
-        background: '#fff', borderRadius: 14, marginBottom: 8,
-        border: `1px solid ${isOverdue ? 'rgba(232,67,147,0.4)' : '#E8ECF0'}`,
-        overflow: 'hidden',
-        borderLeft: `4px solid ${borderColor}`,
-      }}>
+      <div style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${isOverdue ? 'rgba(232,67,147,0.35)' : statusColor[order.status] + '33' || '#E8ECF0'}`, overflow: 'hidden', boxShadow: '0 1px 5px rgba(0,0,0,0.05)' }}>
+        {/* 컬러 헤더 띠 */}
+        <div style={{ background: STATUS_HEADER[order.status] || STATUS_HEADER.pending, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{STATUS_EMOJI[order.status] || order.status}</span>
+            {isOverdue && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.2)', color: '#fff', fontWeight: 700 }}>⏰ {Math.floor(diffDays)}일 지연</span>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {(order.status === 'requested' || order.status === 'ordered' || order.status === 'received') && (
+              <button onClick={e => { e.stopPropagation(); setShowEdit(true) }}
+                style={{ fontSize: 10, padding: '1px 7px', borderRadius: 5, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer' }}>
+                ✏️
+              </button>
+            )}
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.85)' }}>
+              {new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })}
+            </span>
+          </div>
+        </div>
+
         {/* 상단 요약 */}
-        <div onClick={() => setExpanded(v => !v)} style={{ cursor: 'pointer', padding: '12px 14px 10px 14px' }}>
-          {/* 1행: 품목명 + 상태뱃지 */}
+        <div onClick={() => setExpanded(v => !v)} style={{ cursor: 'pointer', padding: '10px 14px 10px 14px' }}>
+          {/* 1행: 품목명 */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', wordBreak: 'break-word' }}>{order.item_name}</span>
-              {isOverdue && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#E84393', color: '#fff', fontWeight: 700, flexShrink: 0, whiteSpace: 'nowrap' }}>🔴 {Math.floor(diffDays)}일</span>}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
-              <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: statusBg[order.status] || statusBg.pending, color: statusColor[order.status] || statusColor.pending, fontWeight: 700 }}>{statusLabel[order.status] || '미수령'}</span>
-              {(order.status === 'requested' || order.status === 'ordered' || order.status === 'received') && (
-                <button onClick={e => { e.stopPropagation(); setShowEdit(true) }}
-                  style={{ fontSize: 11, padding: '2px 7px', borderRadius: 6, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#888', cursor: 'pointer' }}>
-                  ✏️
-                </button>
-              )}
-              <span style={{ fontSize: 11, color: '#ccc' }}>{expanded ? '▲' : '▼'}</span>
-            </div>
+            <span style={{ fontSize: 11, color: '#ccc', marginLeft: 8 }}>{expanded ? '▲' : '▼'}</span>
           </div>
           {/* 2행: 수량 · 발주처 · 재고연동 */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
@@ -1488,7 +1505,7 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
   const supabase = createSupabaseBrowserClient()
   const [orders, setOrders] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
-  const [subTab, setSubTab] = useState<'pending' | 'all' | 'issues' | 'history' | 'stats'>('pending')
+  const [subTab, setSubTab] = useState<'pending' | 'requested' | 'all' | 'issues' | 'history' | 'stats'>('pending')
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [showQuickOrder, setShowQuickOrder] = useState(false)
   const [showSupplierMgr, setShowSupplierMgr] = useState(false)
@@ -1524,11 +1541,13 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
   const pendingOrders = useMemo(() => orders.filter(o =>
     o.status === 'pending' || o.status === 'requested' || o.status === 'ordered' || o.status === 'issue'
   ), [orders])
+  const requestedOrders = useMemo(() => orders.filter(o => o.status === 'requested'), [orders])
   const overdueOrders = useMemo(() => pendingOrders.filter(o => {
     const diff = (now.getTime() - new Date(o.ordered_at).getTime()) / (1000 * 60 * 60 * 24)
     return diff > 2
   }), [pendingOrders])
-  const issueOrders = useMemo(() => filteredOrders.filter(o => o.status === 'issue'), [filteredOrders])
+  const issueOrders = useMemo(() => orders.filter(o => o.status === 'issue'), [orders])
+  const monthlyIssueOrders = useMemo(() => filteredOrders.filter(o => o.status === 'issue'), [filteredOrders])
 
   // 날짜별 그룹핑
   function groupByDate(list: any[]) {
@@ -1626,16 +1645,17 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
       </div>
 
       {/* 탭 */}
-      <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 10, gap: 2 }}>
-        {tabBtn('pending', `미완료 ${pendingOrders.length}`, overdueOrders.length)}
-        {tabBtn('all', '전체 내역')}
+      <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 10, gap: 1 }}>
+        {tabBtn('pending', `미완료`, pendingOrders.length)}
+        {tabBtn('requested', '주문요청', requestedOrders.length)}
+        {tabBtn('all', '전체내역')}
         {tabBtn('issues', '이슈', issueOrders.length)}
         {tabBtn('history', '수정이력')}
         {tabBtn('stats', '📊 통계')}
       </div>
 
-      {/* 년/월 팝업 피커 — 미수령 탭 제외 */}
-      {subTab !== 'pending' && (
+      {/* 년/월 팝업 피커 — 미수령/주문요청/이슈 탭 제외 */}
+      {subTab !== 'pending' && subTab !== 'requested' && subTab !== 'issues' && (
         <div style={{ marginBottom: 12 }}>
           <button
             onClick={() => { setPickerYear(selYear); setShowPicker(true) }}
@@ -1713,6 +1733,11 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
               }
             </>
           )}
+          {subTab === 'requested' && (
+            requestedOrders.length === 0
+              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>📋 주문요청 대기 중인 발주가 없어요</div>
+              : <DateGroupedList list={requestedOrders} />
+          )}
           {subTab === 'all' && (
             filteredOrders.length === 0
               ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div>
@@ -1720,7 +1745,7 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
           )}
           {subTab === 'issues' && (
             issueOrders.length === 0
-              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 이슈 내역이 없어요</div>
+              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>✅ 이슈 내역이 없어요</div>
               : <DateGroupedList list={issueOrders} />
           )}
           {subTab === 'history' && <OrderHistoryTab storeId={storeId} year={selYear} month={selMonth} />}

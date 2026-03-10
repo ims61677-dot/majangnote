@@ -1064,7 +1064,7 @@ function InventoryPageInner() {
   if (mainTab === 'admin') return (
     <div style={{ padding: isPC ? '20px 28px' : '0' }}>
       <MainTabBar />
-      <AdminOrderTab userName={userName} />
+      <AdminOrderTab userName={userName} places={places} />
     </div>
   )
 
