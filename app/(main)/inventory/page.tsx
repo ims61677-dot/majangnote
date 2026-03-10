@@ -789,10 +789,12 @@ function QuickOrderRequestModal({ item, storeId, userName, suppliers, onClose, o
 }) {
   const supabase = createSupabaseBrowserClient()
   const [qty, setQty] = useState(1)
-  const [unit, setUnit] = useState(item.unit || 'ea')
+  const [unit, setUnit] = useState(item?.unit || 'ea')
   const [supplierId, setSupplierId] = useState('')
   const [memo, setMemo] = useState('')
   const [saving, setSaving] = useState(false)
+
+  if (!item) return null
 
   async function handleSubmit() {
     if (!qty || qty <= 0) return
