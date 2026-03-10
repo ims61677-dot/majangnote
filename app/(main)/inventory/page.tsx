@@ -1072,11 +1072,27 @@ function InventoryPageInner() {
   async function updateQty(itemId: string, place: string, newVal: number) {
     const old = getQty(itemId, place)
     const val = Math.max(0, newVal)
-    setStock(p => ({ ...p, [itemId + '-' + place]: { ...(p[itemId + '-' + place] || {}), item_id: itemId, place, quantity: val, updated_by: userName, updated_at: new Date().toISOString(), before_qty: old, after_qty: val } }))
-    await supabase.from('inventory_stock').upsert({ item_id: itemId, place, quantity: val, updated_by: userName, updated_at: new Date().toISOString() }, { onConflict: 'item_id,place' })
+    const now = new Date().toISOString()
+    const newStockEntry = { item_id: itemId, place, quantity: val, updated_by: userName, updated_at: now, before_qty: old >= 0 ? old : val, after_qty: val }
+    setStock(p => ({ ...p, [itemId + '-' + place]: newStockEntry }))
+    await supabase.from('inventory_stock').upsert(
+      { item_id: itemId, place, quantity: val, updated_by: userName, updated_at: now, before_qty: old >= 0 ? old : val, after_qty: val },
+      { onConflict: 'item_id,place' }
+    )
     if (old >= 0 && old !== val) {
       await supabase.from('inventory_logs').insert({ item_id: itemId, place, before_qty: old, after_qty: val, changed_by: userName })
     }
+  }
+
+  // 수량 변경 없이 "확인" 처리 — 날짜/담당자만 업데이트
+  async function checkQty(itemId: string, place: string) {
+    const cur = getQty(itemId, place)
+    const now = new Date().toISOString()
+    setStock(p => ({ ...p, [itemId + '-' + place]: { ...(p[itemId + '-' + place] || {}), updated_by: userName, updated_at: now, before_qty: cur, after_qty: cur } }))
+    await supabase.from('inventory_stock').upsert(
+      { item_id: itemId, place, quantity: cur >= 0 ? cur : 0, updated_by: userName, updated_at: now, before_qty: cur >= 0 ? cur : 0, after_qty: cur >= 0 ? cur : 0 },
+      { onConflict: 'item_id,place' }
+    )
   }
 
   async function addItem() {
@@ -1372,12 +1388,25 @@ function InventoryPageInner() {
                           <button onClick={() => updateQty(item.id, subTab, q + 1)} style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
                         </div>
                       </div>
-                      {logEntry?.updated_by && (
-                        <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
-                          ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                          {logEntry.before_qty !== undefined && logEntry.after_qty !== undefined && (
-                            <span style={{ marginLeft: 4, color: logEntry.after_qty > logEntry.before_qty ? '#00B894' : '#E84393', fontWeight: 700 }}>· {logEntry.before_qty}→{logEntry.after_qty}</span>
-                          )}
+                      {logEntry?.updated_by ? (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                          <div style={{ fontSize: 9, color: '#bbb' }}>
+                            ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                            {logEntry.before_qty !== undefined && logEntry.after_qty !== undefined && logEntry.before_qty !== logEntry.after_qty && (
+                              <span style={{ marginLeft: 4, color: logEntry.after_qty > logEntry.before_qty ? '#00B894' : '#E84393', fontWeight: 700 }}>· {logEntry.before_qty}→{logEntry.after_qty}</span>
+                            )}
+                          </div>
+                          <button onClick={() => checkQty(item.id, subTab)}
+                            style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', fontSize: 9, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                            ✓ 오늘 확인
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                          <button onClick={() => checkQty(item.id, subTab)}
+                            style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', fontSize: 9, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                            ✓ 오늘 확인
+                          </button>
                         </div>
                       )}
                     </div>
@@ -1824,14 +1853,27 @@ function InventoryPageInner() {
                       style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
                   </div>
                 </div>
-                {logEntry?.updated_by && (
-                  <div style={{ fontSize: 9, color: '#bbb', marginTop: 4, textAlign: 'right' }}>
-                    ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                    {logEntry.before_qty !== undefined && logEntry.after_qty !== undefined && (
-                      <span style={{ marginLeft: 4, color: logEntry.after_qty > logEntry.before_qty ? '#00B894' : '#E84393', fontWeight: 700 }}>
-                        · {logEntry.before_qty}→{logEntry.after_qty}
-                      </span>
-                    )}
+                {logEntry?.updated_by ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                    <div style={{ fontSize: 9, color: '#bbb' }}>
+                      ✓ {logEntry.updated_by} · {new Date(logEntry.updated_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(logEntry.updated_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                      {logEntry.before_qty !== undefined && logEntry.after_qty !== undefined && logEntry.before_qty !== logEntry.after_qty && (
+                        <span style={{ marginLeft: 4, color: logEntry.after_qty > logEntry.before_qty ? '#00B894' : '#E84393', fontWeight: 700 }}>
+                          · {logEntry.before_qty}→{logEntry.after_qty}
+                        </span>
+                      )}
+                    </div>
+                    <button onClick={() => checkQty(item.id, subTab)}
+                      style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', fontSize: 9, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                      ✓ 오늘 확인
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                    <button onClick={() => checkQty(item.id, subTab)}
+                      style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', fontSize: 9, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                      ✓ 오늘 확인
+                    </button>
                   </div>
                 )}
               </div>
