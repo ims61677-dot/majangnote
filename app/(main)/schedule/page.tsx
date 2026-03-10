@@ -36,6 +36,43 @@ function getHolidays(year: number): Record<string, string> {
   return h
 }
 
+
+// ── 공개 여부 판단 ──────────────────────────────────────────────
+function isScheduleVisible(year: number, month: number, nowYear: number, nowMonth: number, isPublished: boolean, role: string) {
+  if (role === 'owner') return true
+  if (year < nowYear || (year === nowYear && month < nowMonth)) return true  // 과거
+  if (year === nowYear && month === nowMonth) return true  // 당월 항상 공개
+  return isPublished  // 미래: 공개 여부에 따라
+}
+
+// ── 휴무요청 기간 판단 ──────────────────────────────────────────
+function isOffRequestOpen(settings: any, viewYear: number, viewMonth: number): boolean {
+  if (!settings) return false
+  const now = new Date()
+  const nowDay = now.getDate()
+  const nowMonth = now.getMonth()   // 0-based
+  const nowYear = now.getFullYear()
+  // 다음달 계산
+  const nextMonthNum = nowMonth === 11 ? 0 : nowMonth + 1
+  const nextMonthYear = nowMonth === 11 ? nowYear + 1 : nowYear
+  // 보고 있는 달이 다음달이어야 함
+  if (viewYear !== nextMonthYear || viewMonth !== nextMonthNum) return false
+  // 자동 오픈 조건: open_day <= 오늘 <= close_day
+  const autoOpen = nowDay >= (settings.request_open_day || 25)
+  const autoClose = nowDay <= (settings.request_close_day || 31)
+  return settings.request_is_open || (autoOpen && autoClose)
+}
+
+// ── 휴무 요청 불가 날짜 (공휴일 자동 차단) ──────────────────────
+function getBlockedDates(year: number, month: number, manualBlocked: string[]): Set<string> {
+  const blocked = new Set<string>(manualBlocked || [])
+  const holidays = getHolidays(year)
+  // 공휴일 + 크리스마스이브 자동 차단
+  Object.keys(holidays).forEach(d => blocked.add(d))
+  blocked.add(`${year}-12-24`)  // 크리스마스이브
+  return blocked
+}
+
 async function syncAttendance(
   supabase: ReturnType<typeof createSupabaseBrowserClient>,
   storeId: string, staffName: string, scheduleDate: string,
@@ -135,12 +172,15 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
 }
 
 // ─── CellPopup ───────────────────────────────────────────────
-function CellPopup({ staffName, dateStr, current, role, myName, onSave, onRequest, onDelete, onClose }: {
+function CellPopup({ staffName, dateStr, current, role, myName, onSave, onRequest, onDelete, onClose, offRequest, onOffRequest, onOffRequestCancel, onOffRequestApprove, onOffRequestReject, canRequestOff, isBlocked }: {
   staffName: string; dateStr: string; current: any | null
   role: string; myName: string
   onSave: (status: string, position: string, note: string) => void
   onRequest: (status: string, note: string) => void
   onDelete: () => void; onClose: () => void
+  offRequest?: any; onOffRequest?: (reason: string) => void
+  onOffRequestCancel?: () => void; onOffRequestApprove?: () => void; onOffRequestReject?: () => void
+  canRequestOff?: boolean; isBlocked?: boolean
 }) {
   const [status, setStatus] = useState(current?.status || 'work')
   const [position, setPosition] = useState(current?.position || '')
@@ -159,7 +199,11 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
     return current?.note || ''
   })
   const [requestNote, setRequestNote] = useState('')
-  const [mode, setMode] = useState<'edit'|'absent_early'|'request'>('edit')
+  const [mode, setMode] = useState<'edit'|'absent_early'|'request'|'offReq'>(() => {
+    if (role === 'staff' && (offRequest || canRequestOff)) return 'offReq'
+    return 'edit'
+  })
+  const [offReason, setOffReason] = useState('')
   const parts = dateStr.split('-')
   const dow = DOW_LABEL[new Date(dateStr).getDay()]
   const isOwner = role === 'owner'
@@ -276,7 +320,131 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
             <button onClick={() => onRequest(status, requestNote)} style={{ width:'100%', padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#E84393,#FF6B35)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>변경 요청 보내기</button>
           </>
         )}
+        {/* ── 휴무요청 UI (staff 또는 owner 확인) ── */}
+        {(canRequestOff || offRequest) && (
+          <div style={{ marginTop: (role==='owner'||role==='manager') ? 16 : 0 }}>
+            {role === 'staff' && (
+              <>
+                {offRequest ? (
+                  <div style={{ padding:'14px', background: offRequest.status==='approved'?'rgba(0,184,148,0.08)':offRequest.status==='rejected'?'rgba(232,67,147,0.06)':'rgba(255,200,0,0.08)', borderRadius:12, border: `1px solid ${offRequest.status==='approved'?'rgba(0,184,148,0.25)':offRequest.status==='rejected'?'rgba(232,67,147,0.2)':'rgba(255,200,0,0.3)'}` }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                      <span style={{ fontSize:18 }}>{offRequest.status==='approved'?'✅':offRequest.status==='rejected'?'❌':'🙏'}</span>
+                      <div>
+                        <div style={{ fontSize:12, fontWeight:700, color: offRequest.status==='approved'?'#00B894':offRequest.status==='rejected'?'#E84393':'#FF6B35' }}>
+                          {offRequest.status==='approved'?'휴무 요청 승인됨':offRequest.status==='rejected'?'휴무 요청 거부됨':'휴무 요청 대기 중'}
+                        </div>
+                        <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>사유: {offRequest.reason}</div>
+                      </div>
+                    </div>
+                    {offRequest.status === 'pending' && (
+                      <button onClick={onOffRequestCancel} style={{ width:'100%', padding:'8px 0', borderRadius:9, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:12, fontWeight:600, cursor:'pointer' }}>요청 취소하기</button>
+                    )}
+                  </div>
+                ) : canRequestOff ? (
+                  <div style={{ padding:'14px', background:'rgba(255,200,0,0.06)', borderRadius:12, border:'1px solid rgba(255,200,0,0.3)' }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#CC9900', marginBottom:4 }}>🙏 다음 달 휴무 요청</div>
+                    <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>사유를 입력하고 요청해주세요</div>
+                    <input value={offReason} onChange={e => setOffReason(e.target.value)} placeholder="사유 필수 입력 (예: 병원, 가족행사...)" style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'#fff', border:'1px solid rgba(255,200,0,0.4)', fontSize:12, outline:'none', boxSizing:'border-box' as const, marginBottom:10 }} />
+                    <button onClick={() => { if (!offReason.trim()) { alert('사유를 입력해주세요'); return }; onOffRequest?.(offReason.trim()); onClose() }} style={{ width:'100%', padding:'9px 0', borderRadius:9, background:'linear-gradient(135deg,#FFD700,#FF6B35)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>휴무 요청 보내기</button>
+                  </div>
+                ) : null}
+              </>
+            )}
+            {(role === 'owner' || role === 'manager') && offRequest && (
+              <div style={{ padding:'12px', background:'rgba(255,200,0,0.06)', borderRadius:12, border:'1px solid rgba(255,200,0,0.25)', marginTop:12 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+                  <span style={{ fontSize:14 }}>{offRequest.status==='approved'?'✅':offRequest.status==='rejected'?'❌':'🙏'}</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:'#CC9900' }}>휴무 요청</span>
+                  <span style={{ marginLeft:'auto', fontSize:10, color:'#aaa' }}>{new Date(offRequest.created_at).toLocaleDateString('ko')}</span>
+                </div>
+                <div style={{ fontSize:11, color:'#555', marginBottom:10, padding:'6px 10px', background:'#F8F9FB', borderRadius:8 }}>사유: {offRequest.reason}</div>
+                {offRequest.status === 'pending' && (
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={() => { onOffRequestReject?.(); onClose() }} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거부</button>
+                    <button onClick={() => { onOffRequestApprove?.(); onClose() }} style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#00B894,#6C5CE7)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700 }}>✓ 승인</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {isBlocked && !offRequest && (
+          <div style={{ marginTop:10, padding:'10px 14px', background:'rgba(200,200,200,0.1)', borderRadius:10, border:'1px solid #E8ECF0', textAlign:'center' }}>
+            <span style={{ fontSize:12, color:'#aaa' }}>🚫 요청 불가 날짜 (공휴일/지정일)</span>
+          </div>
+        )}
       </div>
+    </div>
+  )
+}
+
+// ─── OffRequestSettingsBar ────────────────────────────────────
+function OffRequestSettingsBar({ storeId, settings, onChanged }: {
+  storeId: string; settings: any; onChanged: () => void
+}) {
+  const supabase = createSupabaseBrowserClient()
+  const [open, setOpen] = useState(false)
+  const [openDay, setOpenDay] = useState(settings?.request_open_day ?? 25)
+  const [closeDay, setCloseDay] = useState(settings?.request_close_day ?? 31)
+  const [saving, setSaving] = useState(false)
+  const isOpen = settings?.request_is_open || false
+
+  async function toggleOpen() {
+    await supabase.from('schedule_settings').upsert(
+      { store_id: storeId, request_is_open: !isOpen, updated_at: new Date().toISOString() },
+      { onConflict: 'store_id' }
+    )
+    onChanged()
+  }
+
+  async function saveDays() {
+    setSaving(true)
+    await supabase.from('schedule_settings').upsert(
+      { store_id: storeId, request_open_day: openDay, request_close_day: closeDay, updated_at: new Date().toISOString() },
+      { onConflict: 'store_id' }
+    )
+    setSaving(false); onChanged(); setOpen(false)
+  }
+
+  return (
+    <div style={{ marginBottom:10 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:12, background: isOpen?'rgba(255,200,0,0.08)':'rgba(200,200,200,0.08)', border: isOpen?'1px solid rgba(255,200,0,0.3)':'1px solid #E8ECF0' }}>
+        <span style={{ fontSize:13 }}>{isOpen ? '🙏' : '🔒'}</span>
+        <div style={{ flex:1 }}>
+          <span style={{ fontSize:12, fontWeight:700, color: isOpen?'#CC9900':'#aaa' }}>
+            {isOpen ? '직원 휴무 요청 중' : '휴무 요청 닫힘'}
+          </span>
+          <span style={{ fontSize:10, color:'#bbb', marginLeft:8 }}>
+            (자동: 매월 {settings?.request_open_day??25}일~{settings?.request_close_day??31}일)
+          </span>
+        </div>
+        <button onClick={() => setOpen(v => !v)} style={{ padding:'4px 10px', borderRadius:7, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:11, cursor:'pointer' }}>⚙️ 설정</button>
+        <button onClick={toggleOpen} style={{ padding:'5px 12px', borderRadius:8, border:'none', cursor:'pointer', fontSize:11, fontWeight:700, background: isOpen?'rgba(232,67,147,0.1)':'rgba(255,200,0,0.15)', color: isOpen?'#E84393':'#CC9900' }}>
+          {isOpen ? '닫기' : '열기'}
+        </button>
+      </div>
+      {open && (
+        <div style={{ padding:'14px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', marginTop:6, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>📅 자동 오픈 기간 설정</div>
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>오픈 시작일 (매월)</div>
+              <input type="number" min={1} max={31} value={openDay} onChange={e => setOpenDay(Number(e.target.value))}
+                style={{ width:'100%', padding:'7px 10px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none', boxSizing:'border-box' as const }} />
+            </div>
+            <span style={{ color:'#bbb', marginTop:14 }}>~</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>마감일 (매월)</div>
+              <input type="number" min={1} max={31} value={closeDay} onChange={e => setCloseDay(Number(e.target.value))}
+                style={{ width:'100%', padding:'7px 10px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none', boxSizing:'border-box' as const }} />
+            </div>
+          </div>
+          <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>예: 25일~31일로 설정하면 매월 25일부터 말일까지 자동으로 요청 오픈</div>
+          <button onClick={saveDays} disabled={saving} style={{ width:'100%', padding:'9px 0', borderRadius:9, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor: saving?'not-allowed':'pointer' }}>
+            {saving ? '저장 중...' : '저장'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -945,12 +1113,14 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
 // ════════════════════════════════════════
 // PC 그리드 (drag + copy-paste 추가)
 // ════════════════════════════════════════
-function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onReorderStaff, onChangeMonth, pendingCount }: {
+function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onReorderStaff, onChangeMonth, pendingCount, scheduleSettings, offRequests, nowYear, nowMonth, onOffRequestsChange, onSettingsChange }: {
   year: number; month: number; schedules: any[]
   staffList: string[]; role: string; storeId: string; myName: string
   onSaved: () => void; onReorderStaff: (newOrder: string[]) => void
   onChangeMonth: (y: number, m: number) => void
   pendingCount: number
+  scheduleSettings: any; offRequests: any[]; nowYear: number; nowMonth: number
+  onOffRequestsChange: () => void; onSettingsChange: () => void
 }) {
   const supabase = createSupabaseBrowserClient()
   const [popup, setPopup] = useState<{ staff: string; date: string } | null>(null)
@@ -978,6 +1148,21 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const isManager = role === 'manager'
   const isStaff = role === 'staff'
   const visibleStaff = isStaff ? staffList.filter(n => n === myName) : staffList
+
+  // 공개/비공개 판단
+  const isPublished = scheduleSettings?.is_published || false
+  const visible = isScheduleVisible(year, month, nowYear, nowMonth, isPublished, role)
+  const isFuture = year > nowYear || (year === nowYear && month > nowMonth)
+  const isCurrent = year === nowYear && month === nowMonth
+
+  // 휴무요청 관련
+  const requestOpen = isOffRequestOpen(scheduleSettings, year, month)
+  const blockedDates = useMemo(() => getBlockedDates(year, month+1, scheduleSettings?.blocked_dates || []), [year, month, scheduleSettings])
+  const offRequestMap = useMemo(() => {
+    const m: Record<string, any> = {}
+    offRequests.forEach(r => { m[`${r.staff_name}-${r.request_date}`] = r })
+    return m
+  }, [offRequests])
 
   // 드래그 mouseup 전역 처리
   useEffect(() => {
@@ -1152,7 +1337,32 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
   return (
     <>
-      {popup && <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} />}
+      {popup && (() => {
+        const offReq = offRequestMap[`${popup.staff}-${popup.date}`]
+        const isBlocked2 = isFuture && blockedDates.has(popup.date)
+        const canReqOff = isFuture && requestOpen && isStaff && popup.staff === myName && !isBlocked2 && !offReq
+        return <CellPopup
+          staffName={popup.staff} dateStr={popup.date} current={popupData}
+          role={role} myName={myName}
+          onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)}
+          offRequest={offReq} canRequestOff={canReqOff} isBlocked={isBlocked2}
+          onOffRequest={async (reason) => {
+            const pad = (n: number) => String(n).padStart(2,'0')
+            const targetMonth = `${year}-${pad(month+1)}`
+            await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending' })
+            onOffRequestsChange()
+          }}
+          onOffRequestCancel={async () => {
+            if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); onOffRequestsChange() }
+          }}
+          onOffRequestApprove={async () => {
+            if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); onOffRequestsChange() }
+          }}
+          onOffRequestReject={async () => {
+            if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); onOffRequestsChange() }
+          }}
+        />
+      })()}
       {bulkTarget && <BulkPopup staffName={bulkTarget.staff} dates={bulkTarget.dates} onApply={handleBulkApply} onClose={() => setBulkTarget(null)} />}
       {showRequests && <RequestPanel storeId={storeId} myName={myName} onClose={() => setShowRequests(false)} onApproved={() => { onSaved(); setShowRequests(false) }} />}
 
@@ -1208,6 +1418,39 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
         </div>
       )}
 
+      {/* ── 공개/비공개 배너 ── */}
+      {isFuture && isOwner && (
+        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:12, background: isPublished ? 'rgba(0,184,148,0.08)' : 'rgba(108,92,231,0.06)', border: isPublished ? '1px solid rgba(0,184,148,0.25)' : '1px solid rgba(108,92,231,0.2)', marginBottom:10 }}>
+          <span style={{ fontSize:13 }}>{isPublished ? '👁' : '🔒'}</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:12, fontWeight:700, color: isPublished ? '#00B894' : '#6C5CE7' }}>{isPublished ? '직원에게 공개됨' : '직원에게 비공개 (잠김)'}</div>
+            <div style={{ fontSize:10, color:'#aaa', marginTop:1 }}>{isPublished ? '직원들이 스케줄을 볼 수 있어요' : '직원들에게 스케줄이 보이지 않아요'}</div>
+          </div>
+          <button onClick={async () => {
+            const newVal = !isPublished
+            await supabase.from('schedule_settings').upsert({ store_id: storeId, is_published: newVal, published_month: monthStr, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+            onSettingsChange()
+          }} style={{ padding:'6px 14px', borderRadius:9, border:'none', cursor:'pointer', fontSize:12, fontWeight:700, background: isPublished ? 'rgba(232,67,147,0.1)' : 'rgba(0,184,148,0.15)', color: isPublished ? '#E84393' : '#00B894' }}>
+            {isPublished ? '🔒 비공개로' : '👁 공개하기'}
+          </button>
+        </div>
+      )}
+
+      {/* ── 미래달 직원 비공개 안내 배너 ── */}
+      {isFuture && !isOwner && !visible && (
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 20px', borderRadius:14, background:'rgba(108,92,231,0.04)', border:'2px dashed rgba(108,92,231,0.2)', marginBottom:10, textAlign:'center' }}>
+          <div style={{ fontSize:28, marginBottom:8 }}>📝</div>
+          <div style={{ fontSize:14, fontWeight:700, color:'#6C5CE7', marginBottom:4 }}>스케줄 작성 중</div>
+          <div style={{ fontSize:12, color:'#aaa' }}>대표가 스케줄을 완성하면 공개됩니다</div>
+          {requestOpen && <div style={{ marginTop:10, fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.08)', padding:'5px 12px', borderRadius:8, fontWeight:600 }}>🙏 지금 휴무 요청을 할 수 있어요 (셀 클릭)</div>}
+        </div>
+      )}
+
+      {/* ── 오너: 휴무요청 기간 설정 ── */}
+      {isFuture && isOwner && (
+        <OffRequestSettingsBar storeId={storeId} settings={scheduleSettings} onChanged={onSettingsChange} />
+      )}
+
       <div style={{ overflowX:'auto', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 1px 6px rgba(0,0,0,0.05)' }}>
         <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed', minWidth:600, userSelect:'none' }}>
           <colgroup><col style={{ width:90 }} />{visibleStaff.map((_,i) => <col key={i} />)}<col style={{ width:44 }} /></colgroup>
@@ -1256,7 +1499,11 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                     </div>
                   </td>
                   {visibleStaff.map(staff => {
-                    const sc = scheduleMap[`${staff}-${dateStr}`]
+                    const sc = visible ? scheduleMap[`${staff}-${dateStr}`] : null
+                    const offReq = offRequestMap[`${staff}-${dateStr}`]
+                    const isBlocked = isFuture && blockedDates.has(dateStr)
+                    const isMine = staff === myName
+                    const canRequestOff = isFuture && requestOpen && isStaff && isMine && !isBlocked && !offReq
                     const clickable = canClick(staff, !!sc)
                     const inDrag = isCellInDrag(staff, day)
                     let earlyTimeDisplay = ''
@@ -1264,21 +1511,46 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                       const m = sc.note.match(/^\[조퇴:(\d{2}:\d{2})\]/)
                       if (m) earlyTimeDisplay = m[1]
                     }
+                    // 셀 배경 결정
+                    let cellBg = sc ? STATUS_BG[sc.status] : undefined
+                    if (inDrag) cellBg = 'rgba(108,92,231,0.18)'
+                    else if (offReq?.status === 'approved') cellBg = 'rgba(0,184,148,0.15)'
+                    else if (offReq?.status === 'pending') cellBg = 'rgba(255,200,0,0.15)'
+                    else if (offReq?.status === 'rejected') cellBg = 'rgba(232,67,147,0.08)'
+                    else if (isBlocked) cellBg = 'rgba(200,200,200,0.15)'
+
                     return (
                       <td key={staff}
                         onMouseDown={e => handleCellMouseDown(staff, day, e)}
                         onMouseEnter={() => handleCellMouseEnter(staff, day)}
-                        onClick={() => { if (isMouseDown.current) return; if (clickable && !dragSel) setPopup({ staff, date: dateStr }) }}
-                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:44, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: inDrag ? 'rgba(108,92,231,0.18)' : sc ? STATUS_BG[sc.status] : undefined, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
+                        onClick={() => {
+                          if (isMouseDown.current) return
+                          if (dragSel) return
+                          if (isBlocked && !isOwner) return
+                          if (offReq || canRequestOff || isOwner || clickable) setPopup({ staff, date: dateStr })
+                        }}
+                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:44, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : (canRequestOff || offReq) ? 'pointer' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: cellBg, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
                         {inDrag ? (
                           <span style={{ fontSize:14, color:'#6C5CE7', fontWeight:700 }}>✓</span>
+                        ) : offReq && !sc ? (
+                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
+                            <span style={{ fontSize:14, lineHeight:1.2 }}>{offReq.status==='approved'?'✅':offReq.status==='rejected'?'❌':'🙏'}</span>
+                            <span style={{ fontSize:7, color: offReq.status==='approved'?'#00B894':offReq.status==='rejected'?'#E84393':'#FF6B35', fontWeight:700 }}>
+                              {offReq.status==='approved'?'승인':offReq.status==='rejected'?'거부':'대기'}
+                            </span>
+                          </div>
                         ) : sc ? (
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, height:'100%', padding:'2px 3px' }}>
                             <span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR[sc.status] }}>{STATUS_LABEL[sc.status]}</span>
                             {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
                             {sc.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[sc.position] }}>{sc.position}</span>}
                             {sc.note && !earlyTimeDisplay && <span title={sc.note} style={{ fontSize:8, color:'#FF6B35', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{sc.note}</span>}
+                            {offReq && <span style={{ fontSize:10 }}>{offReq.status==='approved'?'✅':'🙏'}</span>}
                           </div>
+                        ) : isBlocked ? (
+                          <span style={{ fontSize:10, color:'#ccc' }}>🚫</span>
+                        ) : canRequestOff ? (
+                          <span style={{ fontSize:13, color:'#FFD700', lineHeight:1 }}>🙏</span>
                         ) : clickable ? <span style={{ fontSize:18, color:'#e0e0e0', lineHeight:1 }}>+</span> : null}
                       </td>
                     )
@@ -1324,9 +1596,11 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 // ════════════════════════════════════════
 // 모바일 그리드 (다중선택 모드 추가)
 // ════════════════════════════════════════
-function MobileGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onChangeMonth, pendingCount }: {
+function MobileGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onChangeMonth, pendingCount, scheduleSettings, offRequests, nowYear, nowMonth, onOffRequestsChange, onSettingsChange }: {
   year: number; month: number; schedules: any[]; staffList: string[]; role: string; storeId: string; myName: string
   onSaved: () => void; onChangeMonth: (y: number, m: number) => void; pendingCount: number
+  scheduleSettings: any; offRequests: any[]; nowYear: number; nowMonth: number
+  onOffRequestsChange: () => void; onSettingsChange: () => void
 }) {
   const supabase = createSupabaseBrowserClient()
   const [popup, setPopup] = useState<{ staff: string; date: string } | null>(null)
@@ -1343,6 +1617,16 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
   const isOwner = role==='owner'; const isManager = role==='manager'; const isStaff = role==='staff'
   const visibleStaff = isStaff ? staffList.filter(n => n===myName) : staffList
   const canEdit = isOwner || isManager
+  const isPublished = scheduleSettings?.is_published || false
+  const visible = isScheduleVisible(year, month, nowYear, nowMonth, isPublished, role)
+  const isFuture = year > nowYear || (year === nowYear && month > nowMonth)
+  const requestOpen = isOffRequestOpen(scheduleSettings, year, month)
+  const blockedDates = useMemo(() => getBlockedDates(year, month+1, scheduleSettings?.blocked_dates || []), [year, month, scheduleSettings])
+  const offRequestMap = useMemo(() => {
+    const m: Record<string, any> = {}
+    offRequests.forEach((r: any) => { m[`${r.staff_name}-${r.request_date}`] = r })
+    return m
+  }, [offRequests])
   const headerScrollRef = useRef<HTMLDivElement>(null)
   const bodyScrollRefs = useRef<(HTMLDivElement|null)[]>([])
   const footerScrollRef = useRef<HTMLDivElement>(null)
@@ -1430,7 +1714,32 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
 
   return (
     <div>
-      {popup && <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} />}
+      {popup && (() => {
+        const offReq = offRequestMap[`${popup.staff}-${popup.date}`]
+        const isBlocked2 = isFuture && blockedDates.has(popup.date)
+        const canReqOff = isFuture && requestOpen && isStaff && popup.staff === myName && !isBlocked2 && !offReq
+        return <CellPopup
+          staffName={popup.staff} dateStr={popup.date} current={popupData}
+          role={role} myName={myName}
+          onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)}
+          offRequest={offReq} canRequestOff={canReqOff} isBlocked={isBlocked2}
+          onOffRequest={async (reason) => {
+            const pad = (n: number) => String(n).padStart(2,'0')
+            const targetMonth = `${year}-${pad(month+1)}`
+            await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending' })
+            onOffRequestsChange()
+          }}
+          onOffRequestCancel={async () => {
+            if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); onOffRequestsChange() }
+          }}
+          onOffRequestApprove={async () => {
+            if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); onOffRequestsChange() }
+          }}
+          onOffRequestReject={async () => {
+            if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); onOffRequestsChange() }
+          }}
+        />
+      })()}
       {showRequests && <RequestPanel storeId={storeId} myName={myName} onClose={() => setShowRequests(false)} onApproved={() => { onSaved(); setShowRequests(false) }} />}
 
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
@@ -1616,6 +1925,8 @@ export default function SchedulePage() {
   const [schedules, setSchedules] = useState<any[]>([])
   const [staffList, setStaffList] = useState<string[]>([])
   const [pendingCount, setPendingCount] = useState(0)
+  const [scheduleSettings, setScheduleSettings] = useState<any>(null)
+  const [offRequests, setOffRequests] = useState<any[]>([])
   const [viewTab, setViewTab] = useState<'grid'|'month'|'manage'>('grid')
   const [isPC, setIsPC] = useState(false)
   const nowD = new Date()
@@ -1635,8 +1946,22 @@ export default function SchedulePage() {
     setStoreId(store.id); setMyName(user.nm||''); setRole(user.role||'staff'); setProfileId(user.id||'')
     loadStaff(store.id)
     loadData(store.id, nowD.getFullYear(), nowD.getMonth())
+    loadSettings(store.id)
+    loadOffRequests(store.id, nowD.getFullYear(), nowD.getMonth())
     if (user.role==='owner') loadPendingCount(store.id)
   }, [])
+
+  async function loadSettings(sid: string) {
+    const { data } = await supabase.from('schedule_settings').select('*').eq('store_id', sid).maybeSingle()
+    setScheduleSettings(data || null)
+  }
+
+  async function loadOffRequests(sid: string, y: number, m: number) {
+    const pad = (n: number) => String(n).padStart(2,'0')
+    const targetMonth = `${y}-${pad(m+1)}`
+    const { data } = await supabase.from('off_requests').select('*').eq('store_id', sid).eq('target_month', targetMonth)
+    setOffRequests(data || [])
+  }
 
   async function loadData(sid: string, y: number, m: number) {
     const pad = (n: number) => String(n).padStart(2,'0')
@@ -1667,7 +1992,7 @@ export default function SchedulePage() {
     setPendingCount(count||0)
   }
 
-  function handleChangeMonth(y: number, m: number) { setCalYear(y); setCalMonth(m); loadData(storeId,y,m) }
+  function handleChangeMonth(y: number, m: number) { setCalYear(y); setCalMonth(m); loadData(storeId,y,m); loadOffRequests(storeId,y,m) }
 
   const tabBtn = (active: boolean) => ({
     flex:1, padding:'9px 0', borderRadius:10, border:'none', cursor:'pointer' as const,
@@ -1677,9 +2002,15 @@ export default function SchedulePage() {
 
   const isOwner = role === 'owner'
 
+  const nowYear = nowD.getFullYear()
+  const nowMonth = nowD.getMonth()
+
   const sharedProps = {
     year: calYear, month: calMonth, schedules, staffList, role, storeId, myName, pendingCount,
+    scheduleSettings, offRequests, nowYear, nowMonth,
     onSaved: () => { loadData(storeId,calYear,calMonth); if(role==='owner') loadPendingCount(storeId) },
+    onOffRequestsChange: () => loadOffRequests(storeId, calYear, calMonth),
+    onSettingsChange: () => loadSettings(storeId),
     onReorderStaff: (newOrder: string[]) => setStaffList(newOrder),
     onChangeMonth: handleChangeMonth,
   }
