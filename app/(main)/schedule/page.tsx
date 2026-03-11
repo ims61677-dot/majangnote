@@ -1441,7 +1441,10 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
       {popup && (() => {
         const offReq = offRequestMap[`${popup.staff}-${popup.date}`]
         const isBlocked2 = isFuture && blockedDates.has(popup.date)
-        const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq
+        const takenByOther2 = isFuture && requestOpen && !isOwner && popup.staff === myName && !offReq
+          ? offRequests.find((r: any) => r.request_date === popup.date && r.staff_name !== myName && (r.status === 'pending' || r.status === 'approved')) || null
+          : null
+        const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq && !takenByOther2
         return <CellPopup
           staffName={popup.staff} dateStr={popup.date} current={popupData}
           role={role} myName={myName}
@@ -1630,23 +1633,36 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                     const offReq = offRequestMap[`${staff}-${dateStr}`]
                     const isBlocked = isFuture && blockedDates.has(dateStr)
                     const isMine = staff === myName
-                    const canRequestOff = isFuture && requestOpen && !isOwner && isMine && !isBlocked && !offReq
+
+                    // 다른 직원이 이 날짜에 이미 신청/확정한 경우 (내 열에 표시용)
+                    const takenByOther = isFuture && requestOpen && !isOwner && isMine && !offReq
+                      ? offRequests.find((r: any) =>
+                          r.request_date === dateStr && r.staff_name !== myName &&
+                          (r.status === 'pending' || r.status === 'approved')
+                        ) || null
+                      : null
+
+                    const canRequestOff = isFuture && requestOpen && !isOwner && isMine && !isBlocked && !offReq && !takenByOther
                     const clickable = canClick(staff, !!sc)
                     const inDrag = isCellInDrag(staff, day)
-                    // 요청기간 중 다른 직원 셀 클릭 가능 여부 (내용 보기용)
                     const otherCanView = isFuture && requestOpen && !isOwner && !isMine && !!offReq
+
                     let earlyTimeDisplay = ''
                     if (sc?.status === 'early' && sc?.note) {
                       const m = sc.note.match(/^\[조퇴:(\d{2}:\d{2})\]/)
                       if (m) earlyTimeDisplay = m[1]
                     }
+
                     // 셀 배경
-                    let cellBg = sc ? STATUS_BG[sc.status] : undefined
+                    let cellBg: string | undefined = sc ? STATUS_BG[sc.status] : undefined
                     if (inDrag) cellBg = 'rgba(108,92,231,0.18)'
                     else if (!sc && offReq?.status === 'approved') cellBg = STATUS_BG['off']
                     else if (!sc && offReq?.status === 'pending' && isMine) cellBg = 'rgba(255,200,0,0.12)'
                     else if (!sc && offReq?.status === 'pending' && !isMine) cellBg = 'rgba(108,92,231,0.05)'
+                    else if (!sc && takenByOther) cellBg = 'rgba(220,220,220,0.25)'
                     else if (isBlocked) cellBg = 'rgba(200,200,200,0.1)'
+
+                    const isNaturallyBlocked = !!takenByOther || isBlocked
 
                     return (
                       <td key={staff}
@@ -1655,14 +1671,13 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                         onClick={() => {
                           if (isMouseDown.current) return
                           if (dragSel) return
-                          if (isBlocked && !isOwner) return
+                          if (isNaturallyBlocked && !isOwner) return
                           if (offReq || canRequestOff || isOwner || clickable || otherCanView) setPopup({ staff, date: dateStr })
                         }}
-                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:44, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : (canRequestOff || offReq || otherCanView) ? 'pointer' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: cellBg, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
+                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:44, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : (canRequestOff || offReq || otherCanView) ? 'pointer' : 'default', transition:'background 0.05s', background: cellBg, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
                         {inDrag ? (
                           <span style={{ fontSize:14, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                         ) : sc ? (
-                          // 스케줄 있는 경우 (공개된 달)
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, height:'100%', padding:'2px 3px' }}>
                             <span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR[sc.status] }}>{STATUS_LABEL[sc.status]}</span>
                             {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
@@ -1671,21 +1686,17 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                             {offReq?.status === 'pending' && <span style={{ fontSize:8 }}>🙏</span>}
                           </div>
                         ) : offReq?.status === 'approved' ? (
-                          // 휴무 확정
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
                             <span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR['off'] }}>휴일</span>
                             <span style={{ fontSize:7, color:'#aaa' }}>확정</span>
                           </div>
                         ) : offReq?.status === 'pending' ? (
-                          // 휴무 요청 대기
                           isMine ? (
-                            // 내 요청
                             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
                               <span style={{ fontSize:14, lineHeight:1.3 }}>🙏</span>
                               <span style={{ fontSize:7, color:'#CC9900', fontWeight:700, maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={offReq.reason}>{offReq.reason}</span>
                             </div>
                           ) : (
-                            // 다른 직원 요청 - 사유 보임
                             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0, padding:'1px 2px' }}>
                               <span style={{ fontSize:11, lineHeight:1.3 }}>🙏</span>
                               <span style={{ fontSize:7, color:'#6C5CE7', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={offReq.reason}>{offReq.reason}</span>
@@ -1696,10 +1707,12 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                             <span style={{ fontSize:11, lineHeight:1.2, color:'#E84393' }}>✕</span>
                             <span style={{ fontSize:7, color:'#E84393', fontWeight:700 }}>거부</span>
                           </div>
+                        ) : takenByOther ? (
+                          // 다른 직원이 신청한 날 → 내 열에 자연스럽게 비워 보임 (클릭 안 됨)
+                          null
                         ) : isBlocked ? (
-                          <span style={{ fontSize:10, color:'#ccc' }}>🚫</span>
+                          null
                         ) : canRequestOff ? (
-                          // 내 셀, 요청 가능
                           <span style={{ fontSize:18, color:'#e0e0e0', lineHeight:1 }}>+</span>
                         ) : clickable ? (
                           <span style={{ fontSize:18, color:'#e0e0e0', lineHeight:1 }}>+</span>
@@ -1869,7 +1882,10 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
       {popup && (() => {
         const offReq = offRequestMap[`${popup.staff}-${popup.date}`]
         const isBlocked2 = isFuture && blockedDates.has(popup.date)
-        const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq
+        const takenByOther2 = isFuture && requestOpen && !isOwner && popup.staff === myName && !offReq
+          ? offRequests.find((r: any) => r.request_date === popup.date && r.staff_name !== myName && (r.status === 'pending' || r.status === 'approved')) || null
+          : null
+        const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq && !takenByOther2
         return <CellPopup
           staffName={popup.staff} dateStr={popup.date} current={popupData}
           role={role} myName={myName}
@@ -1941,6 +1957,13 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
               {days.map(day => {
                 const dateStr=`${monthStr}-${String(day).padStart(2,'0')}`
                 const s=scheduleMap[`${staff}-${dateStr}`]
+                const offReqM = offRequestMap[`${staff}-${dateStr}`]
+                const isMineM = staff === myName
+                const isBlockedM = isFuture && blockedDates.has(dateStr)
+                const takenByOtherM = isFuture && requestOpen && !isOwner && isMineM && !offReqM
+                  ? offRequests.find((r: any) => r.request_date === dateStr && r.staff_name !== myName && (r.status === 'pending' || r.status === 'approved')) || null
+                  : null
+                const canReqOffM = isFuture && requestOpen && !isOwner && isMineM && !isBlockedM && !offReqM && !takenByOtherM
                 const dow=new Date(dateStr).getDay()
                 const isToday=dateStr===today; const isSun=dow===0; const isSat=dow===6
                 const clickable=canClick(staff,!!s)
@@ -1951,15 +1974,26 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                   const m = s.note.match(/^\[조퇴:(\d{2}:\d{2})\]/)
                   if (m) earlyTimeDisplay = m[1]
                 }
+                // 모바일 셀 배경
+                let mobileBg = isSelected ? 'rgba(108,92,231,0.2)' : s ? STATUS_BG[s.status] : isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff'
+                if (!s && offReqM?.status === 'approved') mobileBg = STATUS_BG['off']
+                else if (!s && offReqM?.status === 'pending' && isMineM) mobileBg = 'rgba(255,200,0,0.12)'
+                else if (!s && offReqM?.status === 'pending' && !isMineM) mobileBg = 'rgba(108,92,231,0.05)'
+                else if (!s && takenByOtherM) mobileBg = 'rgba(220,220,220,0.25)'
+
+                const isNatBlockedM = !!takenByOtherM || isBlockedM
+
                 return (
                   <div key={day}
                     onClick={() => {
                       if (multiMode && (isOwner || isManager)) { toggleSelectCell(staff, dateStr); return }
-                      if (clickable) setPopup({staff, date:dateStr})
+                      if (isNatBlockedM && !isOwner) return
+                      if (offReqM || canReqOffM || clickable || (!isMineM && offReqM)) setPopup({staff, date:dateStr})
+                      else if (clickable) setPopup({staff, date:dateStr})
                     }}
                     style={{ minWidth:44, flexShrink:0, borderRight:'1px solid #F0F2F5', minHeight:52,
-                      background: isSelected ? 'rgba(108,92,231,0.2)' : s ? STATUS_BG[s.status] : isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff',
-                      cursor: (multiMode && canEdit) ? 'pointer' : clickable ? 'pointer' : 'default',
+                      background: mobileBg,
+                      cursor: (multiMode && canEdit) ? 'pointer' : (canReqOffM || offReqM || clickable) ? 'pointer' : 'default',
                       display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1,
                       outline: isSelected ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
                     {isSelected ? (
@@ -1971,8 +2005,19 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                         {s.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[s.position]||'#888' }}>{s.position}</span>}
                         {s.note && !earlyTimeDisplay && <span style={{ fontSize:7, color:'#999', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>{s.note}</span>}
                       </>
+                    ) : offReqM?.status === 'approved' ? (
+                      <span style={{ fontSize:9, fontWeight:700, color:STATUS_COLOR['off'] }}>휴일</span>
+                    ) : offReqM?.status === 'pending' ? (
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
+                        <span style={{ fontSize:12 }}>🙏</span>
+                        <span style={{ fontSize:7, color: isMineM?'#CC9900':'#6C5CE7', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }} title={offReqM.reason}>{offReqM.reason}</span>
+                      </div>
+                    ) : takenByOtherM ? (
+                      null
                     ) : (multiMode && canEdit) ? (
                       <span style={{ fontSize:14, color:'#d0d0d0' }}>+</span>
+                    ) : canReqOffM ? (
+                      <span style={{ fontSize:16, color:'#ebebeb' }}>+</span>
                     ) : clickable ? <span style={{ fontSize:16, color:'#ebebeb' }}>+</span> : null}
                   </div>
                 )
