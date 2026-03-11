@@ -390,15 +390,9 @@ function OffRequestSettingsBar({ storeId, settings, onChanged }: {
   const isOpen = settings?.request_is_open || false
 
   async function upsertSettings(patch: Record<string, any>) {
-    // 먼저 row가 있는지 확인
-    const { data: existing } = await supabase.from('schedule_settings').select('id').eq('store_id', storeId).maybeSingle()
-    if (existing) {
-      const { error } = await supabase.from('schedule_settings').update({ ...patch, updated_at: new Date().toISOString() }).eq('store_id', storeId)
-      if (error) { alert('저장 실패: ' + error.message); return false }
-    } else {
-      const { error } = await supabase.from('schedule_settings').insert({ store_id: storeId, ...patch, updated_at: new Date().toISOString() })
-      if (error) { alert('저장 실패: ' + error.message); return false }
-    }
+    const { error } = await supabase.from('schedule_settings')
+      .upsert({ store_id: storeId, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+    if (error) { alert('저장 실패: ' + error.message); return false }
     return true
   }
 
@@ -867,9 +861,8 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                       <button onClick={async (e) => {
                         e.stopPropagation()
                         const newVal = !sIsPublished
-                        const { data: ex } = await supabase.from('schedule_settings').select('id').eq('store_id', sid).maybeSingle()
-                        if (ex) { await supabase.from('schedule_settings').update({ is_published: newVal, published_month: sMonthStr, updated_at: new Date().toISOString() }).eq('store_id', sid) }
-                        else { await supabase.from('schedule_settings').insert({ store_id: sid, is_published: newVal, published_month: sMonthStr, updated_at: new Date().toISOString() }) }
+                        await supabase.from('schedule_settings')
+                          .upsert({ store_id: sid, is_published: newVal, published_month: sMonthStr, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
                         loadAll()
                       }} style={{ padding:'4px 12px', borderRadius:7, border:'none', cursor:'pointer', fontSize:11, fontWeight:700, background: sIsPublished?'rgba(232,67,147,0.1)':'rgba(0,184,148,0.15)', color: sIsPublished?'#E84393':'#00B894' }}>
                         {sIsPublished ? '🔒 비공개로' : '👁 공개하기'}
@@ -886,9 +879,8 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                       <button onClick={async (e) => {
                         e.stopPropagation()
                         const newVal = !sRequestOpen
-                        const { data: ex } = await supabase.from('schedule_settings').select('id').eq('store_id', sid).maybeSingle()
-                        if (ex) { await supabase.from('schedule_settings').update({ request_is_open: newVal, updated_at: new Date().toISOString() }).eq('store_id', sid) }
-                        else { await supabase.from('schedule_settings').insert({ store_id: sid, request_is_open: newVal, updated_at: new Date().toISOString() }) }
+                        await supabase.from('schedule_settings')
+                          .upsert({ store_id: sid, request_is_open: newVal, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
                         loadAll()
                       }} style={{ padding:'4px 12px', borderRadius:7, border:'none', cursor:'pointer', fontSize:11, fontWeight:700, background: sRequestOpen?'rgba(232,67,147,0.1)':'rgba(255,200,0,0.15)', color: sRequestOpen?'#E84393':'#CC9900' }}>
                         {sRequestOpen ? '닫기' : '열기'}
@@ -1524,12 +1516,8 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
           </div>
           <button onClick={async () => {
             const newVal = !isPublished
-            const { data: ex } = await supabase.from('schedule_settings').select('id').eq('store_id', storeId).maybeSingle()
-            if (ex) {
-              await supabase.from('schedule_settings').update({ is_published: newVal, published_month: monthStr, updated_at: new Date().toISOString() }).eq('store_id', storeId)
-            } else {
-              await supabase.from('schedule_settings').insert({ store_id: storeId, is_published: newVal, published_month: monthStr, updated_at: new Date().toISOString() })
-            }
+            await supabase.from('schedule_settings')
+              .upsert({ store_id: storeId, is_published: newVal, published_month: monthStr, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
             onSettingsChange()
           }} style={{ padding:'6px 14px', borderRadius:9, border:'none', cursor:'pointer', fontSize:12, fontWeight:700, background: isPublished ? 'rgba(232,67,147,0.1)' : 'rgba(0,184,148,0.15)', color: isPublished ? '#E84393' : '#00B894' }}>
             {isPublished ? '🔒 비공개로' : '👁 공개하기'}
