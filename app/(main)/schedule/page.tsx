@@ -396,20 +396,43 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
 }
 
 // ─── OffRequestSettingsBar ────────────────────────────────────
-function OffRequestSettingsBar({ settings, onToggleOpen, onSaveDays, isActuallyOpen }: {
+function OffRequestSettingsBar({ settings, onToggleOpen, onSaveDays, onSaveBlockedDates, isActuallyOpen, year, month }: {
   settings: any
   onToggleOpen: () => Promise<void>
   onSaveDays: (openDay: number, closeDay: number) => Promise<void>
+  onSaveBlockedDates: (dates: string[]) => Promise<void>
   isActuallyOpen: boolean
+  year: number
+  month: number
 }) {
   const [open, setOpen] = useState(false)
   const [openDay, setOpenDay] = useState(settings?.request_open_day ?? 25)
   const [closeDay, setCloseDay] = useState(settings?.request_close_day ?? 31)
   const [saving, setSaving] = useState(false)
-  const isOpen = isActuallyOpen  // 자동 오픈 조건 포함한 실제 상태
+  const [tab, setTab] = useState<'period'|'block'>('period')
+  const isOpen = isActuallyOpen
 
-  async function toggleOpen() {
-    await onToggleOpen()
+  // 현재 차단된 날짜 목록 (해당 월만)
+  const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
+  const allBlocked: string[] = settings?.blocked_dates || []
+  const thisMonthBlocked = allBlocked.filter((d: string) => d.startsWith(monthStr))
+
+  const daysInMonth = new Date(year, month+1, 0).getDate()
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+
+  function isDateBlocked(day: number) {
+    return thisMonthBlocked.includes(`${monthStr}-${String(day).padStart(2,'0')}`)
+  }
+
+  async function toggleBlockDate(day: number) {
+    const dateStr = `${monthStr}-${String(day).padStart(2,'0')}`
+    let next: string[]
+    if (isDateBlocked(day)) {
+      next = allBlocked.filter((d: string) => d !== dateStr)
+    } else {
+      next = [...allBlocked, dateStr]
+    }
+    await onSaveBlockedDates(next)
   }
 
   async function saveDays() {
@@ -418,6 +441,8 @@ function OffRequestSettingsBar({ settings, onToggleOpen, onSaveDays, isActuallyO
     setSaving(false)
     setOpen(false)
   }
+
+  const DOW = ['일','월','화','수','목','금','토']
 
   return (
     <div style={{ marginBottom:10 }}>
@@ -430,32 +455,93 @@ function OffRequestSettingsBar({ settings, onToggleOpen, onSaveDays, isActuallyO
           <span style={{ fontSize:10, color:'#bbb', marginLeft:8 }}>
             (자동: 매월 {settings?.request_open_day??25}일~{settings?.request_close_day??31}일)
           </span>
+          {thisMonthBlocked.length > 0 && (
+            <span style={{ fontSize:10, color:'#E84393', marginLeft:8 }}>🚫 {thisMonthBlocked.length}일 차단</span>
+          )}
         </div>
         <button onClick={() => setOpen(v => !v)} style={{ padding:'4px 10px', borderRadius:7, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:11, cursor:'pointer' }}>⚙️ 설정</button>
-        <button onClick={toggleOpen} style={{ padding:'5px 12px', borderRadius:8, border:'none', cursor:'pointer', fontSize:11, fontWeight:700, background: isOpen?'rgba(232,67,147,0.1)':'rgba(255,200,0,0.15)', color: isOpen?'#E84393':'#CC9900' }}>
+        <button onClick={onToggleOpen} style={{ padding:'5px 12px', borderRadius:8, border:'none', cursor:'pointer', fontSize:11, fontWeight:700, background: isOpen?'rgba(232,67,147,0.1)':'rgba(255,200,0,0.15)', color: isOpen?'#E84393':'#CC9900' }}>
           {isOpen ? '닫기' : '열기'}
         </button>
       </div>
       {open && (
         <div style={{ padding:'14px', background:'#fff', borderRadius:12, border:'1px solid #E8ECF0', marginTop:6, boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
-          <div style={{ fontSize:11, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>📅 자동 오픈 기간 설정</div>
-          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>오픈 시작일 (매월)</div>
-              <input type="number" min={1} max={31} value={openDay} onChange={e => setOpenDay(Number(e.target.value))}
-                style={{ width:'100%', padding:'7px 10px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none', boxSizing:'border-box' as const }} />
-            </div>
-            <span style={{ color:'#bbb', marginTop:14 }}>~</span>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>마감일 (매월)</div>
-              <input type="number" min={1} max={31} value={closeDay} onChange={e => setCloseDay(Number(e.target.value))}
-                style={{ width:'100%', padding:'7px 10px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none', boxSizing:'border-box' as const }} />
-            </div>
+          {/* 탭 */}
+          <div style={{ display:'flex', gap:6, marginBottom:14 }}>
+            {(['period','block'] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                style={{ flex:1, padding:'7px 0', borderRadius:9, border:'none', cursor:'pointer', fontSize:11, fontWeight:700,
+                  background: tab===t ? 'linear-gradient(135deg,#6C5CE7,#E84393)' : '#F4F6F9',
+                  color: tab===t ? '#fff' : '#aaa' }}>
+                {t==='period' ? '📅 자동 오픈 기간' : '🚫 요청 불가일 설정'}
+              </button>
+            ))}
           </div>
-          <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>예: 25일~31일로 설정하면 매월 25일부터 말일까지 자동으로 요청 오픈</div>
-          <button onClick={saveDays} disabled={saving} style={{ width:'100%', padding:'9px 0', borderRadius:9, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor: saving?'not-allowed':'pointer' }}>
-            {saving ? '저장 중...' : '저장'}
-          </button>
+
+          {tab === 'period' && (
+            <>
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>오픈 시작일 (매월)</div>
+                  <input type="number" min={1} max={31} value={openDay} onChange={e => setOpenDay(Number(e.target.value))}
+                    style={{ width:'100%', padding:'7px 10px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none', boxSizing:'border-box' as const }} />
+                </div>
+                <span style={{ color:'#bbb', marginTop:14 }}>~</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:10, color:'#aaa', marginBottom:4 }}>마감일 (매월)</div>
+                  <input type="number" min={1} max={31} value={closeDay} onChange={e => setCloseDay(Number(e.target.value))}
+                    style={{ width:'100%', padding:'7px 10px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none', boxSizing:'border-box' as const }} />
+                </div>
+              </div>
+              <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>예: 25일~31일로 설정하면 매월 25일부터 말일까지 자동으로 요청 오픈</div>
+              <button onClick={saveDays} disabled={saving} style={{ width:'100%', padding:'9px 0', borderRadius:9, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor: saving?'not-allowed':'pointer' }}>
+                {saving ? '저장 중...' : '저장'}
+              </button>
+            </>
+          )}
+
+          {tab === 'block' && (
+            <>
+              <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>
+                탭하면 즉시 저장돼요. 차단된 날은 직원이 휴무 신청할 수 없어요.
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:4 }}>
+                {['일','월','화','수','목','금','토'].map(d => (
+                  <div key={d} style={{ textAlign:'center', fontSize:9, color:'#bbb', fontWeight:700, paddingBottom:2 }}>{d}</div>
+                ))}
+                {/* 첫 날 앞 빈칸 */}
+                {Array.from({ length: new Date(year, month, 1).getDay() }, (_, i) => (
+                  <div key={`empty-${i}`} />
+                ))}
+                {days.map(day => {
+                  const dateStr = `${monthStr}-${String(day).padStart(2,'0')}`
+                  const dow = new Date(dateStr).getDay()
+                  const blocked = isDateBlocked(day)
+                  const isSun = dow === 0; const isSat = dow === 6
+                  return (
+                    <button key={day} onClick={() => toggleBlockDate(day)}
+                      style={{ padding:'6px 2px', borderRadius:8, border: blocked?'2px solid #E84393':'1px solid #E8ECF0',
+                        background: blocked?'rgba(232,67,147,0.1)':'#F8F9FB',
+                        color: blocked?'#E84393':isSun?'#E84393':isSat?'#6C5CE7':'#555',
+                        fontSize:11, fontWeight: blocked?700:400, cursor:'pointer', textAlign:'center' as const,
+                        transition:'all 0.1s' }}>
+                      {blocked ? '🚫' : day}
+                    </button>
+                  )
+                })}
+              </div>
+              {thisMonthBlocked.length > 0 && (
+                <div style={{ marginTop:10, padding:'8px 10px', background:'rgba(232,67,147,0.05)', borderRadius:8, fontSize:10, color:'#E84393' }}>
+                  차단된 날: {thisMonthBlocked.map(d => d.slice(-2) + '일').join(', ')}
+                  <button onClick={async () => {
+                    await onSaveBlockedDates(allBlocked.filter((d: string) => !d.startsWith(monthStr)))
+                  }} style={{ marginLeft:8, padding:'2px 7px', borderRadius:5, border:'1px solid rgba(232,67,147,0.3)', background:'none', color:'#E84393', fontSize:10, cursor:'pointer' }}>
+                    전체 해제
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -1556,8 +1642,9 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
         <OffRequestSettingsBar
           settings={scheduleSettings}
           isActuallyOpen={requestOpen}
+          year={year}
+          month={month}
           onToggleOpen={async () => {
-            // 자동 오픈 중이면 수동 닫기, 아니면 수동 열기
             const { error } = await supabase.from('schedule_settings')
               .upsert({ store_id: storeId, request_is_open: !requestOpen, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
             if (error) alert('저장 실패: ' + error.message)
@@ -1566,6 +1653,12 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
           onSaveDays={async (openDay, closeDay) => {
             const { error } = await supabase.from('schedule_settings')
               .upsert({ store_id: storeId, request_open_day: openDay, request_close_day: closeDay, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+            if (error) alert('저장 실패: ' + error.message)
+            else onSettingsChange()
+          }}
+          onSaveBlockedDates={async (dates) => {
+            const { error } = await supabase.from('schedule_settings')
+              .upsert({ store_id: storeId, blocked_dates: dates, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
             if (error) alert('저장 실패: ' + error.message)
             else onSettingsChange()
           }}
