@@ -831,29 +831,30 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   async function handleManageBulkApply(status: string) {
     if (!manageBulkTarget) return
     const { sid, staff, dates } = manageBulkTarget
-    // 해당 지점 schedMap 구성
     const d = storeData[sid]
     const schedMap: Record<string,any> = {}
     if (d) d.schedules.forEach((s: any) => { schedMap[`${s.staff_name}-${s.schedule_date}`] = s })
 
     if (status === '__delete__') {
-      for (const dateStr of dates) {
+      // 삭제: 한 번에 in 쿼리로 처리
+      await supabase.from('schedules').delete()
+        .eq('store_id', sid).eq('staff_name', staff).in('schedule_date', dates)
+      await Promise.all(dates.map(async dateStr => {
         const prev = schedMap[`${staff}-${dateStr}`]
-        await supabase.from('schedules').delete()
-          .eq('store_id', sid).eq('staff_name', staff).eq('schedule_date', dateStr)
         await syncAttendance(supabase, sid, staff, dateStr, 'work')
         await logScheduleEdit(supabase, sid, myName, staff, dateStr, 'bulk_delete', prev?.status || null, null)
-      }
+      }))
     } else {
-      for (const dateStr of dates) {
+      // upsert: 한 번에 배열로 처리
+      await supabase.from('schedules').upsert(
+        dates.map(dateStr => ({ store_id: sid, staff_name: staff, schedule_date: dateStr, status, position: null, note: null })),
+        { onConflict: 'store_id,staff_name,schedule_date' }
+      )
+      await Promise.all(dates.map(async dateStr => {
         const prev = schedMap[`${staff}-${dateStr}`]
-        await supabase.from('schedules').upsert(
-          { store_id: sid, staff_name: staff, schedule_date: dateStr, status, position: null, note: null },
-          { onConflict: 'store_id,staff_name,schedule_date' }
-        )
         await syncAttendance(supabase, sid, staff, dateStr, status)
         await logScheduleEdit(supabase, sid, myName, staff, dateStr, 'bulk_upsert', prev?.status || null, status)
-      }
+      }))
     }
     setManageBulkTarget(null)
     loadAll()
@@ -1550,24 +1551,27 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
   async function handleBulkApply(status: string) {
     if (!bulkTarget) return
+    const { staff, dates } = bulkTarget
     if (status === '__delete__') {
-      for (const dateStr of bulkTarget.dates) {
-        const prev = scheduleMap[`${bulkTarget.staff}-${dateStr}`]
-        await supabase.from('schedules').delete()
-          .eq('store_id', storeId).eq('staff_name', bulkTarget.staff).eq('schedule_date', dateStr)
-        await syncAttendance(supabase, storeId, bulkTarget.staff, dateStr, 'work')
-        await logScheduleEdit(supabase, storeId, myName, bulkTarget.staff, dateStr, 'bulk_delete', prev?.status || null, null)
-      }
+      // 삭제: in 쿼리로 한 번에
+      await supabase.from('schedules').delete()
+        .eq('store_id', storeId).eq('staff_name', staff).in('schedule_date', dates)
+      await Promise.all(dates.map(async dateStr => {
+        const prev = scheduleMap[`${staff}-${dateStr}`]
+        await syncAttendance(supabase, storeId, staff, dateStr, 'work')
+        await logScheduleEdit(supabase, storeId, myName, staff, dateStr, 'bulk_delete', prev?.status || null, null)
+      }))
     } else {
-      for (const dateStr of bulkTarget.dates) {
-        const prev = scheduleMap[`${bulkTarget.staff}-${dateStr}`]
-        await supabase.from('schedules').upsert(
-          { store_id: storeId, staff_name: bulkTarget.staff, schedule_date: dateStr, status, position: null, note: null },
-          { onConflict: 'store_id,staff_name,schedule_date' }
-        )
-        await syncAttendance(supabase, storeId, bulkTarget.staff, dateStr, status)
-        await logScheduleEdit(supabase, storeId, myName, bulkTarget.staff, dateStr, 'bulk_upsert', prev?.status || null, status)
-      }
+      // upsert: 배열로 한 번에
+      await supabase.from('schedules').upsert(
+        dates.map(dateStr => ({ store_id: storeId, staff_name: staff, schedule_date: dateStr, status, position: null, note: null })),
+        { onConflict: 'store_id,staff_name,schedule_date' }
+      )
+      await Promise.all(dates.map(async dateStr => {
+        const prev = scheduleMap[`${staff}-${dateStr}`]
+        await syncAttendance(supabase, storeId, staff, dateStr, status)
+        await logScheduleEdit(supabase, storeId, myName, staff, dateStr, 'bulk_upsert', prev?.status || null, status)
+      }))
     }
     setBulkTarget(null)
     onSaved()
@@ -1578,12 +1582,11 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
     const src = schedules.filter(s => s.staff_name === copiedStaff)
     if (src.length === 0) { alert(`${copiedStaff}의 스케줄이 없습니다`); setCopiedStaff(null); return }
     if (!confirm(`${copiedStaff}의 스케줄(${src.length}건)을 ${targetStaff}에 붙여넣을까요?\n기존 스케줄은 덮어씌워집니다.`)) return
-    for (const s of src) {
-      await supabase.from('schedules').upsert(
-        { store_id: storeId, staff_name: targetStaff, schedule_date: s.schedule_date, status: s.status, position: s.position, note: s.note },
-        { onConflict: 'store_id,staff_name,schedule_date' }
-      )
-    }
+    // 한 번에 배열로 upsert
+    await supabase.from('schedules').upsert(
+      src.map(s => ({ store_id: storeId, staff_name: targetStaff, schedule_date: s.schedule_date, status: s.status, position: s.position, note: s.note })),
+      { onConflict: 'store_id,staff_name,schedule_date' }
+    )
     setCopiedStaff(null)
     onSaved()
   }
