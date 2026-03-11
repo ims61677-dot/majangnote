@@ -379,33 +379,26 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
 }
 
 // ─── OffRequestSettingsBar ────────────────────────────────────
-function OffRequestSettingsBar({ storeId, settings, onChanged }: {
-  storeId: string; settings: any; onChanged: () => void
+function OffRequestSettingsBar({ settings, onToggleOpen, onSaveDays }: {
+  settings: any
+  onToggleOpen: () => Promise<void>
+  onSaveDays: (openDay: number, closeDay: number) => Promise<void>
 }) {
-  const supabase = createSupabaseBrowserClient()
   const [open, setOpen] = useState(false)
   const [openDay, setOpenDay] = useState(settings?.request_open_day ?? 25)
   const [closeDay, setCloseDay] = useState(settings?.request_close_day ?? 31)
   const [saving, setSaving] = useState(false)
   const isOpen = settings?.request_is_open || false
 
-  async function upsertSettings(patch: Record<string, any>) {
-    const { error } = await supabase.from('schedule_settings')
-      .upsert({ store_id: storeId, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
-    if (error) { alert('저장 실패: ' + error.message); return false }
-    return true
-  }
-
   async function toggleOpen() {
-    const ok = await upsertSettings({ request_is_open: !isOpen })
-    if (ok) onChanged()
+    await onToggleOpen()
   }
 
   async function saveDays() {
     setSaving(true)
-    const ok = await upsertSettings({ request_open_day: openDay, request_close_day: closeDay })
+    await onSaveDays(openDay, closeDay)
     setSaving(false)
-    if (ok) { onChanged(); setOpen(false) }
+    setOpen(false)
   }
 
   return (
@@ -1537,7 +1530,21 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
       {/* ── 오너: 휴무요청 기간 설정 ── */}
       {isFuture && isOwner && (
-        <OffRequestSettingsBar storeId={storeId} settings={scheduleSettings} onChanged={onSettingsChange} />
+        <OffRequestSettingsBar
+          settings={scheduleSettings}
+          onToggleOpen={async () => {
+            const { error } = await supabase.from('schedule_settings')
+              .upsert({ store_id: storeId, request_is_open: !(scheduleSettings?.request_is_open || false), updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+            if (error) alert('저장 실패: ' + error.message)
+            else onSettingsChange()
+          }}
+          onSaveDays={async (openDay, closeDay) => {
+            const { error } = await supabase.from('schedule_settings')
+              .upsert({ store_id: storeId, request_open_day: openDay, request_close_day: closeDay, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+            if (error) alert('저장 실패: ' + error.message)
+            else onSettingsChange()
+          }}
+        />
       )}
 
       <div style={{ overflowX:'auto', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 1px 6px rgba(0,0,0,0.05)' }}>
