@@ -1048,7 +1048,22 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const allTodosList = (
     <div style={{ display: isPC ? 'grid' : 'block', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, minWidth: 0 }}>
       {allTodosMap.map(({ store, todos, closingTodos }) => {
-        const dateTodos = todos.filter(t => t.origin_date === selectedCalDate)
+        // 선택 날짜의 할일 + 반복 할일(매주/매일) 자동 포함
+        const selDate = new Date(selectedCalDate)
+        const selDow = selDate.getDay() // 0=일~6=토
+        const selDay = selDate.getDate() // 1~31
+        const dateTodos = todos.filter(t => {
+          if (t.origin_date === selectedCalDate) return true
+          if (!t.repeat_type || t.repeat_type === 'none') return false
+          // 미래 날짜에 이미 직접 등록된 항목이 있으면 제외 (중복 방지)
+          const alreadyExists = todos.some(t2 => t2.origin_date === selectedCalDate && t2.content === t.content)
+          if (alreadyExists) return false
+          const originDate = new Date(t.origin_date)
+          if (t.repeat_type === 'daily' && t.origin_date <= selectedCalDate) return true
+          if (t.repeat_type === 'weekly' && originDate.getDay() === selDow && t.origin_date <= selectedCalDate) return true
+          if (t.repeat_type === 'monthly' && originDate.getDate() === selDay && t.origin_date <= selectedCalDate) return true
+          return false
+        })
         const incompleteTodos = dateTodos.filter(t => !t.isDone)
         const incompleteClosing = closingTodos.filter((t: any) => !t.isDone)
         const totalAlert = incompleteTodos.length + incompleteClosing.length
