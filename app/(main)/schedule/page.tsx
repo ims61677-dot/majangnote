@@ -606,6 +606,124 @@ function RequestPanel({ storeId, myName, onClose, onApproved }: {
 }
 
 // ════════════════════════════════════════
+// ─── ManageOffRequestBar (전지점 관리용 휴무설정바) ────────────
+function ManageOffRequestBar({ sid, settings, isOpen, year, month, supabase, onRefresh }: {
+  sid: string; settings: any; isOpen: boolean; year: number; month: number; supabase: any; onRefresh: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState<'period'|'block'>('period')
+  const [openDay, setOpenDay] = useState(settings?.request_open_day ?? 25)
+  const [closeDay, setCloseDay] = useState(settings?.request_close_day ?? 31)
+  const [saving, setSaving] = useState(false)
+
+  const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
+  const allBlocked: string[] = settings?.blocked_dates || []
+  const thisMonthBlocked = allBlocked.filter((d: string) => d.startsWith(monthStr))
+  const daysInMonth = new Date(year, month+1, 0).getDate()
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+
+  function isDateBlocked(day: number) {
+    return thisMonthBlocked.includes(`${monthStr}-${String(day).padStart(2,'0')}`)
+  }
+
+  async function toggleBlockDate(day: number) {
+    const dateStr = `${monthStr}-${String(day).padStart(2,'0')}`
+    const next = isDateBlocked(day)
+      ? allBlocked.filter((d: string) => d !== dateStr)
+      : [...allBlocked, dateStr]
+    await supabase.from('schedule_settings').upsert({ store_id: sid, blocked_dates: next, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+    onRefresh()
+  }
+
+  async function savePeriod() {
+    setSaving(true)
+    await supabase.from('schedule_settings').upsert({ store_id: sid, request_open_day: openDay, request_close_day: closeDay, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+    setSaving(false)
+    setOpen(false)
+    onRefresh()
+  }
+
+  return (
+    <div style={{ padding:'8px 14px', borderBottom:'1px solid #ECEEF2' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <span style={{ fontSize:11, fontWeight:700, color: isOpen?'#CC9900':'#aaa', flex:1 }}>
+          {isOpen ? '🙏 휴무 요청 열림' : '🔒 휴무 요청 닫힘'}
+          <span style={{ fontSize:9, color:'#bbb', marginLeft:6, fontWeight:400 }}>(자동: 매월 {settings?.request_open_day??25}~{settings?.request_close_day??31}일)</span>
+          {thisMonthBlocked.length > 0 && <span style={{ fontSize:9, color:'#E84393', marginLeft:6 }}>🚫{thisMonthBlocked.length}일 차단</span>}
+        </span>
+        <button onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
+          style={{ padding:'3px 8px', borderRadius:6, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:10, cursor:'pointer' }}>⚙️</button>
+        <button onClick={async e => {
+          e.stopPropagation()
+          await supabase.from('schedule_settings').upsert({ store_id: sid, request_is_open: !isOpen, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+          onRefresh()
+        }} style={{ padding:'3px 10px', borderRadius:6, border:'none', cursor:'pointer', fontSize:10, fontWeight:700, background: isOpen?'rgba(232,67,147,0.1)':'rgba(255,200,0,0.15)', color: isOpen?'#E84393':'#CC9900' }}>
+          {isOpen ? '닫기' : '열기'}
+        </button>
+      </div>
+      {open && (
+        <div style={{ marginTop:8, padding:'12px', background:'#F8F9FB', borderRadius:10, border:'1px solid #E8ECF0' }}>
+          <div style={{ display:'flex', gap:4, marginBottom:10 }}>
+            {(['period','block'] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                style={{ flex:1, padding:'5px 0', borderRadius:7, border:'none', cursor:'pointer', fontSize:10, fontWeight:700,
+                  background: tab===t ? 'linear-gradient(135deg,#6C5CE7,#E84393)' : '#fff',
+                  color: tab===t ? '#fff' : '#aaa', boxShadow: tab===t ? '0 1px 4px rgba(108,92,231,0.3)' : 'none' }}>
+                {t==='period' ? '📅 자동 오픈 기간' : '🚫 요청 불가일'}
+              </button>
+            ))}
+          </div>
+          {tab === 'period' && (
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <input type="number" min={1} max={31} value={openDay} onChange={e => setOpenDay(Number(e.target.value))}
+                style={{ flex:1, padding:'6px 8px', borderRadius:7, border:'1px solid #E8ECF0', fontSize:12, outline:'none' }} />
+              <span style={{ color:'#bbb', fontSize:11 }}>~</span>
+              <input type="number" min={1} max={31} value={closeDay} onChange={e => setCloseDay(Number(e.target.value))}
+                style={{ flex:1, padding:'6px 8px', borderRadius:7, border:'1px solid #E8ECF0', fontSize:12, outline:'none' }} />
+              <button onClick={savePeriod} disabled={saving}
+                style={{ padding:'6px 14px', borderRadius:7, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                {saving ? '...' : '저장'}
+              </button>
+            </div>
+          )}
+          {tab === 'block' && (
+            <>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:3 }}>
+                {['일','월','화','수','목','금','토'].map(d => (
+                  <div key={d} style={{ textAlign:'center', fontSize:8, color:'#bbb', fontWeight:700, paddingBottom:2 }}>{d}</div>
+                ))}
+                {Array.from({ length: new Date(year, month, 1).getDay() }, (_, i) => <div key={`e${i}`} />)}
+                {days.map(day => {
+                  const dow = new Date(`${monthStr}-${String(day).padStart(2,'0')}`).getDay()
+                  const blocked = isDateBlocked(day)
+                  return (
+                    <button key={day} onClick={() => toggleBlockDate(day)}
+                      style={{ padding:'4px 1px', borderRadius:6, border: blocked?'2px solid #E84393':'1px solid #E8ECF0',
+                        background: blocked?'rgba(232,67,147,0.1)':'#fff',
+                        color: blocked?'#E84393':dow===0?'#E84393':dow===6?'#6C5CE7':'#555',
+                        fontSize:10, fontWeight: blocked?700:400, cursor:'pointer' }}>
+                      {blocked ? '🚫' : day}
+                    </button>
+                  )
+                })}
+              </div>
+              {thisMonthBlocked.length > 0 && (
+                <div style={{ marginTop:8, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                  <span style={{ fontSize:9, color:'#E84393' }}>차단: {thisMonthBlocked.map(d => d.slice(-2)+'일').join(', ')}</span>
+                  <button onClick={async () => {
+                    await supabase.from('schedule_settings').upsert({ store_id: sid, blocked_dates: allBlocked.filter((d:string) => !d.startsWith(monthStr)), updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+                    onRefresh()
+                  }} style={{ padding:'2px 8px', borderRadius:5, border:'1px solid rgba(232,67,147,0.3)', background:'none', color:'#E84393', fontSize:9, cursor:'pointer' }}>전체 해제</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ManageView - 전지점 관리 탭
 // ════════════════════════════════════════
 function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
@@ -966,23 +1084,17 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                       </button>
                     </div>
                   )}
-                  {/* 휴무요청 설정바 */}
+                  {/* 휴무요청 설정바 - 전체 기능 (요청 불가일 포함) */}
                   {sIsFuture && (
-                    <div style={{ padding:'8px 14px', borderBottom:'1px solid #ECEEF2', display:'flex', alignItems:'center', gap:8 }}>
-                      <span style={{ fontSize:11, fontWeight:700, color: sRequestOpen?'#CC9900':'#aaa', flex:1 }}>
-                        {sRequestOpen ? '🙏 휴무 요청 열림' : '🔒 휴무 요청 닫힘'}
-                        <span style={{ fontSize:9, color:'#bbb', marginLeft:6, fontWeight:400 }}>(자동: 매월 {sSettings?.request_open_day??25}~{sSettings?.request_close_day??31}일)</span>
-                      </span>
-                      <button onClick={async (e) => {
-                        e.stopPropagation()
-                        const newVal = !sRequestOpen
-                        await supabase.from('schedule_settings')
-                          .upsert({ store_id: sid, request_is_open: newVal, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
-                        loadAll()
-                      }} style={{ padding:'4px 12px', borderRadius:7, border:'none', cursor:'pointer', fontSize:11, fontWeight:700, background: sRequestOpen?'rgba(232,67,147,0.1)':'rgba(255,200,0,0.15)', color: sRequestOpen?'#E84393':'#CC9900' }}>
-                        {sRequestOpen ? '닫기' : '열기'}
-                      </button>
-                    </div>
+                    <ManageOffRequestBar
+                      sid={sid}
+                      settings={sSettings}
+                      isOpen={sRequestOpen}
+                      year={year}
+                      month={month}
+                      supabase={supabase}
+                      onRefresh={loadAll}
+                    />
                   )}
                   <div style={{ overflowX:'auto' }}>
                     <table style={{ borderCollapse:'collapse', fontSize:10, minWidth: staff.length * 36 + 70, width:'100%', tableLayout:'fixed', userSelect:'none' }}>
@@ -993,11 +1105,21 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                       <thead>
                         <tr style={{ background:'#F8F9FB' }}>
                           <th style={{ padding:'3px 2px', borderBottom:'1px solid #E8ECF0', borderRight:'2px solid #E8ECF0', color:'#aaa', fontWeight:700, fontSize:8, textAlign:'center', position:'sticky', left:0, background:'#F8F9FB', zIndex:2 }}>날</th>
-                          {staff.map(name => (
-                            <th key={name} style={{ padding:'5px 2px', borderBottom:'1px solid #E8ECF0', borderRight:'1px solid #ECEEF2', color:'#1a1a2e', fontWeight:700, textAlign:'center', fontSize:10 }}>
-                              {name.length > 3 ? name.slice(0,3) + '.' : name}
-                            </th>
-                          ))}
+                          {staff.map(name => {
+                            const pendingCnt = sIsFuture && sRequestOpen ? (sOffReqs||[]).filter((r:any) => r.staff_name===name && r.status==='pending').length : 0
+                            const approvedCnt = sIsFuture ? (sOffReqs||[]).filter((r:any) => r.staff_name===name && r.status==='approved').length : 0
+                            return (
+                              <th key={name} style={{ padding:'5px 2px', borderBottom:'1px solid #E8ECF0', borderRight:'1px solid #ECEEF2', color:'#1a1a2e', fontWeight:700, textAlign:'center', fontSize:10 }}>
+                                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+                                  <span>{name.length > 3 ? name.slice(0,3) + '.' : name}</span>
+                                  <div style={{ display:'flex', gap:2 }}>
+                                    {pendingCnt > 0 && <span style={{ fontSize:8, background:'rgba(255,200,0,0.2)', color:'#CC9900', borderRadius:4, padding:'0 4px', fontWeight:700 }}>🙏{pendingCnt}</span>}
+                                    {approvedCnt > 0 && <span style={{ fontSize:8, background:STATUS_BG['off'], color:STATUS_COLOR['off'], borderRadius:4, padding:'0 4px', fontWeight:700 }}>휴{approvedCnt}</span>}
+                                  </div>
+                                </div>
+                              </th>
+                            )
+                          })}
                         </tr>
                       </thead>
                       <tbody>
@@ -1006,9 +1128,10 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                           const dow = new Date(dateStr).getDay()
                           const isToday = dateStr === today
                           const isSun = dow === 0; const isSat = dow === 6
-                          const workCnt = staff.filter(s => { const sc = schedMap[`${s}-${dateStr}`]; return sc && (sc.status==='work'||sc.status==='half'||sc.status==='early') }).length
+                          const sBlockedDates = getBlockedDates(year, month+1, sSettings?.blocked_dates || [])
+                          const isDayBlocked = sIsFuture && sBlockedDates.has(dateStr)
                           return (
-                            <tr key={day} style={{ background: isToday ? 'rgba(108,92,231,0.05)' : isSun ? 'rgba(232,67,147,0.02)' : '#fff', borderTop: dow===1&&day!==1 ? '2px solid #D0D4E8' : undefined }}>
+                            <tr key={day} style={{ background: isDayBlocked ? 'rgba(200,200,200,0.08)' : isToday ? 'rgba(108,92,231,0.05)' : isSun ? 'rgba(232,67,147,0.02)' : '#fff', borderTop: dow===1&&day!==1 ? '2px solid #D0D4E8' : undefined }}>
                               <td style={{ padding:'1px 2px', borderBottom:'1px solid #F4F6F9', borderRight:'2px solid #E8ECF0', height:24, position:'sticky', left:0, background: isToday ? 'rgba(108,92,231,0.07)' : isSun ? 'rgba(232,67,147,0.05)' : isSat ? 'rgba(108,92,231,0.03)' : '#FAFBFC', zIndex:1 }}>
                                 <div style={{ display:'flex', flexDirection:'row', alignItems:'center', justifyContent:'center', gap:2 }}>
                                   <span style={{ fontSize:9, fontWeight:isToday?700:400, color:isToday?'#6C5CE7':isSun?'#E84393':isSat?'#6C5CE7':'#555', lineHeight:1 }}>{day}</span>
@@ -1017,9 +1140,22 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                               </td>
                               {staff.map(name => {
                                 const sc = schedMap[`${name}-${dateStr}`]
+                                const offR = sOffReqMap[`${name}-${dateStr}`]
                                 const inDrag = manageDragSel?.sid === sid && manageDragSel?.staff === name &&
                                   day >= Math.min(manageDragSel.startDay, manageDragSel.endDay) &&
                                   day <= Math.max(manageDragSel.startDay, manageDragSel.endDay)
+                                // 선착순: 다른 직원이 이미 신청한 날
+                                const takenByOtherM = sIsFuture && sRequestOpen && !offR
+                                  ? (sOffReqs||[]).find((r:any) => r.request_date===dateStr && r.staff_name!==name && (r.status==='pending'||r.status==='approved'))
+                                  : null
+
+                                let cellBg = inDrag ? 'rgba(108,92,231,0.22)' : sc ? STATUS_BG[sc.status]
+                                  : offR?.status==='approved' ? STATUS_BG['off']
+                                  : offR?.status==='pending' ? 'rgba(255,200,0,0.15)'
+                                  : isDayBlocked ? 'rgba(200,200,200,0.15)'
+                                  : takenByOtherM ? 'rgba(220,220,220,0.2)'
+                                  : undefined
+
                                 return (
                                   <td key={name}
                                     onMouseDown={() => {
@@ -1035,18 +1171,33 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                                         setManageDragSel({ ...updated })
                                       }
                                     }}
-                                    style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:24, textAlign:'center', verticalAlign:'middle', background: inDrag ? 'rgba(108,92,231,0.22)' : sc ? STATUS_BG[sc.status] : sOffReqMap[`${name}-${dateStr}`]?.status==='approved' ? 'rgba(0,184,148,0.15)' : sOffReqMap[`${name}-${dateStr}`]?.status==='pending' ? 'rgba(255,200,0,0.15)' : undefined, padding:0, cursor:'crosshair', outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px', transition:'background 0.04s' }}>
+                                    title={offR ? `${name}: ${offR.reason}` : isDayBlocked ? '요청 불가일' : undefined}
+                                    style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:24, textAlign:'center', verticalAlign:'middle', background: cellBg, padding:0, cursor:'crosshair', outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px', transition:'background 0.04s' }}>
                                     {(() => {
-                                      const offR = sOffReqMap[`${name}-${dateStr}`]
                                       if (inDrag) return <span style={{ fontSize:10, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                                       if (sc) return (
                                         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
                                           <span style={{ fontSize:8, fontWeight:700, color:STATUS_COLOR[sc.status], lineHeight:1.3 }}>{STATUS_LABEL[sc.status]}</span>
                                           {sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
-                                          {offR && <span style={{ fontSize:8 }}>{offR.status==='approved'?'✅':'🙏'}</span>}
+                                          {offR?.status==='pending' && <span style={{ fontSize:8 }}>🙏</span>}
+                                          {offR?.status==='approved' && <span style={{ fontSize:8 }}>✅</span>}
                                         </div>
                                       )
-                                      if (offR) return <span style={{ fontSize:10 }}>{offR.status==='approved'?'✅':offR.status==='rejected'?'❌':'🙏'}</span>
+                                      if (offR?.status==='approved') return (
+                                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
+                                          <span style={{ fontSize:8, fontWeight:700, color:STATUS_COLOR['off'] }}>휴일</span>
+                                          <span style={{ fontSize:7, color:'#aaa' }}>확정</span>
+                                        </div>
+                                      )
+                                      if (offR?.status==='pending') return (
+                                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
+                                          <span style={{ fontSize:10 }}>🙏</span>
+                                          <span style={{ fontSize:7, color:'#CC9900', maxWidth:32, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={offR.reason}>{offR.reason}</span>
+                                        </div>
+                                      )
+                                      if (offR?.status==='rejected') return <span style={{ fontSize:9, color:'#E84393' }}>❌</span>
+                                      if (isDayBlocked) return <span style={{ fontSize:9, color:'#ccc' }}>🚫</span>
+                                      if (takenByOtherM) return null
                                       return <span style={{ fontSize:12, color:'#e8e8e8' }}>+</span>
                                     })()}
                                   </td>
