@@ -109,6 +109,8 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
   const [unit, setUnit] = useState('ea')
   const [memo, setMemo] = useState('')
   const [linkedItemId, setLinkedItemId] = useState('')
+  const [linkedUnit, setLinkedUnit] = useState('ea')
+  const [unlinkUnit, setUnlinkUnit] = useState(false)
   const [requestedAt, setRequestedAt] = useState('')
   const [suggestions, setSuggestions] = useState<any[]>([])
 
@@ -118,14 +120,16 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
       const matched = inventoryItems.filter(i => i.name.includes(val.trim())).slice(0, 5)
       setSuggestions(matched)
     } else {
-      setSuggestions([]); setLinkedItemId('')
+      setSuggestions([]); setLinkedItemId(''); setUnlinkUnit(false)
     }
   }
 
   function selectInventoryItem(item: any) {
     setItemName(item.name)
     setUnit(item.unit || 'ea')
+    setLinkedUnit(item.unit || 'ea')
     setLinkedItemId(item.id)
+    setUnlinkUnit(false)
     setSuggestions([])
   }
 
@@ -136,7 +140,7 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
       item_name: itemName.trim(),
       quantity: Number(quantity),
       unit,
-      inventory_item_id: linkedItemId || null,
+      inventory_item_id: (linkedItemId && !unlinkUnit) ? linkedItemId : null,
       memo: memo.trim() || null,
       requested_at: requestedAt ? new Date(requestedAt).toISOString() : null,
       ordered_by: userName,
@@ -169,17 +173,22 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
             </div>
           )}
         </div>
-        {linkedItemId && <div style={{ fontSize: 10, color: '#6C5CE7', marginBottom: 10, marginTop: -6 }}>✓ 재고 품목과 연동됨 — 수령 시 재고 자동 반영 가능</div>}
+        {linkedItemId && !unlinkUnit && (
+          <div style={{ fontSize: 10, color: '#6C5CE7', marginBottom: 10, marginTop: -6 }}>✓ 재고 품목과 연동됨 — 수령 시 재고 자동 반영 가능</div>
+        )}
+        {linkedItemId && unlinkUnit && (
+          <div style={{ fontSize: 10, color: '#B8860B', marginBottom: 10, marginTop: -6 }}>⚠️ 연동 해제됨 — 수령해도 재고에 자동 반영되지 않아요</div>
+        )}
 
         {/* 수량 / 단위 */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: linkedItemId ? 6 : 10 }}>
           <div style={{ flex: 2 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수량 <span style={{ color: '#E84393' }}>*</span></div>
             <input type="number" value={quantity} onChange={e => setQuantity(e.target.value === '' ? '' : Number(e.target.value))} placeholder="0" style={inp} />
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
-            {linkedItemId ? (
+            {linkedItemId && !unlinkUnit ? (
               <div style={{ ...inp, background: '#F4F6F9', color: '#6C5CE7', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
                 🔒 {unit}
               </div>
@@ -194,6 +203,19 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
             )}
           </div>
         </div>
+
+        {/* 연동 해제 체크박스 */}
+        {linkedItemId && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, cursor: 'pointer' }}>
+            <input type="checkbox" checked={unlinkUnit} onChange={e => {
+              setUnlinkUnit(e.target.checked)
+              if (!e.target.checked) setUnit(linkedUnit)
+            }} style={{ width: 14, height: 14, cursor: 'pointer', accentColor: '#B8860B' }} />
+            <span style={{ fontSize: 11, color: unlinkUnit ? '#B8860B' : '#aaa', fontWeight: unlinkUnit ? 700 : 400 }}>
+              연동이 풀려요 (다른 단위로 발주)
+            </span>
+          </label>
+        )}
 
         {/* 발주 요청 날짜 */}
         <div style={{ marginBottom: 10 }}>
@@ -725,7 +747,7 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
   onClose: () => void; onSaved: () => void
 }) {
   const supabase = createSupabaseBrowserClient()
-  type QuickItem = { id: number; name: string; qty: number | ''; unit: string; suggestion: any[]; linkedItemId?: string }
+  type QuickItem = { id: number; name: string; qty: number | ''; unit: string; suggestion: any[]; linkedItemId?: string; linkedUnit?: string; unlinkUnit?: boolean }
   const newRow = (id: number): QuickItem => ({ id, name: '', qty: '', unit: 'ea', suggestion: [] })
   const [rows, setRows] = useState<QuickItem[]>([newRow(1), newRow(2), newRow(3)])
   const [supplierId, setSupplierId] = useState('')
@@ -740,7 +762,7 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
     }
   }
   function pickSuggestion(id: number, item: any) {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, name: item.name, unit: item.unit || 'ea', linkedItemId: item.id, suggestion: [] } : r))
+    setRows(prev => prev.map(r => r.id === id ? { ...r, name: item.name, unit: item.unit || 'ea', linkedItemId: item.id, linkedUnit: item.unit || 'ea', unlinkUnit: false, suggestion: [] } : r))
   }
   function addRow() {
     setRows(prev => [...prev, newRow(++nextId)])
@@ -827,7 +849,7 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
                   placeholder="0"
                   style={{ ...inp, padding: '8px 8px', textAlign: 'center' }}
                 />
-                {row.linkedItemId ? (
+                {row.linkedItemId && !row.unlinkUnit ? (
                   <div style={{ ...inp, padding: '8px 4px', background: '#F4F6F9', color: '#6C5CE7', fontWeight: 700, fontSize: 11, textAlign: 'center' as const }}>
                     🔒{row.unit}
                   </div>
@@ -842,6 +864,20 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
                   ✕
                 </button>
               </div>
+              {/* 연동 해제 체크박스 */}
+              {row.linkedItemId && (
+                <div style={{ marginTop: 2, marginBottom: 2 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!row.unlinkUnit} onChange={e => {
+                      const unlink = e.target.checked
+                      setRows(prev => prev.map(r => r.id === row.id ? { ...r, unlinkUnit: unlink, unit: unlink ? r.unit : (r.linkedUnit || 'ea') } : r))
+                    }} style={{ width: 12, height: 12, cursor: 'pointer', accentColor: '#B8860B' }} />
+                    <span style={{ fontSize: 10, color: row.unlinkUnit ? '#B8860B' : '#bbb', fontWeight: row.unlinkUnit ? 700 : 400 }}>
+                      연동이 풀려요 (다른 단위로 발주)
+                    </span>
+                  </label>
+                </div>
+              )}
               {row.suggestion.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 30, background: '#fff', border: '1px solid #E8ECF0', borderRadius: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, overflow: 'hidden' }}>
                   {row.suggestion.map(s => (
