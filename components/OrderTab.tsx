@@ -179,13 +179,19 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
-            <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
-              <option value="ea">ea</option>
-              <option value="box">box</option>
-              <option value="kg">kg</option>
-              <option value="L">L</option>
-              <option value="병">병</option>
-            </select>
+            {linkedItemId ? (
+              <div style={{ ...inp, background: '#F4F6F9', color: '#6C5CE7', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                🔒 {unit}
+              </div>
+            ) : (
+              <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
+                <option value="ea">ea</option>
+                <option value="box">box</option>
+                <option value="kg">kg</option>
+                <option value="L">L</option>
+                <option value="병">병</option>
+              </select>
+            )}
           </div>
         </div>
 
@@ -719,7 +725,7 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
   onClose: () => void; onSaved: () => void
 }) {
   const supabase = createSupabaseBrowserClient()
-  type QuickItem = { id: number; name: string; qty: number | ''; unit: string; suggestion: any[] }
+  type QuickItem = { id: number; name: string; qty: number | ''; unit: string; suggestion: any[]; linkedItemId?: string }
   const newRow = (id: number): QuickItem => ({ id, name: '', qty: '', unit: 'ea', suggestion: [] })
   const [rows, setRows] = useState<QuickItem[]>([newRow(1), newRow(2), newRow(3)])
   const [supplierId, setSupplierId] = useState('')
@@ -734,7 +740,7 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
     }
   }
   function pickSuggestion(id: number, item: any) {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, name: item.name, unit: item.unit || 'ea', suggestion: [] } : r))
+    setRows(prev => prev.map(r => r.id === id ? { ...r, name: item.name, unit: item.unit || 'ea', linkedItemId: item.id, suggestion: [] } : r))
   }
   function addRow() {
     setRows(prev => [...prev, newRow(++nextId)])
@@ -821,10 +827,16 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
                   placeholder="0"
                   style={{ ...inp, padding: '8px 8px', textAlign: 'center' }}
                 />
-                <select value={row.unit} onChange={e => updateRow(row.id, 'unit', e.target.value)}
-                  style={{ ...inp, padding: '8px 4px', appearance: 'auto' as any }}>
-                  <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option>
-                </select>
+                {row.linkedItemId ? (
+                  <div style={{ ...inp, padding: '8px 4px', background: '#F4F6F9', color: '#6C5CE7', fontWeight: 700, fontSize: 11, textAlign: 'center' as const }}>
+                    🔒{row.unit}
+                  </div>
+                ) : (
+                  <select value={row.unit} onChange={e => updateRow(row.id, 'unit', e.target.value)}
+                    style={{ ...inp, padding: '8px 4px', appearance: 'auto' as any }}>
+                    <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option>
+                  </select>
+                )}
                 <button onClick={() => removeRow(row.id)}
                   style={{ width: 28, height: 36, borderRadius: 7, border: '1px solid #E8ECF0', background: '#F8F9FB', color: '#ccc', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   ✕

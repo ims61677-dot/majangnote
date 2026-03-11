@@ -831,10 +831,9 @@ function QuickOrderRequestModal({ item, storeId, userName, suppliers, onClose, o
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
-            <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
-              <option value="ea">ea</option><option value="box">box</option>
-              <option value="kg">kg</option><option value="L">L</option><option value="병">병</option>
-            </select>
+            <div style={{ ...inp, background: '#F4F6F9', color: '#6C5CE7', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+              🔒 {unit}
+            </div>
           </div>
         </div>
 
@@ -1399,7 +1398,7 @@ function InventoryPageInner() {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                           <button onClick={() => updateQty(item.id, subTab, q - 1)} style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                          <input type="number" value={q < 0 ? 0 : q} onChange={e => updateQty(item.id, subTab, Number(e.target.value))}
+                          <input type="number" step="0.1" value={q < 0 ? 0 : q} onChange={e => updateQty(item.id, subTab, Number(e.target.value))}
                             style={{ width: 52, textAlign: 'center', fontSize: 16, fontWeight: 700, color: tot <= item.min_qty ? '#E84393' : tot <= wq ? '#B8860B' : '#1a1a2e', border: '1px solid #E8ECF0', borderRadius: 7, padding: '4px 2px', background: '#fff', outline: 'none' }}
                             onFocus={e => e.target.select()} />
                           <button onClick={() => updateQty(item.id, subTab, q + 1)} style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
@@ -1858,6 +1857,7 @@ function InventoryPageInner() {
                       style={{ width: 28, height: 28, borderRadius: 7, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
                     <input
                       type="number"
+                      step="0.1"
                       value={q < 0 ? 0 : q}
                       onChange={e => updateQty(item.id, subTab, Number(e.target.value))}
                       style={{ width: 52, textAlign: 'center', fontSize: 16, fontWeight: 700,
