@@ -323,23 +323,40 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
         {/* ── 휴무요청 UI (staff 또는 owner 확인) ── */}
         {(canRequestOff || offRequest) && (
           <div style={{ marginTop: (role==='owner'||role==='manager') ? 16 : 0 }}>
-            {role === 'staff' && (
+            {role !== 'owner' && (
               <>
                 {offRequest ? (
-                  <div style={{ padding:'14px', background: offRequest.status==='approved'?'rgba(0,184,148,0.08)':offRequest.status==='rejected'?'rgba(232,67,147,0.06)':'rgba(255,200,0,0.08)', borderRadius:12, border: `1px solid ${offRequest.status==='approved'?'rgba(0,184,148,0.25)':offRequest.status==='rejected'?'rgba(232,67,147,0.2)':'rgba(255,200,0,0.3)'}` }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-                      <span style={{ fontSize:18 }}>{offRequest.status==='approved'?'✅':offRequest.status==='rejected'?'❌':'🙏'}</span>
-                      <div>
-                        <div style={{ fontSize:12, fontWeight:700, color: offRequest.status==='approved'?'#00B894':offRequest.status==='rejected'?'#E84393':'#FF6B35' }}>
-                          {offRequest.status==='approved'?'휴무 요청 승인됨':offRequest.status==='rejected'?'휴무 요청 거부됨':'휴무 요청 대기 중'}
+                  staffName === myName ? (
+                    // 내 요청
+                    <div style={{ padding:'14px', background: offRequest.status==='approved'?'rgba(232,67,147,0.08)':offRequest.status==='rejected'?'rgba(232,67,147,0.06)':'rgba(255,200,0,0.08)', borderRadius:12, border: `1px solid ${offRequest.status==='approved'?STATUS_COLOR['off']+'40':offRequest.status==='rejected'?'rgba(232,67,147,0.2)':'rgba(255,200,0,0.3)'}` }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                        <span style={{ fontSize:18 }}>{offRequest.status==='approved'?'✅':offRequest.status==='rejected'?'❌':'🙏'}</span>
+                        <div>
+                          <div style={{ fontSize:12, fontWeight:700, color: offRequest.status==='approved'?STATUS_COLOR['off']:offRequest.status==='rejected'?'#E84393':'#CC9900' }}>
+                            {offRequest.status==='approved'?'휴무 확정됨 🎉':offRequest.status==='rejected'?'휴무 요청 거부됨':'휴무 요청 대기 중'}
+                          </div>
+                          <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>사유: {offRequest.reason}</div>
                         </div>
-                        <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>사유: {offRequest.reason}</div>
                       </div>
+                      {offRequest.status === 'pending' && (
+                        <button onClick={onOffRequestCancel} style={{ width:'100%', padding:'8px 0', borderRadius:9, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:12, fontWeight:600, cursor:'pointer' }}>요청 취소하기</button>
+                      )}
                     </div>
-                    {offRequest.status === 'pending' && (
-                      <button onClick={onOffRequestCancel} style={{ width:'100%', padding:'8px 0', borderRadius:9, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:12, fontWeight:600, cursor:'pointer' }}>요청 취소하기</button>
-                    )}
-                  </div>
+                  ) : (
+                    // 다른 직원 요청 - 읽기 전용
+                    <div style={{ padding:'14px', background:'rgba(108,92,231,0.05)', borderRadius:12, border:'1px solid rgba(108,92,231,0.15)' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                        <span style={{ fontSize:16 }}>{offRequest.status==='approved'?'✅':'🙏'}</span>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color: offRequest.status==='approved'?STATUS_COLOR['off']:'#6C5CE7' }}>
+                            {staffName}님 {offRequest.status==='approved'?'휴무 확정':'휴무 요청 중'}
+                          </div>
+                          <div style={{ fontSize:10, color:'#888', marginTop:2 }}>📝 사유: {offRequest.reason}</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize:10, color:'#bbb', textAlign:'center' }}>배려해주세요 💙</div>
+                    </div>
+                  )
                 ) : canRequestOff ? (
                   <div style={{ padding:'14px', background:'rgba(255,200,0,0.06)', borderRadius:12, border:'1px solid rgba(255,200,0,0.3)' }}>
                     <div style={{ fontSize:12, fontWeight:700, color:'#CC9900', marginBottom:4 }}>🙏 다음 달 휴무 요청</div>
@@ -350,7 +367,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
                 ) : null}
               </>
             )}
-            {(role === 'owner' || role === 'manager') && offRequest && (
+            {role === 'owner' && offRequest && (
               <div style={{ padding:'12px', background:'rgba(255,200,0,0.06)', borderRadius:12, border:'1px solid rgba(255,200,0,0.25)', marginTop:12 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
                   <span style={{ fontSize:14 }}>{offRequest.status==='approved'?'✅':offRequest.status==='rejected'?'❌':'🙏'}</span>
@@ -1229,7 +1246,8 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const isOwner = role === 'owner'
   const isManager = role === 'manager'
   const isStaff = role === 'staff'
-  const visibleStaff = isStaff ? staffList.filter(n => n === myName) : staffList
+  // 미래달 요청기간엔 전직원 표시 (서로 요청 현황 볼 수 있게)
+  const visibleStaff = (isStaff && !(isFuture && requestOpen)) ? staffList.filter(n => n === myName) : staffList
 
   // 공개/비공개 판단
   const isPublished = scheduleSettings?.is_published || false
@@ -1556,10 +1574,18 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
           <thead>
             <tr>
               <th style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'2px solid #E8ECF0', padding:'10px 8px', fontSize:10, color:'#aaa', fontWeight:700, textAlign:'left', position:'sticky', top:0, zIndex:3 }}>날짜</th>
-              {visibleStaff.map(name => (
+              {visibleStaff.map(name => {
+                // 요청기간 중 해당 직원의 미래달 요청 수 표시
+                const staffPendingCnt = (isFuture && requestOpen) ? offRequests.filter(r => r.staff_name === name && r.status === 'pending').length : 0
+                const staffApprovedCnt = (isFuture && requestOpen) ? offRequests.filter(r => r.staff_name === name && r.status === 'approved').length : 0
+                return (
                 <th key={name} style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'1px solid #ECEEF2', padding:'8px 4px', fontSize:12, color:'#1a1a2e', fontWeight:700, textAlign:'center', position:'sticky', top:0, zIndex:3 }}>
                   <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
-                    <span>{name}</span>
+                    <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                      <span>{name}</span>
+                      {staffPendingCnt > 0 && <span style={{ fontSize:9, background:'rgba(255,200,0,0.2)', color:'#CC9900', borderRadius:5, padding:'1px 5px', fontWeight:700 }}>🙏{staffPendingCnt}</span>}
+                      {staffApprovedCnt > 0 && <span style={{ fontSize:9, background:STATUS_BG['off'], color:STATUS_COLOR['off'], borderRadius:5, padding:'1px 5px', fontWeight:700 }}>휴{staffApprovedCnt}</span>}
+                    </div>
                     {/* 복사/붙여넣기 버튼 (NEW) */}
                     {isOwner && (
                       copiedStaff === name ? (
@@ -1575,7 +1601,8 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                     )}
                   </div>
                 </th>
-              ))}
+                )
+              })}
               <th style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', padding:'10px 4px', fontSize:10, color:'#6C5CE7', fontWeight:700, textAlign:'center', position:'sticky', top:0, zIndex:3 }}>출근</th>
             </tr>
           </thead>
@@ -1605,18 +1632,20 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                     const canRequestOff = isFuture && requestOpen && !isOwner && isMine && !isBlocked && !offReq
                     const clickable = canClick(staff, !!sc)
                     const inDrag = isCellInDrag(staff, day)
+                    // 요청기간 중 다른 직원 셀 클릭 가능 여부 (내용 보기용)
+                    const otherCanView = isFuture && requestOpen && !isOwner && !isMine && !!offReq
                     let earlyTimeDisplay = ''
                     if (sc?.status === 'early' && sc?.note) {
                       const m = sc.note.match(/^\[조퇴:(\d{2}:\d{2})\]/)
                       if (m) earlyTimeDisplay = m[1]
                     }
-                    // 셀 배경 결정
+                    // 셀 배경
                     let cellBg = sc ? STATUS_BG[sc.status] : undefined
                     if (inDrag) cellBg = 'rgba(108,92,231,0.18)'
-                    else if (offReq?.status === 'approved') cellBg = 'rgba(0,184,148,0.15)'
-                    else if (offReq?.status === 'pending') cellBg = 'rgba(255,200,0,0.15)'
-                    else if (offReq?.status === 'rejected') cellBg = 'rgba(232,67,147,0.08)'
-                    else if (isBlocked) cellBg = 'rgba(200,200,200,0.15)'
+                    else if (!sc && offReq?.status === 'approved') cellBg = STATUS_BG['off']
+                    else if (!sc && offReq?.status === 'pending' && isMine) cellBg = 'rgba(255,200,0,0.12)'
+                    else if (!sc && offReq?.status === 'pending' && !isMine) cellBg = 'rgba(108,92,231,0.05)'
+                    else if (isBlocked) cellBg = 'rgba(200,200,200,0.1)'
 
                     return (
                       <td key={staff}
@@ -1626,31 +1655,54 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                           if (isMouseDown.current) return
                           if (dragSel) return
                           if (isBlocked && !isOwner) return
-                          if (offReq || canRequestOff || isOwner || clickable) setPopup({ staff, date: dateStr })
+                          if (offReq || canRequestOff || isOwner || clickable || otherCanView) setPopup({ staff, date: dateStr })
                         }}
-                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:44, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : (canRequestOff || offReq) ? 'pointer' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: cellBg, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
+                        style={{ borderBottom:'1px solid #ECEEF2', borderRight:'1px solid #ECEEF2', padding:0, height:44, textAlign:'center', verticalAlign:'middle', cursor: isOwner ? 'crosshair' : (canRequestOff || offReq || otherCanView) ? 'pointer' : clickable ? 'pointer' : 'default', transition:'background 0.05s', background: cellBg, outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px' }}>
                         {inDrag ? (
                           <span style={{ fontSize:14, color:'#6C5CE7', fontWeight:700 }}>✓</span>
-                        ) : offReq && !sc ? (
-                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
-                            <span style={{ fontSize:14, lineHeight:1.2 }}>{offReq.status==='approved'?'✅':offReq.status==='rejected'?'❌':'🙏'}</span>
-                            <span style={{ fontSize:7, color: offReq.status==='approved'?'#00B894':offReq.status==='rejected'?'#E84393':'#FF6B35', fontWeight:700 }}>
-                              {offReq.status==='approved'?'승인':offReq.status==='rejected'?'거부':'대기'}
-                            </span>
-                          </div>
                         ) : sc ? (
+                          // 스케줄 있는 경우 (공개된 달)
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, height:'100%', padding:'2px 3px' }}>
                             <span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR[sc.status] }}>{STATUS_LABEL[sc.status]}</span>
                             {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
                             {sc.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[sc.position] }}>{sc.position}</span>}
                             {sc.note && !earlyTimeDisplay && <span title={sc.note} style={{ fontSize:8, color:'#FF6B35', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{sc.note}</span>}
-                            {offReq && <span style={{ fontSize:10 }}>{offReq.status==='approved'?'✅':'🙏'}</span>}
+                            {offReq?.status === 'pending' && <span style={{ fontSize:8 }}>🙏</span>}
+                          </div>
+                        ) : offReq?.status === 'approved' ? (
+                          // 휴무 확정
+                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
+                            <span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR['off'] }}>휴일</span>
+                            <span style={{ fontSize:7, color:'#aaa' }}>확정</span>
+                          </div>
+                        ) : offReq?.status === 'pending' ? (
+                          // 휴무 요청 대기
+                          isMine ? (
+                            // 내 요청
+                            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
+                              <span style={{ fontSize:14, lineHeight:1.3 }}>🙏</span>
+                              <span style={{ fontSize:7, color:'#CC9900', fontWeight:700, maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={offReq.reason}>{offReq.reason}</span>
+                            </div>
+                          ) : (
+                            // 다른 직원 요청 - 사유 보임
+                            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0, padding:'1px 2px' }}>
+                              <span style={{ fontSize:11, lineHeight:1.3 }}>🙏</span>
+                              <span style={{ fontSize:7, color:'#6C5CE7', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={offReq.reason}>{offReq.reason}</span>
+                            </div>
+                          )
+                        ) : offReq?.status === 'rejected' && isMine ? (
+                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
+                            <span style={{ fontSize:11, lineHeight:1.2, color:'#E84393' }}>✕</span>
+                            <span style={{ fontSize:7, color:'#E84393', fontWeight:700 }}>거부</span>
                           </div>
                         ) : isBlocked ? (
                           <span style={{ fontSize:10, color:'#ccc' }}>🚫</span>
                         ) : canRequestOff ? (
-                          <span style={{ fontSize:13, color:'#FFD700', lineHeight:1 }}>🙏</span>
-                        ) : clickable ? <span style={{ fontSize:18, color:'#e0e0e0', lineHeight:1 }}>+</span> : null}
+                          // 내 셀, 요청 가능
+                          <span style={{ fontSize:18, color:'#e0e0e0', lineHeight:1 }}>+</span>
+                        ) : clickable ? (
+                          <span style={{ fontSize:18, color:'#e0e0e0', lineHeight:1 }}>+</span>
+                        ) : null}
                       </td>
                     )
                   })}
@@ -1714,7 +1766,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
   const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
   const days = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
   const isOwner = role==='owner'; const isManager = role==='manager'; const isStaff = role==='staff'
-  const visibleStaff = isStaff ? staffList.filter(n => n===myName) : staffList
+  const visibleStaff = (isStaff && !(isFuture && requestOpen)) ? staffList.filter(n => n===myName) : staffList
   const canEdit = isOwner || isManager
   const isPublished = scheduleSettings?.is_published || false
   const visible = isScheduleVisible(year, month, nowYear, nowMonth, isPublished, role)
