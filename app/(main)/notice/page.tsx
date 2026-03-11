@@ -355,7 +355,7 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
       {expanded && (
         <div style={{ marginTop:12 }}>
           {notice.content && (
-            <div style={{ fontSize:13, color:'#444', lineHeight:1.7, background:'#F8F9FB', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
+            <div style={{ fontSize:13, color:'#444', lineHeight:1.7, background:'#F8F9FB', borderRadius:10, padding:'10px 12px', marginBottom:12, whiteSpace:'pre-wrap' }}>
               {notice.content}
             </div>
           )}
@@ -428,7 +428,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [checklistMap, setChecklistMap] = useState<Record<string, any[]>>({})
   const [checklistInput, setChecklistInput] = useState('')
   const [checklistTime, setChecklistTime] = useState('')
-  const [checklistRepeat, setChecklistRepeat] = useState<'none'|'weekly'>('none')
+  const [checklistRepeat, setChecklistRepeat] = useState<'none'|'weekly'|'monthly'>('none')
   const [savingChecklist, setSavingChecklist] = useState(false)
   const memoDates = new Set(Object.keys(checklistMap).filter(d => checklistMap[d]?.length > 0))
 
@@ -759,7 +759,16 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     const prevDate = prev.toISOString().slice(0, 10)
     const prevItems = checklistMap[prevDate]
     if (!prevItems || prevItems.length === 0) return
-    const undone = prevItems.filter((i: any) => !i.done)
+    const today = new Date(date)
+    const undone = prevItems.filter((i: any) => {
+      if (i.done) return false
+      // 매월: 오늘이 같은 날짜(일)일 때만 이월
+      if (i.repeat === 'monthly') {
+        const savedDay = new Date(prevDate).getDate()
+        return today.getDate() === savedDay
+      }
+      return true
+    })
     if (undone.length === 0) return
     const todayItems = checklistMap[date] || []
     const todayTexts = todayItems.map((i: any) => i.text)
@@ -1019,7 +1028,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                                 style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.25)', color: '#E84393', cursor: 'pointer' }}>✕</button>
                             </div>
                           </div>
-                          {notice.content && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.5, marginBottom: 4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: isExpanded ? 99 : 2, WebkitBoxOrient: 'vertical' as const }}>{notice.content}</div>}
+                          {notice.content && <div style={{ fontSize: 11, color: '#666', lineHeight: 1.5, marginBottom: 4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: isExpanded ? 99 : 2, WebkitBoxOrient: 'vertical' as const, whiteSpace: 'pre-wrap' }}>{notice.content}</div>}
                           {notice.attachment_url && <AttachmentView url={notice.attachment_url} type={notice.attachment_type} />}
                           <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>{notice.created_by} · {notice.notice_date?.replace(/-/g,'.')}</div>
                         </div>
@@ -1197,8 +1206,12 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
             style={{ flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid #E8ECF0', fontSize: 11, color: '#6C5CE7', background: '#F8F9FB', outline: 'none' }}
           />
           <button onClick={() => setChecklistRepeat(r => r === 'weekly' ? 'none' : 'weekly')}
-            style={{ padding: '5px 10px', borderRadius: 8, border: checklistRepeat === 'weekly' ? '1.5px solid #00B894' : '1px solid #E8ECF0', background: checklistRepeat === 'weekly' ? 'rgba(0,184,148,0.1)' : '#F4F6F9', color: checklistRepeat === 'weekly' ? '#00B894' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'weekly' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+            style={{ padding: '5px 8px', borderRadius: 8, border: checklistRepeat === 'weekly' ? '1.5px solid #00B894' : '1px solid #E8ECF0', background: checklistRepeat === 'weekly' ? 'rgba(0,184,148,0.1)' : '#F4F6F9', color: checklistRepeat === 'weekly' ? '#00B894' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'weekly' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
             📆 매주
+          </button>
+          <button onClick={() => setChecklistRepeat(r => r === 'monthly' ? 'none' : 'monthly')}
+            style={{ padding: '5px 8px', borderRadius: 8, border: checklistRepeat === 'monthly' ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0', background: checklistRepeat === 'monthly' ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: checklistRepeat === 'monthly' ? '#6C5CE7' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'monthly' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+            📅 매월
           </button>
         </div>
         <div style={{ fontSize: 9, color: '#bbb', marginTop: 4 }}>⏰ 시간 설정 시 해당 시간에 알림 (선택사항)</div>
@@ -1281,7 +1294,7 @@ function SortableChecklistItem({ item, date, movePopup, setMovePopup, toggleChec
           <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' as const }}>
             {item.carriedFrom && <span style={{ fontSize: 9, color: '#FF6B35', background: 'rgba(255,107,53,0.1)', padding: '1px 5px', borderRadius: 4 }}>↩ {item.carriedFrom.slice(5).replace('-','/')} 이월</span>}
             {item.time && <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>🔔 {item.time}</span>}
-            {item.repeat === 'weekly' && <span style={{ fontSize: 9, color: '#00B894', background: 'rgba(0,184,148,0.1)', padding: '1px 5px', borderRadius: 4 }}>📆 매주</span>}
+            {item.repeat === 'weekly' && <span style={{ fontSize: 9, color: '#00B894', background: 'rgba(0,184,148,0.1)', padding: '1px 5px', borderRadius: 4 }}>📆 매주</span>}{item.repeat === 'monthly' && <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>📅 매월</span>}
           </div>
         </div>
         <div style={{ display:'flex', gap:2, flexShrink:0 }}>
@@ -2055,7 +2068,7 @@ export default function NoticePage() {
                         </div>
                         {selectedNotice?.id===notice.id && (
                           <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid #F4F6F9' }}>
-                            {notice.content && <div style={{ fontSize:13, color:'#444', lineHeight:1.7, marginBottom:10, padding:'8px 10px', background:'#F8F9FB', borderRadius:8 }}>{notice.content}</div>}
+                            {notice.content && <div style={{ fontSize:13, color:'#444', lineHeight:1.7, marginBottom:10, padding:'8px 10px', background:'#F8F9FB', borderRadius:8, whiteSpace:'pre-wrap' }}>{notice.content}</div>}
                             <AttachmentView url={notice.attachment_url} type={notice.attachment_type} />
                             <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:8, marginBottom:8 }}>
                               {(noticeReads[notice.id]||[]).map((r:any) => (
@@ -2101,7 +2114,7 @@ export default function NoticePage() {
                       </div>
                       {selectedNotice?.id===notice.id && (
                         <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid #F4F6F9' }}>
-                          {notice.content && <div style={{ fontSize:13, color:'#444', lineHeight:1.7, marginBottom:10, padding:'8px 10px', background:'#F8F9FB', borderRadius:8 }}>{notice.content}</div>}
+                          {notice.content && <div style={{ fontSize:13, color:'#444', lineHeight:1.7, marginBottom:10, padding:'8px 10px', background:'#F8F9FB', borderRadius:8, whiteSpace:'pre-wrap' }}>{notice.content}</div>}
                           <AttachmentView url={notice.attachment_url} type={notice.attachment_type} />
                           <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:8, marginBottom:8 }}>
                             {(noticeReads[notice.id]||[]).map((r:any) => (
