@@ -123,7 +123,7 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
             <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} · 발주수량 {order.quantity}{order.unit}</div>
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>실제 수령 수량</div>
-              <input type="number" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+              <input type="number" step="0.1" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
             </div>
             {hasInventoryLink && (
               <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.2)', marginBottom: 10, fontSize: 12, color: '#6C5CE7' }}>
@@ -221,6 +221,37 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
             )}
             {order.status === 'ordered' && (
               <button onClick={() => setShowReceive(true)} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.3)', color: '#00B894', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>📦 수령</button>
+            )}
+            {order.status === 'received' && (
+              <button onClick={async () => {
+                if (!confirm('수령을 취소할까요?\n재고에 합산된 수량도 자동으로 차감돼요.')) return
+                // 재고 차감 (연동된 경우)
+                if (order.inventory_item_id) {
+                  const { data: receipts } = await supabase.from('order_receipts')
+                    .select('received_quantity, inventory_place, inventory_applied')
+                    .eq('order_id', order.id)
+                    .eq('inventory_applied', true)
+                  if (receipts && receipts.length > 0) {
+                    for (const r of receipts) {
+                      if (r.inventory_place) {
+                        const { data: existing } = await supabase.from('inventory_stock')
+                          .select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).single()
+                        const newQty = Math.max(0, (existing?.quantity ?? 0) - Number(r.received_quantity))
+                        await supabase.from('inventory_stock').upsert({
+                          item_id: order.inventory_item_id, place: r.inventory_place,
+                          quantity: newQty, updated_by: userName, updated_at: new Date().toISOString(),
+                        }, { onConflict: 'item_id,place' })
+                      }
+                    }
+                  }
+                }
+                await supabase.from('orders').update({ status: 'ordered' }).eq('id', order.id)
+                await supabase.from('order_receipt_logs').insert({
+                  order_id: order.id, changed_by: userName, field_name: '수령취소',
+                  before_value: '수령완료', after_value: '주문완료(수령취소)', memo: null,
+                })
+                onRefresh()
+              }} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.25)', color: '#E84393', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>↩️ 수령취소</button>
             )}
             <button onClick={() => setExpanded(p => !p)} style={{ padding: '5px 10px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>
               {expanded ? '▲' : '▼ 상세'}

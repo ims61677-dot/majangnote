@@ -323,7 +323,7 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
 
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>실제 수령 수량</div>
-              <input type="number" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+              <input type="number" step="0.1" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
             </div>
 
             {hasInventoryLink && (
@@ -597,7 +597,7 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         {(resolveType === 'exchange' || resolveType === 'both') && (
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>교환 수령 수량</div>
-            <input type="number" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+            <input type="number" step="0.1" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
           </div>
         )}
 
