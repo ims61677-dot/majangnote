@@ -421,6 +421,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   // dnd-kit sensors
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const [checklistTab, setChecklistTab] = useState<'today'|'carry'>('today')
   // 체크리스트 날짜 이동 팝업
   const [movePopup, setMovePopup] = useState<{itemId: string, fromDate: string} | null>(null)
   // 개인 체크리스트 (메모 대체)
@@ -458,9 +459,9 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const NOTICE_ORDER_KEY = `notice_order_${storeId}`
 
   useEffect(() => { loadAdminData() }, [storeId])
-  // 날짜 바뀌면 자동 이월 체크
+  // 날짜 바뀌면 탭 초기화
   useEffect(() => {
-    if (selectedCalDate) carryOverItems(selectedCalDate)
+    setChecklistTab('today')
   }, [selectedCalDate])
   // 날짜 바뀌어도 input 초기화
 
@@ -754,30 +755,39 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   // 전날 미완료 항목 오늘로 자동 이월
   async function carryOverItems(date: string) {
-    const prev = new Date(date)
-    prev.setDate(prev.getDate() - 1)
-    const prevDate = prev.toISOString().slice(0, 10)
-    const prevItems = checklistMap[prevDate]
-    if (!prevItems || prevItems.length === 0) return
-    const today = new Date(date)
-    const undone = prevItems.filter((i: any) => {
-      if (i.done) return false
-      // 매월: 오늘이 같은 날짜(일)일 때만 이월
-      if (i.repeat === 'monthly') {
-        const savedDay = new Date(prevDate).getDate()
-        return today.getDate() === savedDay
+    if (date > today) return  // 미래 날짜엔 이월 안 함
+    // 오늘 이전 최대 14일까지 미완료 항목 전부 오늘로 이월
+    const todayItems = [...(checklistMap[date] || [])]
+    const todayTexts = new Set(todayItems.map((i: any) => i.text))
+    let changed = false
+
+    for (let d = 1; d <= 14; d++) {
+      const prev = new Date(date)
+      prev.setDate(prev.getDate() - d)
+      const prevDate = prev.toISOString().slice(0, 10)
+      if (prevDate >= date) continue  // 미래는 skip
+
+      const prevItems = checklistMap[prevDate]
+      if (!prevItems || prevItems.length === 0) continue
+
+      const undone = prevItems.filter((i: any) => {
+        if (i.done) return false
+        if (todayTexts.has(i.text)) return false  // 이미 오늘에 있으면 skip
+        // 매월: 같은 날짜(일)일 때만 이월
+        if (i.repeat === 'monthly') {
+          return new Date(prevDate).getDate() === new Date(date).getDate()
+        }
+        return true
+      })
+
+      for (const item of undone) {
+        todayItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
+        todayTexts.add(item.text)
+        changed = true
       }
-      return true
-    })
-    if (undone.length === 0) return
-    const todayItems = checklistMap[date] || []
-    const todayTexts = todayItems.map((i: any) => i.text)
-    const toCarry = undone.filter((i: any) => !todayTexts.includes(i.text))
-    if (toCarry.length === 0) return
-    const carried = toCarry.map((i: any) => ({
-      ...i, id: Date.now().toString() + Math.random(), done: false, carriedFrom: prevDate
-    }))
-    await saveChecklist(date, [...carried, ...todayItems])
+    }
+
+    if (changed) await saveChecklist(date, todayItems)
   }
 
   // 항목을 다른 날짜로 이동
@@ -801,6 +811,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     await saveChecklist(selectedCalDate, items)
     setChecklistInput(''); setChecklistTime(''); setChecklistRepeat('none')
     setSavingChecklist(false)
+    setChecklistTab('today')
   }
 
   async function toggleUrgent(date: string, itemId: string) {
@@ -1145,8 +1156,13 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   )
 
   // ── 캘린더 + 메모 섹션 ──
-  const checklistItems = checklistMap[selectedCalDate] || []
+  // 오늘 항목 / 이월 항목 분리
+  const allChecklistItems = checklistMap[selectedCalDate] || []
+  const todayChecklistItems = allChecklistItems.filter((i: any) => !i.carriedFrom)
+  const carryChecklistItems = allChecklistItems.filter((i: any) => !!i.carriedFrom)
+  const checklistItems = checklistTab === 'today' ? todayChecklistItems : carryChecklistItems
   const doneCount = checklistItems.filter((i: any) => i.done).length
+  const carryUndone = carryChecklistItems.filter((i: any) => !i.done).length
 
   const calendarMemoSection = (
     <div>
@@ -1160,10 +1176,31 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       />
       {/* 개인 체크리스트 */}
       <div style={{ ...bx }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#E84393' }}>
-            ✅ {selectedCalDate.replace(/-/g,'.')} 내 스케줄
-          </div>
+        {/* 탭 헤더 */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+          <button onClick={() => setChecklistTab('today')}
+            style={{ flex: 1, padding: '7px 0', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: checklistTab === 'today' ? 700 : 400, background: checklistTab === 'today' ? 'linear-gradient(135deg,#E84393,#6C5CE7)' : '#F4F6F9', color: checklistTab === 'today' ? '#fff' : '#888' }}>
+            ✅ 오늘
+            {todayChecklistItems.filter((i:any)=>!i.done).length > 0 && (
+              <span style={{ marginLeft: 4, fontSize: 10, background: 'rgba(255,255,255,0.3)', borderRadius: 8, padding: '1px 5px' }}>
+                {todayChecklistItems.filter((i:any)=>!i.done).length}
+              </span>
+            )}
+          </button>
+          {selectedCalDate <= today && (
+            <button onClick={() => setChecklistTab('carry')}
+              style={{ flex: 1, padding: '7px 0', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: checklistTab === 'carry' ? 700 : 400, background: checklistTab === 'carry' ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#F4F6F9', color: checklistTab === 'carry' ? '#fff' : '#888' }}>
+              ↩ 이월
+              {carryUndone > 0 && (
+                <span style={{ marginLeft: 4, fontSize: 10, background: 'rgba(255,255,255,0.3)', borderRadius: 8, padding: '1px 5px' }}>
+                  {carryUndone}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: '#aaa' }}>{selectedCalDate.replace(/-/g,'.')}</div>
           {checklistItems.length > 0 && (
             <span style={{ fontSize: 10, color: doneCount === checklistItems.length ? '#00B894' : '#FF6B35', fontWeight: 700 }}>
               {doneCount}/{checklistItems.length} 완료
@@ -1173,7 +1210,14 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
         {/* 체크리스트 아이템 목록 */}
         {checklistItems.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '12px 0', color: '#ccc', fontSize: 12 }}>오늘 스케줄을 추가해보세요</div>
+          <div style={{ textAlign: 'center', padding: '16px 0', color: '#ccc', fontSize: 12 }}>
+            {checklistTab === 'today' ? '오늘 스케줄을 추가해보세요' : (
+              <div>
+                <div style={{ fontSize: 14, marginBottom: 6 }}>🎉</div>
+                이월된 항목이 없어요
+              </div>
+            )}
+          </div>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleChecklistDragEnd}>
             <SortableContext items={checklistItems.map((i: any) => i.id)} strategy={verticalListSortingStrategy}>
@@ -1197,8 +1241,16 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           </DndContext>
         )}
 
-        {/* 새 항목 추가 */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        {/* 이월 탭: 미완료 항목 오늘로 가져오기 버튼 */}
+        {checklistTab === 'carry' && selectedCalDate <= today && (
+          <button onClick={() => carryOverItems(selectedCalDate)}
+            style={{ width: '100%', padding: '8px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>
+            ↩ 미완료 항목 오늘로 이월
+          </button>
+        )}
+
+        {/* 새 항목 추가 (오늘 탭에서만) */}
+        {checklistTab === 'today' && <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
           <input
             value={checklistInput}
             onChange={e => setChecklistInput(e.target.value)}
@@ -1210,9 +1262,10 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
             style={{ padding: '0 12px', borderRadius: 8, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.3)', color: '#E84393', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: !checklistInput.trim() ? 0.5 : 1 }}>
             +
           </button>
-        </div>
+        </div>}
 
-        {/* 알람 설정 */}
+        {/* 알람 설정 (오늘 탭에서만) */}
+        {checklistTab === 'today' && <>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <input
             type="time"
@@ -1230,6 +1283,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           </button>
         </div>
         <div style={{ fontSize: 9, color: '#bbb', marginTop: 4 }}>⏰ 시간 설정 시 해당 시간에 알림 (선택사항)</div>
+        </>}
       </div>
 
 
