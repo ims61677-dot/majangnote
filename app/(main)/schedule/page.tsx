@@ -389,21 +389,29 @@ function OffRequestSettingsBar({ storeId, settings, onChanged }: {
   const [saving, setSaving] = useState(false)
   const isOpen = settings?.request_is_open || false
 
+  async function upsertSettings(patch: Record<string, any>) {
+    // 먼저 row가 있는지 확인
+    const { data: existing } = await supabase.from('schedule_settings').select('id').eq('store_id', storeId).maybeSingle()
+    if (existing) {
+      const { error } = await supabase.from('schedule_settings').update({ ...patch, updated_at: new Date().toISOString() }).eq('store_id', storeId)
+      if (error) { alert('저장 실패: ' + error.message); return false }
+    } else {
+      const { error } = await supabase.from('schedule_settings').insert({ store_id: storeId, ...patch, updated_at: new Date().toISOString() })
+      if (error) { alert('저장 실패: ' + error.message); return false }
+    }
+    return true
+  }
+
   async function toggleOpen() {
-    await supabase.from('schedule_settings').upsert(
-      { store_id: storeId, request_is_open: !isOpen, updated_at: new Date().toISOString() },
-      { onConflict: 'store_id' }
-    )
-    onChanged()
+    const ok = await upsertSettings({ request_is_open: !isOpen })
+    if (ok) onChanged()
   }
 
   async function saveDays() {
     setSaving(true)
-    await supabase.from('schedule_settings').upsert(
-      { store_id: storeId, request_open_day: openDay, request_close_day: closeDay, updated_at: new Date().toISOString() },
-      { onConflict: 'store_id' }
-    )
-    setSaving(false); onChanged(); setOpen(false)
+    const ok = await upsertSettings({ request_open_day: openDay, request_close_day: closeDay })
+    setSaving(false)
+    if (ok) { onChanged(); setOpen(false) }
   }
 
   return (
@@ -516,7 +524,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   const [year, setYear] = useState(initYear)
   const [month, setMonth] = useState(initMonth)
   const [storeItems, setStoreItems] = useState<any[]>([])
-  const [storeData, setStoreData] = useState<Record<string, { schedules: any[]; requests: any[]; staff: string[] }>>({})
+  const [storeData, setStoreData] = useState<Record<string, { schedules: any[]; requests: any[]; staff: string[]; settings: any; offRequests: any[] }>>({})
   const [loading, setLoading] = useState(true)
   const [approvingId, setApprovingId] = useState<string | null>(null)
   // 섹션 탭
@@ -534,6 +542,9 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
 
   const today = toDateStr(new Date())
   const tomorrow = toDateStr(new Date(Date.now() + 86400000))
+  const nowD = new Date()
+  const nowYear = nowD.getFullYear()
+  const nowMonth = nowD.getMonth()
 
   useEffect(() => { loadAll() }, [year, month])
   useEffect(() => { setYear(initYear); setMonth(initMonth) }, [initYear, initMonth])
@@ -584,17 +595,19 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
     await Promise.all(myStores.map(async (member: any) => {
       const sid = member.stores?.id
       if (!sid) return
-      const [schedsRes, reqsRes, staffRes] = await Promise.all([
+      const [schedsRes, reqsRes, staffRes, settingsRes, offReqsRes] = await Promise.all([
         supabase.from('schedules').select('*').eq('store_id', sid).gte('schedule_date', startDate).lte('schedule_date', endDate),
         supabase.from('schedule_requests').select('*').eq('store_id', sid).eq('status', 'pending').order('created_at', { ascending: false }),
         supabase.from('store_members').select('profile_id, sort_order, profiles(nm)').eq('store_id', sid).eq('active', true),
+        supabase.from('schedule_settings').select('*').eq('store_id', sid).maybeSingle(),
+        supabase.from('off_requests').select('*').eq('store_id', sid).eq('target_month', `${year}-${pad(month+1)}`),
       ])
       const staffNames = (staffRes.data || [])
         .map((m: any) => ({ nm: m.profiles?.nm || '', order: m.sort_order ?? 9999 }))
         .filter((m: any) => m.nm)
         .sort((a: any, b: any) => a.order - b.order)
         .map((m: any) => m.nm)
-      newData[sid] = { schedules: schedsRes.data || [], requests: reqsRes.data || [], staff: staffNames }
+      newData[sid] = { schedules: schedsRes.data || [], requests: reqsRes.data || [], staff: staffNames, settings: settingsRes.data || null, offRequests: offReqsRes.data || [] }
     }))
 
     setStoreData(newData)
@@ -678,6 +691,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   )
 
   const totalPending = Object.values(storeData).reduce((s, d) => s + d.requests.length, 0)
+  const totalOffPending = Object.values(storeData).reduce((s, d) => s + (d.offRequests || []).filter((r: any) => r.status === 'pending').length, 0)
   const totalStaff = Object.values(storeData).reduce((s, d) => s + d.staff.length, 0)
   const daysInMonth = getDaysInMonth(year, month)
   const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
@@ -811,10 +825,16 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
             const storeName = member.stores?.name || ''
             const d = storeData[sid]
             if (!d) return null
-            const { schedules: scheds, staff } = d
+            const { schedules: scheds, staff, settings: sSettings, offRequests: sOffReqs } = d
             const isExpanded = gridExpanded[sid] !== false
             const schedMap: Record<string,any> = {}
             scheds.forEach(s => { schedMap[`${s.staff_name}-${s.schedule_date}`] = s })
+            const sOffReqMap: Record<string,any> = {}
+            ;(sOffReqs || []).forEach((r: any) => { sOffReqMap[`${r.staff_name}-${r.request_date}`] = r })
+            const sIsPublished = sSettings?.is_published || false
+            const sIsFuture = year > nowYear || (year === nowYear && month > nowMonth)
+            const sMonthStr = `${year}-${String(month+1).padStart(2,'0')}`
+            const sRequestOpen = isOffRequestOpen(sSettings, year, month)
 
             return (
               <div key={sid} style={{ marginBottom:18, background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
@@ -825,11 +845,56 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                     {storeName.charAt(0)}
                   </div>
                   <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', flex:1 }}>{storeName}</span>
+                  {sIsFuture && (
+                    <span style={{ fontSize:10, padding:'2px 8px', borderRadius:6, background: sIsPublished?'rgba(0,184,148,0.12)':'rgba(108,92,231,0.1)', color: sIsPublished?'#00B894':'#6C5CE7', fontWeight:700 }}>
+                      {sIsPublished ? '👁 공개' : '🔒 비공개'}
+                    </span>
+                  )}
+                  {sIsFuture && sRequestOpen && (
+                    <span style={{ fontSize:10, padding:'2px 8px', borderRadius:6, background:'rgba(255,200,0,0.12)', color:'#CC9900', fontWeight:700 }}>🙏 요청중</span>
+                  )}
                   <span style={{ fontSize:11, color:'#bbb' }}>직원 {staff.length}명</span>
                   <span style={{ fontSize:11, color:'#ccc', marginLeft:4 }}>{isExpanded ? '▲' : '▼'}</span>
                 </div>
                 {/* 그리드 테이블 */}
                 {isExpanded && (
+                  <div>
+                  {/* 공개/비공개 배너 */}
+                  {sIsFuture && (
+                    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', background: sIsPublished?'rgba(0,184,148,0.06)':'rgba(108,92,231,0.05)', borderBottom:'1px solid #ECEEF2' }}>
+                      <span style={{ fontSize:12 }}>{sIsPublished ? '👁' : '🔒'}</span>
+                      <span style={{ fontSize:11, fontWeight:700, color: sIsPublished?'#00B894':'#6C5CE7', flex:1 }}>{sIsPublished ? '직원에게 공개됨' : '직원에게 비공개'}</span>
+                      <button onClick={async (e) => {
+                        e.stopPropagation()
+                        const newVal = !sIsPublished
+                        const { data: ex } = await supabase.from('schedule_settings').select('id').eq('store_id', sid).maybeSingle()
+                        if (ex) { await supabase.from('schedule_settings').update({ is_published: newVal, published_month: sMonthStr, updated_at: new Date().toISOString() }).eq('store_id', sid) }
+                        else { await supabase.from('schedule_settings').insert({ store_id: sid, is_published: newVal, published_month: sMonthStr, updated_at: new Date().toISOString() }) }
+                        loadAll()
+                      }} style={{ padding:'4px 12px', borderRadius:7, border:'none', cursor:'pointer', fontSize:11, fontWeight:700, background: sIsPublished?'rgba(232,67,147,0.1)':'rgba(0,184,148,0.15)', color: sIsPublished?'#E84393':'#00B894' }}>
+                        {sIsPublished ? '🔒 비공개로' : '👁 공개하기'}
+                      </button>
+                    </div>
+                  )}
+                  {/* 휴무요청 설정바 */}
+                  {sIsFuture && (
+                    <div style={{ padding:'8px 14px', borderBottom:'1px solid #ECEEF2', display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontSize:11, fontWeight:700, color: sRequestOpen?'#CC9900':'#aaa', flex:1 }}>
+                        {sRequestOpen ? '🙏 휴무 요청 열림' : '🔒 휴무 요청 닫힘'}
+                        <span style={{ fontSize:9, color:'#bbb', marginLeft:6, fontWeight:400 }}>(자동: 매월 {sSettings?.request_open_day??25}~{sSettings?.request_close_day??31}일)</span>
+                      </span>
+                      <button onClick={async (e) => {
+                        e.stopPropagation()
+                        const newVal = !sRequestOpen
+                        const { data: ex } = await supabase.from('schedule_settings').select('id').eq('store_id', sid).maybeSingle()
+                        if (ex) { await supabase.from('schedule_settings').update({ request_is_open: newVal, updated_at: new Date().toISOString() }).eq('store_id', sid) }
+                        else { await supabase.from('schedule_settings').insert({ store_id: sid, request_is_open: newVal, updated_at: new Date().toISOString() }) }
+                        loadAll()
+                      }} style={{ padding:'4px 12px', borderRadius:7, border:'none', cursor:'pointer', fontSize:11, fontWeight:700, background: sRequestOpen?'rgba(232,67,147,0.1)':'rgba(255,200,0,0.15)', color: sRequestOpen?'#E84393':'#CC9900' }}>
+                        {sRequestOpen ? '닫기' : '열기'}
+                      </button>
+                    </div>
+                  )}
                   <div style={{ overflowX:'auto' }}>
                     <table style={{ borderCollapse:'collapse', fontSize:10, minWidth: staff.length * 36 + 70, width:'100%', tableLayout:'fixed', userSelect:'none' }}>
                       <colgroup>
@@ -881,13 +946,20 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                                         setManageDragSel({ ...updated })
                                       }
                                     }}
-                                    style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:24, textAlign:'center', verticalAlign:'middle', background: inDrag ? 'rgba(108,92,231,0.22)' : sc ? STATUS_BG[sc.status] : undefined, padding:0, cursor:'crosshair', outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px', transition:'background 0.04s' }}>
-                                    {sc ? (
-                                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
-                                        <span style={{ fontSize:8, fontWeight:700, color: inDrag ? '#6C5CE7' : STATUS_COLOR[sc.status], lineHeight:1.3 }}>{STATUS_LABEL[sc.status]}</span>
-                                        {sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
-                                      </div>
-                                    ) : <span style={{ fontSize:12, color: inDrag ? '#6C5CE7' : '#e8e8e8' }}>+</span>}
+                                    style={{ borderBottom:'1px solid #F4F6F9', borderRight:'1px solid #ECEEF2', height:24, textAlign:'center', verticalAlign:'middle', background: inDrag ? 'rgba(108,92,231,0.22)' : sc ? STATUS_BG[sc.status] : sOffReqMap[`${name}-${dateStr}`]?.status==='approved' ? 'rgba(0,184,148,0.15)' : sOffReqMap[`${name}-${dateStr}`]?.status==='pending' ? 'rgba(255,200,0,0.15)' : undefined, padding:0, cursor:'crosshair', outline: inDrag ? '2px solid #6C5CE7' : 'none', outlineOffset:'-2px', transition:'background 0.04s' }}>
+                                    {(() => {
+                                      const offR = sOffReqMap[`${name}-${dateStr}`]
+                                      if (inDrag) return <span style={{ fontSize:10, color:'#6C5CE7', fontWeight:700 }}>✓</span>
+                                      if (sc) return (
+                                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
+                                          <span style={{ fontSize:8, fontWeight:700, color:STATUS_COLOR[sc.status], lineHeight:1.3 }}>{STATUS_LABEL[sc.status]}</span>
+                                          {sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
+                                          {offR && <span style={{ fontSize:8 }}>{offR.status==='approved'?'✅':'🙏'}</span>}
+                                        </div>
+                                      )
+                                      if (offR) return <span style={{ fontSize:10 }}>{offR.status==='approved'?'✅':offR.status==='rejected'?'❌':'🙏'}</span>
+                                      return <span style={{ fontSize:12, color:'#e8e8e8' }}>+</span>
+                                    })()}
                                   </td>
                                 )
                               })}
@@ -896,6 +968,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                         })}
                       </tbody>
                     </table>
+                  </div>
                   </div>
                 )}
               </div>
@@ -968,7 +1041,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
       {/* ── 섹션 4: 승인 대기 요청 ── */}
       {section === 'requests' && (
         <div>
-          {totalPending === 0 ? (
+          {(totalPending + totalOffPending) === 0 ? (
             <div style={{ textAlign:'center', padding:'40px 0', color:'#bbb' }}>
               <div style={{ fontSize:28, marginBottom:8 }}>✅</div>
               <div style={{ fontSize:13 }}>모든 지점 승인 대기 없음</div>
@@ -977,7 +1050,9 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
             const sid = member.stores?.id
             const storeName = member.stores?.name || ''
             const d = storeData[sid]
-            if (!d || d.requests.length === 0) return null
+            if (!d) return null
+            const pendingOffReqs = (d.offRequests || []).filter((r: any) => r.status === 'pending')
+            if (d.requests.length === 0 && pendingOffReqs.length === 0) return null
             return (
               <div key={sid} style={{ marginBottom:16 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
@@ -985,12 +1060,15 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                     {storeName.charAt(0)}
                   </div>
                   <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{storeName}</span>
-                  <span style={{ background:'rgba(232,67,147,0.1)', color:'#E84393', borderRadius:8, padding:'1px 8px', fontSize:11, fontWeight:700 }}>{d.requests.length}건</span>
+                  {d.requests.length > 0 && <span style={{ background:'rgba(232,67,147,0.1)', color:'#E84393', borderRadius:8, padding:'1px 8px', fontSize:11, fontWeight:700 }}>📋 {d.requests.length}건</span>}
+                  {pendingOffReqs.length > 0 && <span style={{ background:'rgba(255,200,0,0.12)', color:'#CC9900', borderRadius:8, padding:'1px 8px', fontSize:11, fontWeight:700 }}>🙏 {pendingOffReqs.length}건</span>}
                 </div>
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {/* 스케줄 변경 요청 */}
                   {d.requests.map((req: any) => (
                     <div key={req.id} style={{ background:'#fff', border:'1px solid rgba(232,67,147,0.18)', borderRadius:12, padding:'12px 14px' }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: req.note ? 6 : 10 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+                        <span style={{ fontSize:9, background:'rgba(232,67,147,0.1)', color:'#E84393', borderRadius:5, padding:'1px 6px', fontWeight:700 }}>📋 변경요청</span>
                         <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{req.staff_name}</span>
                         <span style={{ fontSize:11, color:'#bbb' }}>{req.schedule_date}</span>
                         <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5 }}>
@@ -1007,6 +1085,24 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                           style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700, opacity: approvingId === req.id ? 0.7 : 1 }}>
                           {approvingId === req.id ? '처리 중...' : '✓ 승인'}
                         </button>
+                      </div>
+                    </div>
+                  ))}
+                  {/* 휴무 요청 */}
+                  {pendingOffReqs.map((req: any) => (
+                    <div key={req.id} style={{ background:'#fff', border:'1px solid rgba(255,200,0,0.3)', borderRadius:12, padding:'12px 14px' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+                        <span style={{ fontSize:9, background:'rgba(255,200,0,0.12)', color:'#CC9900', borderRadius:5, padding:'1px 6px', fontWeight:700 }}>🙏 휴무요청</span>
+                        <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{req.staff_name}</span>
+                        <span style={{ fontSize:11, color:'#bbb' }}>{req.request_date}</span>
+                      </div>
+                      <div style={{ fontSize:11, color:'#888', marginBottom:8, padding:'5px 9px', background:'#F8F9FB', borderRadius:7 }}>사유: {req.reason}</div>
+                      <div style={{ fontSize:10, color:'#bbb', marginBottom:8 }}>{new Date(req.created_at).toLocaleDateString('ko')}</div>
+                      <div style={{ display:'flex', gap:8 }}>
+                        <button onClick={async () => { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', req.id); loadAll() }}
+                          style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거부</button>
+                        <button onClick={async () => { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', req.id); loadAll() }}
+                          style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#00B894,#6C5CE7)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700 }}>✓ 승인</button>
                       </div>
                     </div>
                   ))}
@@ -1428,7 +1524,12 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
           </div>
           <button onClick={async () => {
             const newVal = !isPublished
-            await supabase.from('schedule_settings').upsert({ store_id: storeId, is_published: newVal, published_month: monthStr, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+            const { data: ex } = await supabase.from('schedule_settings').select('id').eq('store_id', storeId).maybeSingle()
+            if (ex) {
+              await supabase.from('schedule_settings').update({ is_published: newVal, published_month: monthStr, updated_at: new Date().toISOString() }).eq('store_id', storeId)
+            } else {
+              await supabase.from('schedule_settings').insert({ store_id: storeId, is_published: newVal, published_month: monthStr, updated_at: new Date().toISOString() })
+            }
             onSettingsChange()
           }} style={{ padding:'6px 14px', borderRadius:9, border:'none', cursor:'pointer', fontSize:12, fontWeight:700, background: isPublished ? 'rgba(232,67,147,0.1)' : 'rgba(0,184,148,0.15)', color: isPublished ? '#E84393' : '#00B894' }}>
             {isPublished ? '🔒 비공개로' : '👁 공개하기'}
