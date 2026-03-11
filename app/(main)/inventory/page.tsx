@@ -698,7 +698,12 @@ function InventoryPageInner() {
 
   async function saveEditItem() {
     if (!editItem) return
+    const original = items.find(x => x.id === editItem.id)
     await supabase.from('inventory_items').update({ name: editItem.name, unit: editItem.unit, min_qty: editItem.min_qty, warn_qty: editItem.warn_qty }).eq('id', editItem.id)
+    // 이름이 바뀌었으면 연동된 발주 건도 같이 업데이트
+    if (original && original.name !== editItem.name) {
+      await supabase.from('orders').update({ item_name: editItem.name }).eq('inventory_item_id', editItem.id)
+    }
     setItems(p => p.map(x => x.id === editItem.id ? { ...x, ...editItem } : x))
     setEditItem(null)
   }
