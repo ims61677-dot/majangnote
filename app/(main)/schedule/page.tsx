@@ -200,7 +200,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
   })
   const [requestNote, setRequestNote] = useState('')
   const [mode, setMode] = useState<'edit'|'absent_early'|'request'|'offReq'>(() => {
-    if (role === 'staff' && (offRequest || canRequestOff)) return 'offReq'
+    if (role !== 'owner' && (offRequest || canRequestOff)) return 'offReq'
     return 'edit'
   })
   const [offReason, setOffReason] = useState('')
@@ -379,16 +379,17 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
 }
 
 // ─── OffRequestSettingsBar ────────────────────────────────────
-function OffRequestSettingsBar({ settings, onToggleOpen, onSaveDays }: {
+function OffRequestSettingsBar({ settings, onToggleOpen, onSaveDays, isActuallyOpen }: {
   settings: any
   onToggleOpen: () => Promise<void>
   onSaveDays: (openDay: number, closeDay: number) => Promise<void>
+  isActuallyOpen: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [openDay, setOpenDay] = useState(settings?.request_open_day ?? 25)
   const [closeDay, setCloseDay] = useState(settings?.request_close_day ?? 31)
   const [saving, setSaving] = useState(false)
-  const isOpen = settings?.request_is_open || false
+  const isOpen = isActuallyOpen  // 자동 오픈 조건 포함한 실제 상태
 
   async function toggleOpen() {
     await onToggleOpen()
@@ -1421,7 +1422,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
       {popup && (() => {
         const offReq = offRequestMap[`${popup.staff}-${popup.date}`]
         const isBlocked2 = isFuture && blockedDates.has(popup.date)
-        const canReqOff = isFuture && requestOpen && isStaff && popup.staff === myName && !isBlocked2 && !offReq
+        const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq
         return <CellPopup
           staffName={popup.staff} dateStr={popup.date} current={popupData}
           role={role} myName={myName}
@@ -1532,9 +1533,11 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
       {isFuture && isOwner && (
         <OffRequestSettingsBar
           settings={scheduleSettings}
+          isActuallyOpen={requestOpen}
           onToggleOpen={async () => {
+            // 자동 오픈 중이면 수동 닫기, 아니면 수동 열기
             const { error } = await supabase.from('schedule_settings')
-              .upsert({ store_id: storeId, request_is_open: !(scheduleSettings?.request_is_open || false), updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
+              .upsert({ store_id: storeId, request_is_open: !requestOpen, updated_at: new Date().toISOString() }, { onConflict: 'store_id' })
             if (error) alert('저장 실패: ' + error.message)
             else onSettingsChange()
           }}
@@ -1599,7 +1602,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                     const offReq = offRequestMap[`${staff}-${dateStr}`]
                     const isBlocked = isFuture && blockedDates.has(dateStr)
                     const isMine = staff === myName
-                    const canRequestOff = isFuture && requestOpen && isStaff && isMine && !isBlocked && !offReq
+                    const canRequestOff = isFuture && requestOpen && !isOwner && isMine && !isBlocked && !offReq
                     const clickable = canClick(staff, !!sc)
                     const inDrag = isCellInDrag(staff, day)
                     let earlyTimeDisplay = ''
@@ -1813,7 +1816,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
       {popup && (() => {
         const offReq = offRequestMap[`${popup.staff}-${popup.date}`]
         const isBlocked2 = isFuture && blockedDates.has(popup.date)
-        const canReqOff = isFuture && requestOpen && isStaff && popup.staff === myName && !isBlocked2 && !offReq
+        const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq
         return <CellPopup
           staffName={popup.staff} dateStr={popup.date} current={popupData}
           role={role} myName={myName}
