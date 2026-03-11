@@ -178,6 +178,7 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
 }
 
 function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { order: any; userName: string; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
+  const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [showReceive, setShowReceive] = useState(false)
