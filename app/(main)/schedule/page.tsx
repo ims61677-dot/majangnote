@@ -1246,8 +1246,6 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const isOwner = role === 'owner'
   const isManager = role === 'manager'
   const isStaff = role === 'staff'
-  // 미래달 요청기간엔 전직원 표시 (서로 요청 현황 볼 수 있게)
-  const visibleStaff = (isStaff && !(isFuture && requestOpen)) ? staffList.filter(n => n === myName) : staffList
 
   // 공개/비공개 판단
   const isPublished = scheduleSettings?.is_published || false
@@ -1263,6 +1261,9 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
     offRequests.forEach(r => { m[`${r.staff_name}-${r.request_date}`] = r })
     return m
   }, [offRequests])
+
+  // 미래달 요청기간엔 전직원 표시 (서로 요청 현황 볼 수 있게)
+  const visibleStaff = (isStaff && !(isFuture && requestOpen)) ? staffList.filter(n => n === myName) : staffList
 
   // 드래그 mouseup 전역 처리
   useEffect(() => {
@@ -1766,7 +1767,6 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
   const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
   const days = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
   const isOwner = role==='owner'; const isManager = role==='manager'; const isStaff = role==='staff'
-  const visibleStaff = (isStaff && !(isFuture && requestOpen)) ? staffList.filter(n => n===myName) : staffList
   const canEdit = isOwner || isManager
   const isPublished = scheduleSettings?.is_published || false
   const visible = isScheduleVisible(year, month, nowYear, nowMonth, isPublished, role)
@@ -1778,6 +1778,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
     offRequests.forEach((r: any) => { m[`${r.staff_name}-${r.request_date}`] = r })
     return m
   }, [offRequests])
+  const visibleStaff = (isStaff && !(isFuture && requestOpen)) ? staffList.filter(n => n===myName) : staffList
   const headerScrollRef = useRef<HTMLDivElement>(null)
   const bodyScrollRefs = useRef<(HTMLDivElement|null)[]>([])
   const footerScrollRef = useRef<HTMLDivElement>(null)
