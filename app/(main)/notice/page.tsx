@@ -403,6 +403,7 @@ function AdminTab({ storeId, userName, isPC, subTab }: { storeId: string; userNa
   const [stores, setStores] = useState<any[]>([])
   const [allTodosMap, setAllTodosMap] = useState<{store: any; todos: any[]; closingTodos: any[]}[]>([])
   const [loading, setLoading] = useState(true)
+  const [adminSubTab, setAdminSubTab] = useState<'main'|'stats'>('main')
   const [statsData, setStatsData] = useState<any>(null)
   const [statsLoading, setStatsLoading] = useState(false)
   const [statsYear, setStatsYear] = useState(new Date().getFullYear())
@@ -570,6 +571,11 @@ function AdminTab({ storeId, userName, isPC, subTab }: { storeId: string; userNa
   }
 
   // 공지 로드/저장/삭제
+
+  // stats 서브탭 활성화 시 자동 로드
+  useEffect(() => {
+    if (adminSubTab === 'stats') loadStats(statsYear, statsMonth)
+  }, [adminSubTab])
 
   async function loadStats(year: number, month: number) {
     if (!storeId) return
@@ -1401,8 +1407,141 @@ function AdminTab({ storeId, userName, isPC, subTab }: { storeId: string; userNa
   )
 
   // ── PC vs 모바일 레이아웃 ──
+  // ── 전 지점 통합 통계 UI ──
+  const adminStatsSection = (
+    <div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, background:'#fff', borderRadius:14, padding:'10px 14px', border:'1px solid #F0F0F0' }}>
+        <button onClick={()=>{ const d=new Date(statsYear,statsMonth-2,1); setStatsYear(d.getFullYear()); setStatsMonth(d.getMonth()+1); loadStats(d.getFullYear(),d.getMonth()+1) }}
+          style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>‹</button>
+        <div style={{ textAlign:'center' }}>
+          <div style={{ fontSize:15, fontWeight:800, color:'#1a1a2e' }}>{statsYear}년 {statsMonth}월</div>
+          <div style={{ fontSize:10, color:'#888', marginTop:2 }}>전 지점 통합 · 대표 전용</div>
+          <div style={{ fontSize:10, color:'#bbb' }}>{statsData ? `할일 ${statsData.totalTodos}개 · 완료 ${statsData.totalChecks}건` : '클릭하여 로드'}</div>
+        </div>
+        <button onClick={()=>{ const d=new Date(statsYear,statsMonth,1); setStatsYear(d.getFullYear()); setStatsMonth(d.getMonth()+1); loadStats(d.getFullYear(),d.getMonth()+1) }}
+          style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>›</button>
+      </div>
+      {statsLoading ? (
+        <div style={{ textAlign:'center', padding:'40px 0', color:'#bbb' }}>📊 불러오는 중...</div>
+      ) : !statsData ? (
+        <button onClick={()=>loadStats(statsYear,statsMonth)}
+          style={{ width:'100%', padding:'14px', borderRadius:12, background:'rgba(108,92,231,0.08)', border:'1px dashed rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+          📊 통계 불러오기
+        </button>
+      ) : (
+        <>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
+            {[
+              {label:'전체 할일', value:statsData.totalTodos+'개', color:'#6C5CE7'},
+              {label:'완료 체크', value:statsData.totalChecks+'건', color:'#00B894'},
+              {label:'활동 인원', value:Object.keys(statsData.personMap).length+'명', color:'#E84393'},
+            ].map(({label,value,color})=>(
+              <div key={label} style={{ background:'#fff', borderRadius:12, padding:'12px 8px', textAlign:'center', border:`1px solid ${color}33` }}>
+                <div style={{ fontSize:17, fontWeight:800, color }}>{value}</div>
+                <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
+            <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏆 전 직원 완료 랭킹</div>
+            {Object.entries(statsData.personMap as Record<string,any>).sort((a,b)=>b[1].checks-a[1].checks).map(([name,data],idx)=>{
+              const maxC=Math.max(...Object.values(statsData.personMap as Record<string,any>).map((v:any)=>v.checks),1)
+              const pct=Math.round((data.checks/maxC)*100)
+              const medals=['🥇','🥈','🥉']
+              return (
+                <div key={name} style={{ marginBottom:10 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                    <span style={{ fontSize:12 }}>{medals[idx]||`${idx+1}.`} {name}</span>
+                    <span style={{ fontSize:11, color:'#888' }}>{data.checks}건 · {data.days}일</span>
+                  </div>
+                  <div style={{ background:'#F4F6F9', borderRadius:8, height:8, overflow:'hidden' }}>
+                    <div style={{ width:`${pct}%`, height:'100%', background:idx===0?'linear-gradient(90deg,#6C5CE7,#E84393)':'#a29bfe88', borderRadius:8 }} />
+                  </div>
+                </div>
+              )
+            })}
+            {Object.keys(statsData.personMap).length===0&&<div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>활동 기록 없음</div>}
+          </div>
+          <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
+            <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>📋 전체 할일 완료 현황</div>
+            {statsData.allTodos.length===0 ? (
+              <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>할일 없음</div>
+            ) : statsData.allTodos.sort((a:any,b:any)=>a.noticeDate>b.noticeDate?-1:1).map((todo:any)=>{
+              const isDone=todo.checkers.length>0
+              const isExp=expandedTodo===todo.id
+              return (
+                <div key={todo.id} style={{ marginBottom:6, borderRadius:10, border:`1px solid ${isDone?'rgba(0,184,148,0.2)':'#F0F0F0'}`, overflow:'hidden' }}>
+                  <div onClick={()=>setExpandedTodo(isExp?null:todo.id)}
+                    style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', cursor:'pointer', background:isDone?'rgba(0,184,148,0.04)':'#fff' }}>
+                    <span style={{ fontSize:13, color:isDone?'#00B894':'#ddd' }}>{isDone?'✅':'○'}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:12, color:isDone?'#555':'#333', textDecoration:isDone?'line-through':'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</div>
+                      <div style={{ fontSize:10, color:'#bbb', marginTop:1 }}>{todo.noticeDate} · {todo.store?.name}</div>
+                    </div>
+                    {isDone&&<span style={{ fontSize:10, color:'#00B894', fontWeight:700, flexShrink:0 }}>{todo.checkers.length}명 ▾</span>}
+                  </div>
+                  {isExp&&isDone&&(
+                    <div style={{ background:'rgba(0,184,148,0.04)', padding:'6px 12px 10px', borderTop:'1px solid rgba(0,184,148,0.1)' }}>
+                      {todo.checkers.map((c:any,i:number)=>(
+                        <div key={i} style={{ fontSize:11, color:'#555', padding:'3px 0', display:'flex', justifyContent:'space-between' }}>
+                          <span>✓ <strong>{c.checked_by}</strong></span>
+                          <span style={{ color:'#aaa' }}>{new Date(c.checked_at).toLocaleString('ko',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {isExp&&!isDone&&(
+                    <div style={{ background:'#FFF9F0', padding:'8px 12px', borderTop:'1px solid #F0F0F0' }}>
+                      <div style={{ fontSize:11, color:'#FFB347' }}>⚠️ 아직 아무도 완료하지 않았어요</div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ background:'#fff', borderRadius:14, padding:'14px', border:'1px solid #F0F0F0' }}>
+            <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>📢 공지 읽음 현황</div>
+            {statsData.noticeList.map((n:any)=>{
+              const readers=statsData.noticeReadMap[n.id]||[]
+              const store=stores.find((s:any)=>s.id===n.store_id)
+              return (
+                <div key={n.id} style={{ padding:'8px 0', borderBottom:'1px solid #F4F6F9' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between' }}>
+                    <div style={{ fontSize:12, color:'#333', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
+                      {n.title} <span style={{ color:'#bbb', fontSize:10 }}>{store?.name}</span>
+                    </div>
+                    <span style={{ fontSize:10, color:readers.length>0?'#00B894':'#FFB347', fontWeight:700, marginLeft:8, flexShrink:0 }}>{readers.length}명 읽음</span>
+                  </div>
+                  {readers.length>0&&<div style={{ fontSize:10, color:'#00B894', marginTop:2 }}>✓ {readers.join(', ')}</div>}
+                  {readers.length===0&&<div style={{ fontSize:10, color:'#FFB347', marginTop:2 }}>아직 읽은 사람 없음</div>}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+
+  // ── 서브탭 바 ──
+  const adminSubTabBar = (
+    <div style={{ display:'flex', background:'#F4F6F9', borderRadius:10, padding:3, marginBottom:14, gap:3 }}>
+      <button onClick={() => setAdminSubTab('main')}
+        style={{ flex:1, padding:'7px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:12, fontWeight:adminSubTab==='main'?700:400, background:adminSubTab==='main'?'#fff':'transparent', color:adminSubTab==='main'?'#1a1a2e':'#888', boxShadow:adminSubTab==='main'?'0 1px 4px rgba(0,0,0,0.08)':undefined }}>
+        🏪 관리
+      </button>
+      <button onClick={() => setAdminSubTab('stats')}
+        style={{ flex:1, padding:'7px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:12, fontWeight:adminSubTab==='stats'?700:400, background:adminSubTab==='stats'?'#fff':'transparent', color:adminSubTab==='stats'?'#6C5CE7':'#888', boxShadow:adminSubTab==='stats'?'0 1px 4px rgba(0,0,0,0.08)':undefined }}>
+        📊 통계
+      </button>
+    </div>
+  )
+
   if (isPC) {
     return (
+      <div>
+        {adminSubTabBar}
+        {adminSubTab === 'main' && (
       <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 16, alignItems: 'start', width: '100%', minWidth: 0 }}>
         {/* 좌: 캘린더 + 메모 (sticky) */}
         <div style={{ position: 'sticky', top: 72, minWidth: 0 }}>
@@ -1415,81 +1554,10 @@ function AdminTab({ storeId, userName, isPC, subTab }: { storeId: string; userNa
           {quickAddSection}
           <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>📋 전 지점 할일 <span style={{ fontSize: 11, fontWeight: 400, color: '#888', marginLeft: 4 }}>({selectedCalDate.replace(/-/g, '.')})</span></div>
           {allTodosList}
-          {/* 전 지점 통합 통계 */}
-          <div style={{ marginTop:16 }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-              <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>📊 전 지점 통합 통계</div>
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <button onClick={()=>{ const d=new Date(statsYear,statsMonth-2,1); setStatsYear(d.getFullYear()); setStatsMonth(d.getMonth()+1); loadStats(d.getFullYear(),d.getMonth()+1) }}
-                  style={{ background:'none', border:'none', fontSize:16, cursor:'pointer', color:'#6C5CE7' }}>‹</button>
-                <span style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', cursor:'pointer' }} onClick={()=>loadStats(statsYear,statsMonth)}>
-                  {statsYear}.{String(statsMonth).padStart(2,'0')} 🔄
-                </span>
-                <button onClick={()=>{ const d=new Date(statsYear,statsMonth,1); setStatsYear(d.getFullYear()); setStatsMonth(d.getMonth()+1); loadStats(d.getFullYear(),d.getMonth()+1) }}
-                  style={{ background:'none', border:'none', fontSize:16, cursor:'pointer', color:'#6C5CE7' }}>›</button>
-              </div>
-            </div>
-            {statsLoading ? (
-              <div style={{ textAlign:'center', padding:'20px 0', color:'#bbb', fontSize:12 }}>불러오는 중...</div>
-            ) : !statsData ? (
-              <button onClick={()=>loadStats(statsYear,statsMonth)}
-                style={{ width:'100%', padding:'12px', borderRadius:12, background:'rgba(108,92,231,0.08)', border:'1px dashed rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, cursor:'pointer' }}>
-                📊 통계 불러오기
-              </button>
-            ) : (
-              <>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:12 }}>
-                  {[
-                    {label:'전체 할일', value:statsData.totalTodos+'개', color:'#6C5CE7'},
-                    {label:'완료 체크', value:statsData.totalChecks+'건', color:'#00B894'},
-                    {label:'활동 인원', value:Object.keys(statsData.personMap).length+'명', color:'#E84393'},
-                  ].map(({label,value,color})=>(
-                    <div key={label} style={{ background:'#fff', borderRadius:10, padding:'10px 6px', textAlign:'center', border:`1px solid ${color}33` }}>
-                      <div style={{ fontSize:15, fontWeight:800, color }}>{value}</div>
-                      <div style={{ fontSize:9, color:'#aaa', marginTop:1 }}>{label}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:10, border:'1px solid #F0F0F0' }}>
-                  <div style={{ fontSize:12, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>🏆 전 직원 완료 랭킹</div>
-                  {Object.entries(statsData.personMap as Record<string,any>).sort((a,b)=>b[1].checks-a[1].checks).slice(0,5).map(([name,data],idx)=>{
-                    const maxC=Math.max(...Object.values(statsData.personMap as Record<string,any>).map((v:any)=>v.checks),1)
-                    const pct=Math.round((data.checks/maxC)*100)
-                    const medals=['🥇','🥈','🥉']
-                    return (
-                      <div key={name} style={{ marginBottom:8 }}>
-                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
-                          <span style={{ fontSize:11, color:'#333' }}>{medals[idx]||`${idx+1}.`} {name}</span>
-                          <span style={{ fontSize:10, color:'#888' }}>{data.checks}건</span>
-                        </div>
-                        <div style={{ background:'#F4F6F9', borderRadius:6, height:6, overflow:'hidden' }}>
-                          <div style={{ width:`${pct}%`, height:'100%', background:idx===0?'linear-gradient(90deg,#6C5CE7,#E84393)':'#a29bfe88', borderRadius:6 }} />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-                <div style={{ background:'#fff', borderRadius:14, padding:'14px', border:'1px solid #F0F0F0' }}>
-                  <div style={{ fontSize:12, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>📢 공지 읽음 현황</div>
-                  {statsData.noticeList.slice(0,5).map((n:any)=>{
-                    const readers=statsData.noticeReadMap[n.id]||[]
-                    const store=stores.find((s:any)=>s.id===n.store_id)
-                    return (
-                      <div key={n.id} style={{ padding:'6px 0', borderBottom:'1px solid #F8F8F8' }}>
-                        <div style={{ display:'flex', justifyContent:'space-between' }}>
-                          <div style={{ fontSize:11, color:'#333', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
-                            {n.title} <span style={{ color:'#bbb' }}>{store?.name}</span>
-                          </div>
-                          <span style={{ fontSize:10, color:readers.length>0?'#00B894':'#FFB347', fontWeight:700, flexShrink:0, marginLeft:8 }}>{readers.length}명</span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </>
-            )}
-          </div>
         </div>
+      </div>
+        )}
+        {adminSubTab === 'stats' && adminStatsSection}
       </div>
     )
   }
@@ -1497,6 +1565,9 @@ function AdminTab({ storeId, userName, isPC, subTab }: { storeId: string; userNa
   // 모바일
   return (
     <div>
+      {adminSubTabBar}
+      {adminSubTab === 'stats' ? adminStatsSection : (
+      <div>
       {statusGrid}
       {quickAddSection}
       <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>📋 전 지점 할일</div>
