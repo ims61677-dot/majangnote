@@ -1315,12 +1315,12 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
               )}
 
               {/* 4. 수령 */}
-              {receipt && (
+              {(receipt || order.received_by) && (
                 <TimelineItem color="#00B894" icon="📦"
-                  title={`수령 완료 · ${receipt.received_quantity}${order.unit}`}
-                  who={receipt.received_by}
-                  when={receipt.received_at}
-                  note={receipt.inventory_applied ? `✓ ${receipt.inventory_place || '재고'} 반영 (${receipt.inventory_applied_by})` : undefined} />
+                  title={`수령 완료${receipt ? ` · ${receipt.received_quantity}${order.unit}` : ''}`}
+                  who={receipt?.received_by || order.received_by}
+                  when={receipt?.received_at || order.received_at}
+                  note={receipt?.inventory_applied ? `✓ ${receipt.inventory_place || '재고'} 반영 (${receipt.inventory_applied_by})` : undefined} />
               )}
 
               {/* 5. 반품/교환 */}
@@ -1577,7 +1577,7 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
 
   async function loadOrders() {
     setLoading(true)
-    const { data } = await supabase.from('orders').select('*, order_receipts(received_by, received_at, received_quantity)').eq('store_id', storeId).order('ordered_at', { ascending: false }).order('created_at', { ascending: true })
+    const { data } = await supabase.from('orders').select('*').eq('store_id', storeId).order('ordered_at', { ascending: false }).order('created_at', { ascending: true })
     setOrders(data || [])
     setLoading(false)
   }

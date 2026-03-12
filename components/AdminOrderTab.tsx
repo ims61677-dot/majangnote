@@ -584,7 +584,7 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
     setLoading(true)
     const storeIds = STORES.map(s => s.id)
     const [ordersRes, suppliersRes] = await Promise.all([
-      supabase.from('orders').select('*, order_receipts(received_by, received_at, received_quantity)').in('store_id', storeIds).order('ordered_at', { ascending: false }).order('created_at', { ascending: true }),
+      supabase.from('orders').select('*').in('store_id', storeIds).order('ordered_at', { ascending: false }).order('created_at', { ascending: true }),
       supabase.from('order_suppliers').select('*').in('store_id', storeIds),
     ])
     const supplierMap: Record<string, string> = {}
