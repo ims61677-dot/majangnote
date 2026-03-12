@@ -583,7 +583,7 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
         }
       }
     }
-    await supabase.from('orders').update({ status: 'ordered' }).eq('id', order.id)
+    await supabase.from('orders').update({ status: 'ordered', received_by: null, received_at: null }).eq('id', order.id)
     await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '수령취소', before_value: '수령완료', after_value: '주문완료(수령취소)', memo: null })
     onRefresh()
   }
@@ -888,7 +888,7 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
 
   return (
     <div>
-      {showDirectIssue && <DirectIssueModal userName={userName} onClose={() => setShowDirectIssue(false)} onSaved={loadOrders} />}
+      {showDirectIssue && <DirectIssueModal userName={userName} onClose={() => setShowDirectIssue(false)} onSaved={() => { loadOrders(); setSubTab('issues') }} />}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
           <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>👑 관리자 발주 현황</span>

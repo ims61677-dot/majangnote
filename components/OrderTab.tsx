@@ -1616,7 +1616,7 @@ function OrderStats({ storeId, year, month }: { storeId: string; year: number; m
     setLoading(true)
     const from = `${year}-${String(month).padStart(2, '0')}-01`
     const to = new Date(year, month, 1).toISOString().split('T')[0]
-    const { data } = await supabase.from('orders').select('*, order_receipts(received_by, received_at)').eq('store_id', storeId).gte('ordered_at', from).lt('ordered_at', to).order('ordered_at', { ascending: false })
+    const { data } = await supabase.from('orders').select('*').eq('store_id', storeId).gte('ordered_at', from).lt('ordered_at', to).order('ordered_at', { ascending: false })
     setOrders(data || [])
     setLoading(false)
   }
@@ -1627,8 +1627,7 @@ function OrderStats({ storeId, year, month }: { storeId: string; year: number; m
   orders.forEach(o => {
     bySupplier[o.supplier_name || '미지정'] = (bySupplier[o.supplier_name || '미지정'] || 0) + 1
     byPerson[o.ordered_by] = (byPerson[o.ordered_by] || 0) + 1
-    const r = o.order_receipts?.[0]
-    if (r?.received_by) byReceiver[r.received_by] = (byReceiver[r.received_by] || 0) + 1
+    if (o.received_by) byReceiver[o.received_by] = (byReceiver[o.received_by] || 0) + 1
   })
   const received = orders.filter(o => o.status === 'received').length
   const pending = orders.filter(o => o.status === 'pending').length
@@ -1860,7 +1859,7 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
       )}
       {showSupplierMgr && <SupplierModal storeId={storeId} onClose={() => { setShowSupplierMgr(false); loadSuppliers() }} />}
       {showQuickOrder && <QuickOrderModal storeId={storeId} userName={userName} suppliers={suppliers} inventoryItems={inventoryItems} onClose={() => setShowQuickOrder(false)} onSaved={loadOrders} />}
-      {showDirectIssue && <DirectIssueModal storeId={storeId} userName={userName} onClose={() => setShowDirectIssue(false)} onSaved={loadOrders} />}
+      {showDirectIssue && <DirectIssueModal storeId={storeId} userName={userName} onClose={() => setShowDirectIssue(false)} onSaved={() => { loadOrders(); setSubTab('issues') }} />}
 
       {/* 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
