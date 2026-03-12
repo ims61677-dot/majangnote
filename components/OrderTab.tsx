@@ -1131,7 +1131,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
   }, [expanded])
 
   async function loadDetail() {
-    const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at').limit(1).single()
+    const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at').limit(1).maybeSingle()
     setReceipt(r || null)
     const { data: l } = await supabase.from('order_receipt_logs').select('*').eq('order_id', order.id).order('changed_at', { ascending: false })
     setLogs(l || [])
