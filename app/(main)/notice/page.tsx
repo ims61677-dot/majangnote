@@ -565,6 +565,180 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   }
 
   // 공지 로드/저장/삭제
+  async function loadStats(period: 'week'|'month') {
+    if (!storeId) return
+    setStatsLoading(true)
+    try {
+      const now = new Date()
+      const startDate = period === 'month'
+        ? new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10)
+        : (() => { const d = new Date(now); d.setDate(d.getDate()-6); return d.toISOString().slice(0,10) })()
+      const endDate = now.toISOString().slice(0,10)
+
+      // 모든 지점 IDs
+      const storeIds = stores.map((s: any) => s.id)
+
+      // 1) 이 기간 내 할일 체크 전체 조회
+      const { data: checks } = await supabase
+        .from('notice_todo_checks')
+        .select('checked_by, checked_at, todo_id')
+        .gte('checked_at', startDate + 'T00:00:00')
+        .lte('checked_at', endDate + 'T23:59:59')
+
+      // 2) 공지 읽음 조회
+      const { data: noticeList } = await supabase
+        .from('notices')
+        .select('id, title, notice_date, store_id')
+        .in('store_id', storeIds)
+        .gte('notice_date', startDate)
+        .lte('notice_date', endDate)
+        .neq('title', '__PERSONAL_CHECKLIST__')
+        .eq('is_from_closing', false)
+        .not('title', 'like', '__')
+
+      const noticeIds = (noticeList || []).map((n: any) => n.id)
+      const { data: reads } = noticeIds.length > 0
+        ? await supabase.from('notice_reads').select('notice_id, read_by, read_at').in('notice_id', noticeIds)
+        : { data: [] }
+
+      // 3) 직원별 체크 집계
+      const personMap: Record<string, { checks: number; days: Set<string>; weekdays: number[] }> = {}
+      for (const c of (checks || [])) {
+        if (!c.checked_by) continue
+        if (!personMap[c.checked_by]) personMap[c.checked_by] = { checks: 0, days: new Set(), weekdays: [0,0,0,0,0,0,0] }
+        personMap[c.checked_by].checks++
+        const d = c.checked_at.slice(0,10)
+        personMap[c.checked_by].days.add(d)
+        const dow = new Date(c.checked_at).getDay()
+        personMap[c.checked_by].weekdays[dow]++
+      }
+
+      // 4) 날짜별 체크 수 (그래프용)
+      const dateMap: Record<string, number> = {}
+      for (const c of (checks || [])) {
+        const d = c.checked_at.slice(0,10)
+        dateMap[d] = (dateMap[d] || 0) + 1
+      }
+
+      // 5) 공지 읽음 현황
+      const noticeReadMap: Record<string, string[]> = {}
+      for (const r of (reads || [])) {
+        if (!noticeReadMap[r.notice_id]) noticeReadMap[r.notice_id] = []
+        noticeReadMap[r.notice_id].push(r.read_by)
+      }
+
+      // 6) 직원별 공지 읽음 수
+      const personReads: Record<string, number> = {}
+      for (const r of (reads || [])) {
+        if (!r.read_by) continue
+        personReads[r.read_by] = (personReads[r.read_by] || 0) + 1
+      }
+
+      setStatsData({
+        period, startDate, endDate,
+        personMap: Object.fromEntries(Object.entries(personMap).map(([k, v]) => [k, { ...v, days: v.days.size }])),
+        dateMap,
+        noticeList: noticeList || [],
+        noticeReadMap,
+        personReads,
+        totalChecks: (checks || []).length,
+        totalNotices: (noticeList || []).length,
+      })
+    } catch(e) { console.error(e) }
+    setStatsLoading(false)
+  }
+
+  async function loadStats(year: number, month: number) {
+    if (!storeId) return
+    setStatsLoading(true)
+    try {
+      const startDate = `${year}-${String(month).padStart(2,'0')}-01`
+      const lastDay = new Date(year, month, 0).getDate()
+      const endDate = `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
+      const storeIds = stores.map((s: any) => s.id)
+
+      // 이 기간 할일 체크 전체
+      const { data: checks } = await supabase
+        .from('notice_todo_checks')
+        .select('checked_by, checked_at, todo_id')
+        .gte('checked_at', startDate + 'T00:00:00')
+        .lte('checked_at', endDate + 'T23:59:59')
+
+      // 이 기간 공지+할일 전체 (누가 눌렀는지 확인용)
+      const { data: noticeList } = await supabase
+        .from('notices')
+        .select('id, title, notice_date, store_id, notice_todos(*)')
+        .in('store_id', storeIds)
+        .gte('notice_date', startDate)
+        .lte('notice_date', endDate)
+        .eq('is_from_closing', false)
+        .not('title', 'like', '__%__')
+
+      // 공지 읽음
+      const noticeIds = (noticeList || []).map((n: any) => n.id)
+      const { data: reads } = noticeIds.length > 0
+        ? await supabase.from('notice_reads').select('notice_id, read_by, read_at').in('notice_id', noticeIds)
+        : { data: [] }
+
+      // 체크 맵: todo_id → [{checked_by, checked_at}]
+      const checksByTodo: Record<string, {checked_by: string, checked_at: string}[]> = {}
+      for (const c of (checks || [])) {
+        if (!checksByTodo[c.todo_id]) checksByTodo[c.todo_id] = []
+        checksByTodo[c.todo_id].push({ checked_by: c.checked_by, checked_at: c.checked_at })
+      }
+
+      // 직원별 집계
+      const personMap: Record<string, { checks: number; days: Set<string> }> = {}
+      for (const c of (checks || [])) {
+        if (!c.checked_by) continue
+        if (!personMap[c.checked_by]) personMap[c.checked_by] = { checks: 0, days: new Set() }
+        personMap[c.checked_by].checks++
+        personMap[c.checked_by].days.add(c.checked_at.slice(0,10))
+      }
+
+      // 날짜별 체크 수
+      const dateMap: Record<string, number> = {}
+      for (const c of (checks || [])) {
+        const d = c.checked_at.slice(0,10)
+        dateMap[d] = (dateMap[d] || 0) + 1
+      }
+
+      // 공지 읽음 맵
+      const noticeReadMap: Record<string, string[]> = {}
+      for (const r of (reads || [])) {
+        if (!noticeReadMap[r.notice_id]) noticeReadMap[r.notice_id] = []
+        noticeReadMap[r.notice_id].push(r.read_by)
+      }
+
+      // 할일 전체 목록 (누가 눌렀는지 포함)
+      const allTodos: any[] = []
+      for (const n of (noticeList || [])) {
+        for (const t of (n.notice_todos || [])) {
+          allTodos.push({
+            ...t,
+            noticeTitle: n.title,
+            noticeDate: n.notice_date,
+            store: stores.find((s: any) => s.id === n.store_id),
+            checkers: checksByTodo[t.id] || []
+          })
+        }
+      }
+
+      setStatsData({
+        year, month, startDate, endDate,
+        personMap: Object.fromEntries(Object.entries(personMap).map(([k,v]) => [k, { ...v, days: v.days.size }])),
+        dateMap,
+        noticeList: noticeList || [],
+        noticeReadMap,
+        allTodos,
+        totalChecks: (checks || []).length,
+        totalTodos: allTodos.length,
+        totalNotices: (noticeList || []).length,
+      })
+    } catch(e) { console.error(e) }
+    setStatsLoading(false)
+  }
+
   async function loadAdminNotices(storeIdList?: string[], storeListOverride?: any[]) {
     if (!storeId) return
     const ids = (storeIdList && storeIdList.length > 0) ? storeIdList : [storeId]
@@ -1417,11 +1591,16 @@ export default function NoticePage() {
   const [isPC, setIsPC] = useState(false)
   const today = toDateStr(new Date())
 
-  type SubTab = 'notice' | 'todo' | 'admin'
+  type SubTab = 'notice' | 'todo' | 'admin' | 'stats'
+  const [statsData, setStatsData] = useState<any>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [statsYear, setStatsYear] = useState(new Date().getFullYear())
+  const [statsMonth, setStatsMonth] = useState(new Date().getMonth() + 1)
+  const [expandedTodo, setExpandedTodo] = useState<string|null>(null)
   const [subTab, setSubTab] = useState<SubTab>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('notice_subTab')
-      if (saved === 'notice' || saved === 'todo' || saved === 'admin') return saved as SubTab
+      if (saved === 'notice' || saved === 'todo' || saved === 'admin' || saved === 'stats') return saved as SubTab
     }
     return 'notice'
   })
@@ -2069,6 +2248,9 @@ export default function NoticePage() {
           👑 관리
         </button>
       )}
+      <button style={tabBtn(subTab==='stats')} onClick={() => { setSubTab('stats'); loadStats(statsYear, statsMonth) }}>
+        📊 통계
+      </button>
     </div>
   )
 
@@ -2112,6 +2294,7 @@ export default function NoticePage() {
         )}
 
         {/* 공지 탭: 2열 카드 그리드 */}
+
         {subTab === 'notice' && (
           <div>
             {overdueCount > 0 && (
