@@ -196,13 +196,13 @@ function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onCh
       ))}
       <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:8, paddingTop:8, borderTop:'1px solid #F0F0F0', flexWrap:'wrap' }}>
         <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-          <span style={{ width:6, height:6, borderRadius:'50%', background: storeDotColor || '#6C5CE7', display:'inline-block' }} />
-          <span style={{ fontSize:9, color:'#aaa' }}>할일</span>
+          <span style={{ width:7, height:7, borderRadius:'50%', background: storeDotColor || '#6C5CE7', display:'inline-block' }} />
+          <span style={{ fontSize:9, color:'#aaa' }}>지점 할일 있는 날</span>
         </div>
         {memoDates && (
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-            <span style={{ width:6, height:6, borderRadius:'50%', background:'#E84393', display:'inline-block' }} />
-            <span style={{ fontSize:9, color:'#aaa' }}>메모</span>
+            <span style={{ width:7, height:7, borderRadius:'50%', background:'#E84393', display:'inline-block' }} />
+            <span style={{ fontSize:9, color:'#aaa' }}>내 스케줄 있는 날</span>
           </div>
         )}
       </div>
@@ -421,7 +421,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   // dnd-kit sensors
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-  const [checklistTab, setChecklistTab] = useState<'today'|'carry'>('today')
+  const [checklistTodayOpen, setChecklistTodayOpen] = useState(true)
+  const [checklistCarryOpen, setChecklistCarryOpen] = useState(false)
   // 체크리스트 날짜 이동 팝업
   const [movePopup, setMovePopup] = useState<{itemId: string, fromDate: string} | null>(null)
   // 개인 체크리스트 (메모 대체)
@@ -461,7 +462,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   useEffect(() => { loadAdminData() }, [storeId])
   // 날짜 바뀌면 탭 초기화
   useEffect(() => {
-    setChecklistTab('today')
+    setChecklistTodayOpen(true)
+    setChecklistCarryOpen(false)
   }, [selectedCalDate])
   // 날짜 바뀌어도 input 초기화
 
@@ -811,7 +813,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     await saveChecklist(selectedCalDate, items)
     setChecklistInput(''); setChecklistTime(''); setChecklistRepeat('none')
     setSavingChecklist(false)
-    setChecklistTab('today')
+    setChecklistTodayOpen(true)
+    setChecklistCarryOpen(false)
   }
 
   async function toggleUrgent(date: string, itemId: string) {
@@ -1160,8 +1163,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const allChecklistItems = checklistMap[selectedCalDate] || []
   const todayChecklistItems = allChecklistItems.filter((i: any) => !i.carriedFrom)
   const carryChecklistItems = allChecklistItems.filter((i: any) => !!i.carriedFrom)
-  const checklistItems = checklistTab === 'today' ? todayChecklistItems : carryChecklistItems
-  const doneCount = checklistItems.filter((i: any) => i.done).length
+  const checklistItems = todayChecklistItems  // DndContext용 (오늘 항목만)
+  const doneCount = todayChecklistItems.filter((i: any) => i.done).length
   const carryUndone = carryChecklistItems.filter((i: any) => !i.done).length
 
   const calendarMemoSection = (
@@ -1176,114 +1179,120 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       />
       {/* 개인 체크리스트 */}
       <div style={{ ...bx }}>
-        {/* 탭 헤더 */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-          <button onClick={() => setChecklistTab('today')}
-            style={{ flex: 1, padding: '7px 0', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: checklistTab === 'today' ? 700 : 400, background: checklistTab === 'today' ? 'linear-gradient(135deg,#E84393,#6C5CE7)' : '#F4F6F9', color: checklistTab === 'today' ? '#fff' : '#888' }}>
-            ✅ 오늘
+        {/* ✅ 오늘 아코디언 헤더 */}
+        <button onClick={() => setChecklistTodayOpen(o => !o)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 10, background: 'linear-gradient(135deg,rgba(232,67,147,0.08),rgba(108,92,231,0.08))', border: '1px solid rgba(232,67,147,0.2)', cursor: 'pointer', marginBottom: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#E84393' }}>
+            ✅ 오늘 할일
             {todayChecklistItems.filter((i:any)=>!i.done).length > 0 && (
-              <span style={{ marginLeft: 4, fontSize: 10, background: 'rgba(255,255,255,0.3)', borderRadius: 8, padding: '1px 5px' }}>
-                {todayChecklistItems.filter((i:any)=>!i.done).length}
+              <span style={{ fontSize: 10, background: 'rgba(232,67,147,0.15)', borderRadius: 8, padding: '1px 6px', marginLeft: 4, color: '#E84393' }}>
+                {todayChecklistItems.filter((i:any)=>!i.done).length}개
               </span>
             )}
-          </button>
-          {selectedCalDate <= today && (
-            <button onClick={() => setChecklistTab('carry')}
-              style={{ flex: 1, padding: '7px 0', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: checklistTab === 'carry' ? 700 : 400, background: checklistTab === 'carry' ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#F4F6F9', color: checklistTab === 'carry' ? '#fff' : '#888' }}>
-              ↩ 이월
-              {carryUndone > 0 && (
-                <span style={{ marginLeft: 4, fontSize: 10, background: 'rgba(255,255,255,0.3)', borderRadius: 8, padding: '1px 5px' }}>
-                  {carryUndone}
-                </span>
-              )}
-            </button>
-          )}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: '#aaa' }}>{selectedCalDate.replace(/-/g,'.')}</div>
-          {checklistItems.length > 0 && (
-            <span style={{ fontSize: 10, color: doneCount === checklistItems.length ? '#00B894' : '#FF6B35', fontWeight: 700 }}>
-              {doneCount}/{checklistItems.length} 완료
-            </span>
-          )}
-        </div>
+          </span>
+          <span style={{ fontSize: 11, color: '#bbb' }}>{checklistTodayOpen ? '▲' : '▼'}</span>
+        </button>
 
-        {/* 체크리스트 아이템 목록 */}
-        {checklistItems.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '16px 0', color: '#ccc', fontSize: 12 }}>
-            {checklistTab === 'today' ? '오늘 스케줄을 추가해보세요' : (
-              <div>
-                <div style={{ fontSize: 14, marginBottom: 6 }}>🎉</div>
-                이월된 항목이 없어요
+        {/* ✅ 오늘 할일 목록 */}
+        {checklistTodayOpen && (
+          <>
+            {checklistItems.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '12px 0', color: '#ccc', fontSize: 12 }}>오늘 스케줄을 추가해보세요</div>
+            ) : (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleChecklistDragEnd}>
+                <SortableContext items={checklistItems.map((i: any) => i.id)} strategy={verticalListSortingStrategy}>
+                  <div style={{ marginBottom: 10 }}>
+                    {checklistItems.map((item: any) => (
+                      <SortableChecklistItem
+                        key={item.id}
+                        item={item}
+                        date={selectedCalDate}
+                        movePopup={movePopup}
+                        setMovePopup={setMovePopup}
+                        toggleChecklistItem={toggleChecklistItem}
+                        toggleUrgent={toggleUrgent}
+                        deleteChecklistItem={deleteChecklistItem}
+                        moveItemToDate={moveItemToDate}
+                        setMovePopupNull={() => setMovePopup(null)}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+            {/* 새 항목 추가 */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+              <input
+                value={checklistInput}
+                onChange={e => setChecklistInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addChecklistItem()}
+                placeholder="스케줄 입력 후 엔터"
+                style={{ ...inp, flex: 1, padding: '7px 10px', fontSize: 12 }}
+              />
+              <button onClick={addChecklistItem} disabled={savingChecklist || !checklistInput.trim()}
+                style={{ padding: '0 12px', borderRadius: 8, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.3)', color: '#E84393', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: !checklistInput.trim() ? 0.5 : 1 }}>
+                +
+              </button>
+            </div>
+            {/* 알람 설정 */}
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="time"
+                value={checklistTime}
+                onChange={e => setChecklistTime(e.target.value)}
+                style={{ flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid #E8ECF0', fontSize: 11, color: '#6C5CE7', background: '#F8F9FB', outline: 'none' }}
+              />
+              <button onClick={() => setChecklistRepeat(r => r === 'weekly' ? 'none' : 'weekly')}
+                style={{ padding: '5px 8px', borderRadius: 8, border: checklistRepeat === 'weekly' ? '1.5px solid #00B894' : '1px solid #E8ECF0', background: checklistRepeat === 'weekly' ? 'rgba(0,184,148,0.1)' : '#F4F6F9', color: checklistRepeat === 'weekly' ? '#00B894' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'weekly' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                📆 매주
+              </button>
+              <button onClick={() => setChecklistRepeat(r => r === 'monthly' ? 'none' : 'monthly')}
+                style={{ padding: '5px 8px', borderRadius: 8, border: checklistRepeat === 'monthly' ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0', background: checklistRepeat === 'monthly' ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: checklistRepeat === 'monthly' ? '#6C5CE7' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'monthly' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                📅 매월
+              </button>
+            </div>
+            <div style={{ fontSize: 9, color: '#bbb', marginTop: 4 }}>⏰ 시간 설정 시 해당 시간에 알림 (선택사항)</div>
+          </>
+        )}
+
+        {/* ↩ 이월 섹션 아코디언 */}
+        {selectedCalDate <= today && (
+          <div style={{ marginTop: 8 }}>
+            <button onClick={() => setChecklistCarryOpen(o => !o)}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 10, background: carryUndone > 0 ? 'rgba(255,107,53,0.08)' : '#F4F6F9', border: carryUndone > 0 ? '1px solid rgba(255,107,53,0.2)' : '1px solid #E8ECF0', cursor: 'pointer' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: carryUndone > 0 ? '#FF6B35' : '#aaa' }}>
+                ↩ 이월 {carryUndone > 0 && <span style={{ fontSize: 10, background: 'rgba(255,107,53,0.15)', borderRadius: 8, padding: '1px 6px', marginLeft: 4 }}>{carryUndone}개</span>}
+              </span>
+              <span style={{ fontSize: 11, color: '#bbb' }}>{checklistCarryOpen ? '▲' : '▼'}</span>
+            </button>
+            {checklistCarryOpen && (
+              <div style={{ marginTop: 6, padding: '4px 0' }}>
+                {carryChecklistItems.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '12px 0', color: '#ccc', fontSize: 12 }}>🎉 이월된 항목이 없어요</div>
+                ) : (
+                  carryChecklistItems.map((item: any) => (
+                    <SortableChecklistItem
+                      key={item.id}
+                      item={item}
+                      date={selectedCalDate}
+                      movePopup={movePopup}
+                      setMovePopup={setMovePopup}
+                      toggleChecklistItem={toggleChecklistItem}
+                      toggleUrgent={toggleUrgent}
+                      deleteChecklistItem={deleteChecklistItem}
+                      moveItemToDate={moveItemToDate}
+                      setMovePopupNull={() => setMovePopup(null)}
+                    />
+                  ))
+                )}
+                <button onClick={() => carryOverItems(selectedCalDate)}
+                  style={{ width: '100%', marginTop: 8, padding: '7px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  ↩ 미완료 항목 오늘로 가져오기
+                </button>
               </div>
             )}
           </div>
-        ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleChecklistDragEnd}>
-            <SortableContext items={checklistItems.map((i: any) => i.id)} strategy={verticalListSortingStrategy}>
-              <div style={{ marginBottom: 10 }}>
-                {checklistItems.map((item: any) => (
-                  <SortableChecklistItem
-                    key={item.id}
-                    item={item}
-                    date={selectedCalDate}
-                    movePopup={movePopup}
-                    setMovePopup={setMovePopup}
-                    toggleChecklistItem={toggleChecklistItem}
-                    toggleUrgent={toggleUrgent}
-                    deleteChecklistItem={deleteChecklistItem}
-                    moveItemToDate={moveItemToDate}
-                    setMovePopupNull={() => setMovePopup(null)}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
         )}
-
-        {/* 이월 탭: 미완료 항목 오늘로 가져오기 버튼 */}
-        {checklistTab === 'carry' && selectedCalDate <= today && (
-          <button onClick={() => carryOverItems(selectedCalDate)}
-            style={{ width: '100%', padding: '8px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginBottom: 8 }}>
-            ↩ 미완료 항목 오늘로 이월
-          </button>
-        )}
-
-        {/* 새 항목 추가 (오늘 탭에서만) */}
-        {checklistTab === 'today' && <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-          <input
-            value={checklistInput}
-            onChange={e => setChecklistInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addChecklistItem()}
-            placeholder="스케줄 입력 후 엔터"
-            style={{ ...inp, flex: 1, padding: '7px 10px', fontSize: 12 }}
-          />
-          <button onClick={addChecklistItem} disabled={savingChecklist || !checklistInput.trim()}
-            style={{ padding: '0 12px', borderRadius: 8, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.3)', color: '#E84393', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: !checklistInput.trim() ? 0.5 : 1 }}>
-            +
-          </button>
-        </div>}
-
-        {/* 알람 설정 (오늘 탭에서만) */}
-        {checklistTab === 'today' && <>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <input
-            type="time"
-            value={checklistTime}
-            onChange={e => setChecklistTime(e.target.value)}
-            style={{ flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid #E8ECF0', fontSize: 11, color: '#6C5CE7', background: '#F8F9FB', outline: 'none' }}
-          />
-          <button onClick={() => setChecklistRepeat(r => r === 'weekly' ? 'none' : 'weekly')}
-            style={{ padding: '5px 8px', borderRadius: 8, border: checklistRepeat === 'weekly' ? '1.5px solid #00B894' : '1px solid #E8ECF0', background: checklistRepeat === 'weekly' ? 'rgba(0,184,148,0.1)' : '#F4F6F9', color: checklistRepeat === 'weekly' ? '#00B894' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'weekly' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
-            📆 매주
-          </button>
-          <button onClick={() => setChecklistRepeat(r => r === 'monthly' ? 'none' : 'monthly')}
-            style={{ padding: '5px 8px', borderRadius: 8, border: checklistRepeat === 'monthly' ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0', background: checklistRepeat === 'monthly' ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: checklistRepeat === 'monthly' ? '#6C5CE7' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'monthly' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
-            📅 매월
-          </button>
-        </div>
-        <div style={{ fontSize: 9, color: '#bbb', marginTop: 4 }}>⏰ 시간 설정 시 해당 시간에 알림 (선택사항)</div>
-        </>}
       </div>
 
 
