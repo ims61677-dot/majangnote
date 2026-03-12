@@ -93,6 +93,7 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
         reported_by: userName,
       })
       await sb.from('orders').update({ status: 'issue' }).eq('id', order.id)
+      onDone(); onClose(); return
     }
     if (hasInventoryLink) { setStep('place') } else { await doSave(null) }
   }
@@ -447,10 +448,10 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
                     ✅ 주문확인: {order.confirmed_by} · {order.confirmed_at ? `${new Date(order.confirmed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} ${new Date(order.confirmed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}` : ''}
                   </div>
                 )}
-                {receipt && (
+                {(order.status === 'received' || receipt) && (order.received_by || receipt) && (
                   <div style={{ fontSize: 10, color: '#00B894' }}>
-                    📦 수령: {receipt.received_by} · {new Date(receipt.created_at || receipt.received_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(receipt.created_at || receipt.received_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })} · {receipt.received_quantity}{order.unit}
-                    {receipt.inventory_applied && <span style={{ marginLeft: 4, color: '#2DC6D6' }}>✓ {receipt.inventory_place} 재고반영</span>}
+                    📦 수령: {order.received_by || receipt?.received_by} · {order.received_at ? `${new Date(order.received_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} ${new Date(order.received_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}` : ''}{receipt?.received_quantity ? ` · ${receipt.received_quantity}${order.unit}` : ''}
+                    {receipt?.inventory_applied && <span style={{ marginLeft: 4, color: '#2DC6D6' }}>✓ {receipt.inventory_place} 재고반영</span>}
                   </div>
                 )}
               </div>

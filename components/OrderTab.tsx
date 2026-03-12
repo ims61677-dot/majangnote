@@ -266,6 +266,7 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
         reported_by: userName,
       })
       await sb.from('orders').update({ status: 'issue' }).eq('id', order.id)
+      onSaved(); onClose(); return
     }
     if (hasInventoryLink) {
       setStep('place')
