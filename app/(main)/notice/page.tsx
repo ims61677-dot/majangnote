@@ -403,6 +403,11 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [stores, setStores] = useState<any[]>([])
   const [allTodosMap, setAllTodosMap] = useState<{store: any; todos: any[]; closingTodos: any[]}[]>([])
   const [loading, setLoading] = useState(true)
+  const [statsData, setStatsData] = useState<any>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [statsYear, setStatsYear] = useState(new Date().getFullYear())
+  const [statsMonth, setStatsMonth] = useState(new Date().getMonth() + 1)
+  const [expandedTodo, setExpandedTodo] = useState<string|null>(null)
 
   // 빠른 할일 추가
   const [quickInputs, setQuickInputs] = useState<Record<string, string>>({})
@@ -565,6 +570,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   }
 
   // 공지 로드/저장/삭제
+
   async function loadStats(year: number, month: number) {
     if (!storeId) return
     setStatsLoading(true)
@@ -1509,11 +1515,6 @@ export default function NoticePage() {
   const today = toDateStr(new Date())
 
   type SubTab = 'notice' | 'todo' | 'admin' | 'stats'
-  const [statsData, setStatsData] = useState<any>(null)
-  const [statsLoading, setStatsLoading] = useState(false)
-  const [statsYear, setStatsYear] = useState(new Date().getFullYear())
-  const [statsMonth, setStatsMonth] = useState(new Date().getMonth() + 1)
-  const [expandedTodo, setExpandedTodo] = useState<string|null>(null)
   const [subTab, setSubTab] = useState<SubTab>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('notice_subTab')
