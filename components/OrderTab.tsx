@@ -299,7 +299,7 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
       }, { onConflict: 'item_id,place' })
     }
 
-    await supabase.from('orders').update({ status: 'received' }).eq('id', order.id)
+    await supabase.from('orders').update({ status: 'received', received_by: userName, received_at: new Date().toISOString() }).eq('id', order.id)
     setSaving(false)
     onSaved(); onClose()
   }
@@ -520,7 +520,7 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         inventory_applied: false,
         memo: memo.trim() || null,
       }).select().single()
-      await supabase.from('orders').update({ status: 'received' }).eq('id', order.id)
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert({
         order_id: order.id,
         changed_by: resolvedBy.trim(),
@@ -543,7 +543,7 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         return_memo: memo.trim() || null,
         memo: memo.trim() || null,
       }).select().single()
-      await supabase.from('orders').update({ status: 'received' }).eq('id', order.id)
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert([
         {
           order_id: order.id,
@@ -1196,8 +1196,8 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{cfg.label}</span>
             {isOverdue && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.2)', color: '#fff', fontWeight: 700 }}>⏰ {Math.floor(diffDays)}일 지연</span>}
-            {order.status === 'received' && receipt?.received_by && (
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {receipt.received_by}</span>
+            {order.status === 'received' && order.received_by && (
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {order.received_by}</span>
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

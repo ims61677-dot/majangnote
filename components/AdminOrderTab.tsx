@@ -106,7 +106,7 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
         updated_by: userName, updated_at: new Date().toISOString(),
       }, { onConflict: 'item_id,place' })
     }
-    await supabase.from('orders').update({ status: 'received' }).eq('id', order.id)
+    await supabase.from('orders').update({ status: 'received', received_by: userName, received_at: new Date().toISOString() }).eq('id', order.id)
     setSaving(false); onDone(); onClose()
   }
 
@@ -380,8 +380,8 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{cfg.label}</span>
             {isOverdue && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.2)', color: '#fff', fontWeight: 700 }}>⏰ 지연</span>}
-            {order.status === 'received' && receipt?.received_by && (
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {receipt.received_by}</span>
+            {order.status === 'received' && order.received_by && (
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {order.received_by}</span>
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
