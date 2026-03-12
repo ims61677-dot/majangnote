@@ -427,6 +427,113 @@ function AdminEditOrderModal({ order, userName, onClose, onSaved }: { order: any
 }
 
 
+
+// ─── 직접 이슈 등록 모달 (관리자용) ───
+function DirectIssueModal({ userName, onClose, onSaved }: { userName: string; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [itemName, setItemName] = useState('')
+  const [quantity, setQuantity] = useState<number | ''>(1)
+  const [unit, setUnit] = useState('ea')
+  const [storeId, setStoreId] = useState(STORES[0].id)
+  const [issueType, setIssueType] = useState('wrong_delivery')
+  const [memo, setMemo] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const issueOptions = [
+    { key: 'wrong_delivery', label: '📦 잘못 온 물품', desc: '주문 안 했는데 도착' },
+    { key: 'wrong_store',    label: '🏪 지점 오배송', desc: '다른 지점 것이 옴' },
+    { key: 'damaged',        label: '💥 파손 도착',   desc: '파손 상태로 배송됨' },
+    { key: 'other',          label: '📝 기타',         desc: '기타 이슈' },
+  ]
+
+  async function handleSubmit() {
+    if (!itemName.trim() || !quantity) return
+    setSaving(true)
+    const { data: order } = await supabase.from('orders').insert({
+      store_id: storeId,
+      item_name: itemName.trim(),
+      quantity: Number(quantity),
+      unit,
+      ordered_by: userName,
+      ordered_at: new Date().toISOString(),
+      status: 'issue',
+      memo: memo.trim() || null,
+    }).select().single()
+    if (order) {
+      await supabase.from('order_issues').insert({ order_id: order.id, store_id: storeId, issue_type: issueType, memo: memo.trim() || null, reported_by: userName })
+      await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '이슈 직접 등록', before_value: null, after_value: `${issueType}: ${itemName.trim()} ${quantity}${unit}`, memo: memo.trim() || null })
+    }
+    setSaving(false)
+    onSaved(); onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 330, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 360 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>🚨 이슈 직접 등록</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* 지점 선택 */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>지점 선택</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {STORES.map(s => (
+              <button key={s.id} onClick={() => setStoreId(s.id)}
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: storeId === s.id ? `2px solid ${s.color}` : '1px solid #E8ECF0', background: storeId === s.id ? s.bg : '#F8F9FB', color: storeId === s.id ? s.color : '#888', fontSize: 11, fontWeight: storeId === s.id ? 700 : 400, cursor: 'pointer' }}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 이슈 유형 */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>이슈 유형</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+            {issueOptions.map(o => (
+              <button key={o.key} onClick={() => setIssueType(o.key)}
+                style={{ padding: '10px 8px', borderRadius: 10, border: issueType === o.key ? '2px solid #E84393' : '1px solid #E8ECF0', background: issueType === o.key ? 'rgba(232,67,147,0.08)' : '#F8F9FB', cursor: 'pointer', textAlign: 'left' as const }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: issueType === o.key ? '#E84393' : '#555' }}>{o.label}</div>
+                <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>{o.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>품목명 <span style={{ color: '#E84393' }}>*</span></div>
+          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="예: 루꼴라 1kg" style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ flex: 2 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수량</div>
+            <input type="number" step="0.1" value={quantity} onChange={e => setQuantity(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
+            <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
+              <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option><option>개</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 스타필드 것인 듯" style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} disabled={saving || !itemName.trim() || !quantity}
+            style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: itemName.trim() ? 'linear-gradient(135deg,#E84393,#FF6B35)' : '#E8ECF0', border: 'none', color: itemName.trim() ? '#fff' : '#bbb', fontSize: 13, fontWeight: 700, cursor: itemName.trim() ? 'pointer' : 'default' }}>
+            {saving ? '등록 중...' : '🚨 이슈 등록'}
+          </button>
+          <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { order: any; userName: string; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
@@ -672,6 +779,7 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
 
   const [searchQ, setSearchQ] = useState('')
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [showDirectIssue, setShowDirectIssue] = useState(false)
 
   const searchResults = useMemo(() => {
     const q = searchQ.trim()
@@ -780,12 +888,16 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
 
   return (
     <div>
+      {showDirectIssue && <DirectIssueModal userName={userName} onClose={() => setShowDirectIssue(false)} onSaved={loadOrders} />}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
           <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>👑 관리자 발주 현황</span>
           <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>전지점 통합 뷰</div>
         </div>
-        <button onClick={loadOrders} style={{ padding: '6px 12px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>🔄 새로고침</button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => setShowDirectIssue(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.3)', color: '#E84393', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>🚨 이슈등록</button>
+          <button onClick={loadOrders} style={{ padding: '6px 12px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>🔄 새로고침</button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>

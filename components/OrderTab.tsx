@@ -641,6 +641,119 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
   )
 }
 
+
+// ─── 직접 이슈 등록 모달 ───
+function DirectIssueModal({ storeId, userName, onClose, onSaved }: { storeId: string; userName: string; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [itemName, setItemName] = useState('')
+  const [quantity, setQuantity] = useState<number | ''>(1)
+  const [unit, setUnit] = useState('ea')
+  const [issueType, setIssueType] = useState('wrong_delivery')
+  const [memo, setMemo] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const issueOptions = [
+    { key: 'wrong_delivery', label: '📦 잘못 온 물품', desc: '주문 안 했는데 도착' },
+    { key: 'wrong_store',    label: '🏪 지점 오배송', desc: '다른 지점 것이 옴' },
+    { key: 'damaged',        label: '💥 파손 도착',   desc: '파손 상태로 배송됨' },
+    { key: 'other',          label: '📝 기타',         desc: '기타 이슈' },
+  ]
+
+  async function handleSubmit() {
+    if (!itemName.trim() || !quantity) return
+    setSaving(true)
+    const { data: order } = await supabase.from('orders').insert({
+      store_id: storeId,
+      item_name: itemName.trim(),
+      quantity: Number(quantity),
+      unit,
+      ordered_by: userName,
+      ordered_at: new Date().toISOString(),
+      status: 'issue',
+      memo: memo.trim() || null,
+    }).select().single()
+
+    if (order) {
+      await supabase.from('order_issues').insert({
+        order_id: order.id,
+        store_id: storeId,
+        issue_type: issueType,
+        memo: memo.trim() || null,
+        reported_by: userName,
+      })
+      await supabase.from('order_receipt_logs').insert({
+        order_id: order.id,
+        changed_by: userName,
+        field_name: '이슈 직접 등록',
+        before_value: null,
+        after_value: `${issueType}: ${itemName.trim()} ${quantity}${unit}`,
+        memo: memo.trim() || null,
+      })
+    }
+    setSaving(false)
+    onSaved(); onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 230, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 360 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>🚨 이슈 직접 등록</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* 이슈 유형 */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>이슈 유형</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+            {issueOptions.map(o => (
+              <button key={o.key} onClick={() => setIssueType(o.key)}
+                style={{ padding: '10px 8px', borderRadius: 10, border: issueType === o.key ? '2px solid #E84393' : '1px solid #E8ECF0', background: issueType === o.key ? 'rgba(232,67,147,0.08)' : '#F8F9FB', cursor: 'pointer', textAlign: 'left' as const }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: issueType === o.key ? '#E84393' : '#555' }}>{o.label}</div>
+                <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>{o.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 품목명 */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>품목명 <span style={{ color: '#E84393' }}>*</span></div>
+          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="예: 루꼴라 1kg" style={inp} />
+        </div>
+
+        {/* 수량 + 단위 */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ flex: 2 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수량</div>
+            <input type="number" step="0.1" value={quantity} onChange={e => setQuantity(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
+            <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
+              <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option><option>개</option>
+            </select>
+          </div>
+        </div>
+
+        {/* 메모 */}
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 스타필드 물건인 듯" style={inp} />
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} disabled={saving || !itemName.trim() || !quantity}
+            style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: itemName.trim() ? 'linear-gradient(135deg,#E84393,#FF6B35)' : '#E8ECF0', border: 'none', color: itemName.trim() ? '#fff' : '#bbb', fontSize: 13, fontWeight: 700, cursor: itemName.trim() ? 'pointer' : 'default' }}>
+            {saving ? '등록 중...' : '🚨 이슈 등록'}
+          </button>
+          <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── 주문 확인 모달 ───
 function ConfirmOrderModal({ order, userName, suppliers, onClose, onSaved }: { order: any; userName: string; suppliers: any[]; onClose: () => void; onSaved: () => void }) {
   const supabase = createSupabaseBrowserClient()
@@ -1592,6 +1705,7 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
   const [subTab, setSubTab] = useState<'pending' | 'requested' | 'all' | 'issues' | 'history' | 'stats'>('pending')
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [showQuickOrder, setShowQuickOrder] = useState(false)
+  const [showDirectIssue, setShowDirectIssue] = useState(false)
   const [showSupplierMgr, setShowSupplierMgr] = useState(false)
   const [loading, setLoading] = useState(true)
   const now = new Date()
@@ -1746,12 +1860,14 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
       )}
       {showSupplierMgr && <SupplierModal storeId={storeId} onClose={() => { setShowSupplierMgr(false); loadSuppliers() }} />}
       {showQuickOrder && <QuickOrderModal storeId={storeId} userName={userName} suppliers={suppliers} inventoryItems={inventoryItems} onClose={() => setShowQuickOrder(false)} onSaved={loadOrders} />}
+      {showDirectIssue && <DirectIssueModal storeId={storeId} userName={userName} onClose={() => setShowDirectIssue(false)} onSaved={loadOrders} />}
 
       {/* 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>📋 발주 관리</span>
         <div style={{ display: 'flex', gap: 6 }}>
           {isEdit && <button onClick={() => setShowSupplierMgr(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', color: '#2DC6D6', fontSize: 11, cursor: 'pointer' }}>🏪 발주처</button>}
+          <button onClick={() => setShowDirectIssue(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.3)', color: '#E84393', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>🚨 이슈등록</button>
           <button onClick={() => setShowQuickOrder(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>⚡ 빠른발주</button>
           <button onClick={() => setShowAddOrder(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>+ 발주 추가</button>
         </div>
