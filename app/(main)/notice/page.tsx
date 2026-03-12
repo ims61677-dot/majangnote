@@ -430,7 +430,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [checklistMap, setChecklistMap] = useState<Record<string, any[]>>({})
   const [checklistInput, setChecklistInput] = useState('')
   const [checklistTime, setChecklistTime] = useState('')
-  const [checklistRepeat, setChecklistRepeat] = useState<'none'|'weekly'|'monthly'>('none')
+  const [checklistRepeat, setChecklistRepeat] = useState<'none'|'daily'|'weekly'|'monthly'>('none')
   const [savingChecklist, setSavingChecklist] = useState(false)
   const memoDates = new Set(Object.keys(checklistMap).filter(d => checklistMap[d]?.length > 0))
 
@@ -656,7 +656,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     const file = e.target.files?.[0]; if (!file) return
     setIsUploadingAdminAttach(true)
     try { const url = await uploadAdminImage(file); setAdminNoticeAttachUrl(url) }
-    catch { alert('이미지 업로드 실패') }
+    catch (e: any) { alert('이미지 업로드 실패\n원인: ' + (e?.message || e)) }
     setIsUploadingAdminAttach(false)
   }
 
@@ -1242,6 +1242,10 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                 onChange={e => setChecklistTime(e.target.value)}
                 style={{ flex: 1, padding: '5px 8px', borderRadius: 8, border: '1px solid #E8ECF0', fontSize: 11, color: '#6C5CE7', background: '#F8F9FB', outline: 'none' }}
               />
+              <button onClick={() => setChecklistRepeat(r => r === 'daily' ? 'none' : 'daily')}
+                style={{ padding: '5px 8px', borderRadius: 8, border: checklistRepeat === 'daily' ? '1.5px solid #FF6B35' : '1px solid #E8ECF0', background: checklistRepeat === 'daily' ? 'rgba(255,107,53,0.1)' : '#F4F6F9', color: checklistRepeat === 'daily' ? '#FF6B35' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'daily' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                🔁 매일
+              </button>
               <button onClick={() => setChecklistRepeat(r => r === 'weekly' ? 'none' : 'weekly')}
                 style={{ padding: '5px 8px', borderRadius: 8, border: checklistRepeat === 'weekly' ? '1.5px solid #00B894' : '1px solid #E8ECF0', background: checklistRepeat === 'weekly' ? 'rgba(0,184,148,0.1)' : '#F4F6F9', color: checklistRepeat === 'weekly' ? '#00B894' : '#aaa', fontSize: 10, fontWeight: checklistRepeat === 'weekly' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
                 📆 매주
@@ -1372,7 +1376,7 @@ function SortableChecklistItem({ item, date, movePopup, setMovePopup, toggleChec
           <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' as const }}>
             {item.carriedFrom && <span style={{ fontSize: 9, color: '#FF6B35', background: 'rgba(255,107,53,0.1)', padding: '1px 5px', borderRadius: 4 }}>↩ {item.carriedFrom.slice(5).replace('-','/')} 이월</span>}
             {item.time && <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>🔔 {item.time}</span>}
-            {item.repeat === 'weekly' && <span style={{ fontSize: 9, color: '#00B894', background: 'rgba(0,184,148,0.1)', padding: '1px 5px', borderRadius: 4 }}>📆 매주</span>}{item.repeat === 'monthly' && <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>📅 매월</span>}
+            {item.repeat === 'daily' && <span style={{ fontSize: 9, color: '#FF6B35', background: 'rgba(255,107,53,0.1)', padding: '1px 5px', borderRadius: 4 }}>🔁 매일</span>}{item.repeat === 'weekly' && <span style={{ fontSize: 9, color: '#00B894', background: 'rgba(0,184,148,0.1)', padding: '1px 5px', borderRadius: 4 }}>📆 매주</span>}{item.repeat === 'monthly' && <span style={{ fontSize: 9, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '1px 5px', borderRadius: 4 }}>📅 매월</span>}
           </div>
         </div>
         <div style={{ display:'flex', gap:2, flexShrink:0 }}>
@@ -1516,7 +1520,7 @@ export default function NoticePage() {
     const file = e.target.files?.[0]; if (!file) return
     setIsUploadingNoticeAttach(true)
     try { const url = await uploadImage(file); setFormNoticeAttachUrl(url) }
-    catch { alert('이미지 업로드 실패. 스토리지 버킷 설정을 확인해주세요.') }
+    catch (e: any) { alert('이미지 업로드 실패\n원인: ' + (e?.message || e)) }
     setIsUploadingNoticeAttach(false)
   }
 
