@@ -370,9 +370,8 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{cfg.label}</span>
             {isOverdue && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.2)', color: '#fff', fontWeight: 700 }}>⏰ 지연</span>}
-            {/* 수령완료 시 헤더에 바로 표시 */}
-            {order.status === 'received' && order.received_by && (
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {order.received_by}</span>
+            {order.status === 'received' && (order.order_receipts?.[0]?.received_by || order.received_by) && (
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {order.order_receipts?.[0]?.received_by || order.received_by}</span>
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -575,7 +574,7 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
     setLoading(true)
     const storeIds = STORES.map(s => s.id)
     const [ordersRes, suppliersRes] = await Promise.all([
-      supabase.from('orders').select('*').in('store_id', storeIds).order('ordered_at', { ascending: false }).order('created_at', { ascending: true }),
+      supabase.from('orders').select('*, order_receipts(received_by, received_at, received_quantity)').in('store_id', storeIds).order('ordered_at', { ascending: false }).order('created_at', { ascending: true }),
       supabase.from('order_suppliers').select('*').in('store_id', storeIds),
     ])
     const supplierMap: Record<string, string> = {}
