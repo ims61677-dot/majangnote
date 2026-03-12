@@ -497,16 +497,18 @@ function IssueModal({ order, userName, onClose, onSaved }: { order: any; userNam
 // ─── 이슈 해결 모달 ───
 function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; userName: string; onClose: () => void; onSaved: () => void }) {
   const supabase = createSupabaseBrowserClient()
-  const [resolveType, setResolveType] = useState<'return' | 'exchange' | 'both'>('exchange')
+  const [resolveType, setResolveType] = useState<'return' | 'exchange' | 'both' | 'additional' | 'other'>('exchange')
   const [resolvedBy, setResolvedBy] = useState(userName)
   const [recvQty, setRecvQty] = useState<number | ''>(order.quantity)
   const [memo, setMemo] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const options: { key: 'return' | 'exchange' | 'both'; label: string; desc: string; color: string }[] = [
-    { key: 'exchange', label: '🔄 교환 수령', desc: '새 물건 받음 → 수령완료 처리', color: '#6C5CE7' },
-    { key: 'return',   label: '↩️ 반품만',    desc: '물건 돌려보냄 → 반품완료 처리', color: '#E84393' },
-    { key: 'both',     label: '↩️🔄 반품+교환', desc: '반품하고 새 물건도 받음', color: '#FF6B35' },
+  const options: { key: 'return' | 'exchange' | 'both' | 'additional' | 'other'; label: string; desc: string; color: string }[] = [
+    { key: 'exchange',   label: '🔄 교환 수령',   desc: '새 물건 받음 → 수령완료 처리', color: '#6C5CE7' },
+    { key: 'return',     label: '↩️ 반품만',       desc: '물건 돌려보냄 → 반품완료 처리', color: '#E84393' },
+    { key: 'both',       label: '↩️🔄 반품+교환',  desc: '반품하고 새 물건도 받음', color: '#FF6B35' },
+    { key: 'additional', label: '📦 추가 수령',    desc: '부족분 추가로 받음 → 수령완료 처리', color: '#00B894' },
+    { key: 'other',      label: '📝 기타',          desc: '타지점 전달 등 기타 처리 → 수령완료', color: '#888' },
   ]
 
   async function handleSubmit() {
@@ -544,39 +546,38 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         after_value: `교환품 ${recvQty}${order.unit} 수령완료`,
         memo: memo.trim() || null,
       })
-    } else {
-      // 반품+교환 → receipt 생성 + 상태: received + 반품 로그
-      const { data: receipt } = await supabase.from('order_receipts').insert({
-        order_id: order.id,
-        received_quantity: Number(recvQty) || order.quantity,
-        received_by: resolvedBy.trim(),
-        received_at: now,
-        inventory_applied: false,
-        return_type: 'exchange',
-        return_by: resolvedBy.trim(),
-        return_at: now,
-        return_memo: memo.trim() || null,
-        memo: memo.trim() || null,
-      }).select().single()
+    } else if (resolveType === 'both') {
+      // 반품+교환
+      await supabase.from('order_receipts').insert({
+        order_id: order.id, received_quantity: Number(recvQty) || order.quantity,
+        received_by: resolvedBy.trim(), received_at: now, inventory_applied: false,
+        return_type: 'exchange', return_by: resolvedBy.trim(), return_at: now,
+        return_memo: memo.trim() || null, memo: memo.trim() || null,
+      })
       await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert([
-        {
-          order_id: order.id,
-          changed_by: resolvedBy.trim(),
-          field_name: '반품 처리',
-          before_value: '이슈있음',
-          after_value: '반품완료',
-          memo: memo.trim() || null,
-        },
-        {
-          order_id: order.id,
-          changed_by: resolvedBy.trim(),
-          field_name: '교환 수령',
-          before_value: '반품완료',
-          after_value: `교환품 ${recvQty}${order.unit} 수령완료`,
-          memo: memo.trim() || null,
-        },
+        { order_id: order.id, changed_by: resolvedBy.trim(), field_name: '반품 처리', before_value: '이슈있음', after_value: '반품완료', memo: memo.trim() || null },
+        { order_id: order.id, changed_by: resolvedBy.trim(), field_name: '교환 수령', before_value: '반품완료', after_value: `교환품 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null },
       ])
+    } else if (resolveType === 'additional') {
+      // 추가 수령
+      await supabase.from('order_receipts').insert({
+        order_id: order.id, received_quantity: Number(recvQty) || order.quantity,
+        received_by: resolvedBy.trim(), received_at: now, inventory_applied: false,
+        memo: memo.trim() || null,
+      })
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      await supabase.from('order_receipt_logs').insert({
+        order_id: order.id, changed_by: resolvedBy.trim(), field_name: '추가 수령',
+        before_value: '이슈있음', after_value: `추가 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null,
+      })
+    } else {
+      // 기타
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      await supabase.from('order_receipt_logs').insert({
+        order_id: order.id, changed_by: resolvedBy.trim(), field_name: '기타 처리',
+        before_value: '이슈있음', after_value: memo.trim() || '기타 처리 완료', memo: memo.trim() || null,
+      })
     }
 
     setSaving(false)
@@ -609,7 +610,7 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         </div>
 
         {/* 교환 수령 수량 */}
-        {(resolveType === 'exchange' || resolveType === 'both') && (
+        {(resolveType === 'exchange' || resolveType === 'both' || resolveType === 'additional') && (
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>교환 수령 수량</div>
             <input type="number" step="0.1" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
@@ -1290,8 +1291,17 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
         {order.status === 'issue' && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
             <button onClick={() => setShowResolve(true)}
-              style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10, borderBottomRightRadius: 10 }}>
+              style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>
               ✅ 이슈 해결
+            </button>
+            <button onClick={async () => {
+              if (!confirm('이슈를 취소하고 주문완료 상태로 되돌릴까요?')) return
+              const sb = createSupabaseBrowserClient()
+              await sb.from('orders').update({ status: 'ordered' }).eq('id', order.id)
+              await sb.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '이슈 취소', before_value: '이슈있음', after_value: '주문완료로 되돌림', memo: null })
+              onRefresh()
+            }} style={{ padding: '10px 14px', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>
+              ↩️ 이슈취소
             </button>
           </div>
         )}

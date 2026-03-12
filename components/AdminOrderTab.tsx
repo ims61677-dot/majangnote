@@ -201,6 +201,102 @@ const ISSUE_TYPES: Record<string, string> = {
   other: '기타',
 }
 
+
+// ─── 이슈 해결 모달 ───
+function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; userName: string; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [resolveType, setResolveType] = useState<'return' | 'exchange' | 'both' | 'additional' | 'other'>('exchange')
+  const [resolvedBy, setResolvedBy] = useState(userName)
+  const [recvQty, setRecvQty] = useState<number | ''>(order.quantity)
+  const [memo, setMemo] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const options = [
+    { key: 'exchange',   label: '🔄 교환 수령',   desc: '새 물건 받음 → 수령완료 처리', color: '#6C5CE7' },
+    { key: 'return',     label: '↩️ 반품만',       desc: '물건 돌려보냄 → 반품완료 처리', color: '#E84393' },
+    { key: 'both',       label: '↩️🔄 반품+교환',  desc: '반품하고 새 물건도 받음', color: '#FF6B35' },
+    { key: 'additional', label: '📦 추가 수령',    desc: '부족분 추가로 받음 → 수령완료 처리', color: '#00B894' },
+    { key: 'other',      label: '📝 기타',          desc: '타지점 전달 등 기타 처리 → 수령완료', color: '#888' },
+  ] as const
+
+  async function handleSubmit() {
+    if (!resolvedBy.trim()) return
+    setSaving(true)
+    const now = new Date().toISOString()
+    if (resolveType === 'return') {
+      await supabase.from('orders').update({ status: 'returned' }).eq('id', order.id)
+      await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: resolvedBy.trim(), field_name: '반품 완료', before_value: '이슈있음', after_value: '반품완료', memo: memo.trim() || null })
+    } else if (resolveType === 'exchange') {
+      await supabase.from('order_receipts').insert({ order_id: order.id, received_quantity: Number(recvQty) || order.quantity, received_by: resolvedBy.trim(), received_at: now, inventory_applied: false, memo: memo.trim() || null })
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: resolvedBy.trim(), field_name: '교환 수령', before_value: '이슈있음', after_value: `교환품 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null })
+    } else if (resolveType === 'both') {
+      await supabase.from('order_receipts').insert({ order_id: order.id, received_quantity: Number(recvQty) || order.quantity, received_by: resolvedBy.trim(), received_at: now, inventory_applied: false, return_type: 'exchange', return_by: resolvedBy.trim(), return_at: now, return_memo: memo.trim() || null, memo: memo.trim() || null })
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      await supabase.from('order_receipt_logs').insert([
+        { order_id: order.id, changed_by: resolvedBy.trim(), field_name: '반품 처리', before_value: '이슈있음', after_value: '반품완료', memo: memo.trim() || null },
+        { order_id: order.id, changed_by: resolvedBy.trim(), field_name: '교환 수령', before_value: '반품완료', after_value: `교환품 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null },
+      ])
+    } else if (resolveType === 'additional') {
+      await supabase.from('order_receipts').insert({ order_id: order.id, received_quantity: Number(recvQty) || order.quantity, received_by: resolvedBy.trim(), received_at: now, inventory_applied: false, memo: memo.trim() || null })
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: resolvedBy.trim(), field_name: '추가 수령', before_value: '이슈있음', after_value: `추가 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null })
+    } else {
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: resolvedBy.trim(), field_name: '기타 처리', before_value: '이슈있음', after_value: memo.trim() || '기타 처리 완료', memo: memo.trim() || null })
+    }
+    setSaving(false)
+    onSaved(); onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 230, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 360, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>✅ 이슈 해결</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ fontSize: 12, color: '#E84393', fontWeight: 600, marginBottom: 16, background: 'rgba(232,67,147,0.08)', borderRadius: 8, padding: '6px 10px' }}>
+          🚨 {order.item_name} · {order.quantity}{order.unit}
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>해결 방법</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {options.map(o => (
+              <button key={o.key} onClick={() => setResolveType(o.key as any)}
+                style={{ padding: '10px 14px', borderRadius: 10, border: resolveType === o.key ? `2px solid ${o.color}` : '1px solid #E8ECF0', background: resolveType === o.key ? `${o.color}15` : '#F8F9FB', cursor: 'pointer', textAlign: 'left' as const }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: resolveType === o.key ? o.color : '#555' }}>{o.label}</div>
+                <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{o.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        {(resolveType === 'exchange' || resolveType === 'both' || resolveType === 'additional') && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수령 수량</div>
+            <input type="number" step="0.1" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #E8ECF0', fontSize: 14, boxSizing: 'border-box' as const }} />
+          </div>
+        )}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>처리자 <span style={{ color: '#E84393' }}>*</span></div>
+          <input value={resolvedBy} onChange={e => setResolvedBy(e.target.value)} placeholder="처리한 사람 이름" style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #E8ECF0', fontSize: 14, boxSizing: 'border-box' as const }} />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="처리 내용, 사유 등" style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1.5px solid #E8ECF0', fontSize: 14, boxSizing: 'border-box' as const }} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} disabled={saving || !resolvedBy.trim()}
+            style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: resolvedBy.trim() ? 'linear-gradient(135deg,#6C5CE7,#a29bfe)' : '#E8ECF0', border: 'none', color: resolvedBy.trim() ? '#fff' : '#bbb', fontSize: 13, fontWeight: 700, cursor: resolvedBy.trim() ? 'pointer' : 'default' }}>
+            {saving ? '처리 중...' : '이슈 해결 완료'}
+          </button>
+          <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AdminIssueModal({ order, userName, onClose, onSaved }: { order: any; userName: string; onClose: () => void; onSaved: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [issueType, setIssueType] = useState('wrong_quantity')
@@ -330,6 +426,7 @@ function AdminEditOrderModal({ order, userName, onClose, onSaved }: { order: any
   )
 }
 
+
 function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { order: any; userName: string; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
@@ -338,6 +435,7 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
   const [showIssue, setShowIssue] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showEditReceipt, setShowEditReceipt] = useState(false)
+  const [showResolve, setShowResolve] = useState(false)
   const [receipt, setReceipt] = useState<any>(null)
   const [logs, setLogs] = useState<any[]>([])
   const now = new Date()
@@ -390,6 +488,7 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
       {showIssue && <AdminIssueModal order={order} userName={userName} onClose={() => setShowIssue(false)} onSaved={onRefresh} />}
       {showEdit && <AdminEditOrderModal order={order} userName={userName} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
       {showEditReceipt && receipt && <AdminEditReceiptModal receipt={receipt} order={order} userName={userName} onClose={() => setShowEditReceipt(false)} onSaved={() => loadDetail()} />}
+      {showResolve && <ResolveIssueModal order={order} userName={userName} onClose={() => setShowResolve(false)} onSaved={() => { setShowResolve(false); onRefresh() }} />}
       <div data-admin-order-id={order.id} style={{ background: '#fff', borderRadius: 14, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: highlighted ? `0 0 0 3px ${cfg.color}, 0 2px 12px ${cfg.color}44` : '0 1px 6px rgba(0,0,0,0.06)', transition: 'box-shadow 0.3s' }}>
         <div style={{ background: cfg.headerBg, padding: '7px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -427,7 +526,13 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
             {order.status === 'received' && (
               <button onClick={handleCancelReceipt} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.25)', color: '#E84393', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>↩️ 수령취소</button>
             )}
-            {!['received', 'returned'].includes(order.status) && (
+            {order.status === 'issue' && (
+              <button onClick={() => setShowResolve(true)} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>✅ 이슈 해결</button>
+            )}
+            {order.status === 'issue' && (
+              <button onClick={async () => { if (!confirm('이슈를 취소하고 수령전 상태로 되돌릴까요?')) return; await supabase.from('orders').update({ status: 'ordered' }).eq('id', order.id); await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '이슈 취소', before_value: '이슈있음', after_value: '주문완료로 되돌림', memo: null }); onRefresh() }} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(255,107,53,0.08)', border: '1px solid rgba(255,107,53,0.25)', color: '#FF6B35', fontSize: 11, cursor: 'pointer' }}>↩️ 이슈취소</button>
+            )}
+            {!['received', 'returned', 'issue'].includes(order.status) && (
               <button onClick={() => setShowIssue(true)} style={{ padding: '5px 10px', borderRadius: 8, background: 'rgba(232,67,147,0.06)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>🚨 이슈</button>
             )}
             <button onClick={() => setShowEdit(true)} style={{ padding: '5px 10px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>✏️ 수정</button>
