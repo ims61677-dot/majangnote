@@ -1130,6 +1130,16 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
     if (expanded) loadDetail()
   }, [expanded])
 
+  // 수령완료 상태면 마운트 시 바로 receipt 로드 (헤더 표시용)
+  useEffect(() => {
+    if (order.status === 'received' && !receipt) loadReceipt()
+  }, [])
+
+  async function loadReceipt() {
+    const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at').limit(1).maybeSingle()
+    setReceipt(r || null)
+  }
+
   async function loadDetail() {
     const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at').limit(1).maybeSingle()
     setReceipt(r || null)
@@ -1186,8 +1196,8 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{cfg.label}</span>
             {isOverdue && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.2)', color: '#fff', fontWeight: 700 }}>⏰ {Math.floor(diffDays)}일 지연</span>}
-            {order.status === 'received' && (order.order_receipts?.[0]?.received_by || order.received_by) && (
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {order.order_receipts?.[0]?.received_by || order.received_by}</span>
+            {order.status === 'received' && receipt?.received_by && (
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {receipt.received_by}</span>
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
