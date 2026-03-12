@@ -1078,7 +1078,29 @@ function InventoryPageInner() {
                             <div style={{ fontSize: 9, color: '#bbb' }}>최소{item.min_qty} / 주의{wq}{item.unit}</div>
                           </div>
                         </div>
-                        <div style={{ fontSize: 10, color: '#999', marginBottom: 8 }}>{assignedPlaces.map(pl => `${pl} ${getQty(item.id, pl)}`).join(' · ')} {item.unit}</div>
+                        <div style={{ fontSize: 10, color: '#999', marginBottom: 6 }}>
+                          {assignedPlaces.map(pl => `${pl} ${getQty(item.id, pl)}`).join(' · ')} {item.unit}
+                        </div>
+                        {/* 장소별 수량 직접 수정 */}
+                        {assignedPlaces.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+                            {assignedPlaces.map(pl => {
+                              const pq = getQty(item.id, pl)
+                              return (
+                                <div key={pl} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ fontSize: 10, color: '#888', minWidth: 60, flexShrink: 0 }}>{pl}</span>
+                                  <button onClick={() => updateQty(item.id, pl, pq - 1)} style={{ width: 22, height: 22, borderRadius: 5, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>−</button>
+                                  <input type="number" step="0.1" value={pq < 0 ? 0 : pq}
+                                    onChange={e => updateQty(item.id, pl, Number(e.target.value))}
+                                    style={{ width: 48, textAlign: 'center', fontSize: 13, fontWeight: 700, border: '1px solid #E8ECF0', borderRadius: 5, padding: '2px', background: '#fff', outline: 'none', color: '#1a1a2e' }}
+                                    onFocus={e => e.target.select()} />
+                                  <button onClick={() => updateQty(item.id, pl, pq + 1)} style={{ width: 22, height: 22, borderRadius: 5, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.2)', color: '#00B894', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>+</button>
+                                  <span style={{ fontSize: 10, color: '#bbb' }}>{item.unit}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
                         {isEdit && (
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <button onClick={() => setEditItem({ ...item, warn_qty: item.warn_qty ?? 3 })} style={{ padding: '3px 8px', borderRadius: 6, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>수정</button>

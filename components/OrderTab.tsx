@@ -1186,6 +1186,9 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{cfg.label}</span>
             {isOverdue && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.2)', color: '#fff', fontWeight: 700 }}>⏰ {Math.floor(diffDays)}일 지연</span>}
+            {order.status === 'received' && order.received_by && (
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {order.received_by}</span>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {(order.status === 'requested' || order.status === 'ordered' || order.status === 'received') && (

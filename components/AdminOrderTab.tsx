@@ -177,26 +177,203 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
   )
 }
 
+// ─── 이슈 신고 모달 (관리자용) ───
+const ISSUE_TYPES: Record<string, string> = {
+  wrong_quantity: '수량 불일치',
+  wrong_item: '잘못된 품목',
+  damaged: '파손/불량',
+  delayed: '배송 지연',
+  other: '기타',
+}
+
+function AdminIssueModal({ order, userName, onClose, onSaved }: { order: any; userName: string; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [issueType, setIssueType] = useState('wrong_quantity')
+  const [memo, setMemo] = useState('')
+  async function handleSubmit() {
+    await supabase.from('order_issues').insert({ order_id: order.id, store_id: order.store_id, issue_type: issueType, memo: memo.trim() || null, reported_by: userName })
+    await supabase.from('orders').update({ status: 'issue' }).eq('id', order.id)
+    onSaved(); onClose()
+  }
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 16 }}>🚨 이슈 신고</div>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>이슈 유형</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+          {Object.entries(ISSUE_TYPES).map(([k, v]) => (
+            <button key={k} onClick={() => setIssueType(k)}
+              style={{ padding: '10px 0', borderRadius: 10, border: issueType === k ? '2px solid #E84393' : '1px solid #E8ECF0', background: issueType === k ? 'rgba(232,67,147,0.08)' : '#F8F9FB', color: issueType === k ? '#E84393' : '#888', fontSize: 12, fontWeight: issueType === k ? 700 : 400, cursor: 'pointer' }}>{v}</button>
+          ))}
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>상세 내용</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="상세 내용 입력" style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} style={{ flex: 1, padding: '10px 0', borderRadius: 10, background: 'linear-gradient(135deg,#E84393,#FF6B35)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>신고</button>
+          <button onClick={onClose} style={{ padding: '10px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AdminEditReceiptModal({ receipt, order, userName, onClose, onSaved }: { receipt: any; order: any; userName: string; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [newQty, setNewQty] = useState<number | ''>(receipt.received_quantity)
+  const [memo, setMemo] = useState('')
+  async function handleSubmit() {
+    if (!newQty) return
+    await supabase.from('order_receipts').update({ received_quantity: Number(newQty) }).eq('id', receipt.id)
+    await supabase.from('order_receipt_logs').insert({ receipt_id: receipt.id, order_id: order.id, changed_by: userName, field_name: '수령수량수정', before_value: `${receipt.received_quantity}${order.unit}`, after_value: `${newQty}${order.unit}`, memo: memo || null })
+    onSaved(); onClose()
+  }
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>✏️ 수령 수정</div>
+        <div style={{ fontSize: 11, color: '#aaa', marginBottom: 16 }}>기존 수령 수량: {receipt.received_quantity}{order.unit}</div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수정 수량</div>
+          <input type="number" step="0.1" value={newQty} onChange={e => setNewQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수정 사유</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 파손 2개" style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} style={{ flex: 1, padding: '10px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>수정 저장</button>
+          <button onClick={onClose} style={{ padding: '10px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AdminEditOrderModal({ order, userName, onClose, onSaved }: { order: any; userName: string; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [itemName, setItemName] = useState(order.item_name)
+  const [quantity, setQuantity] = useState<number | ''>(order.quantity)
+  const [unit, setUnit] = useState(order.unit || 'ea')
+  const [memo, setMemo] = useState(order.memo || '')
+  const [saving, setSaving] = useState(false)
+  async function handleSubmit() {
+    if (!itemName.trim() || !quantity) return
+    setSaving(true)
+    const changes: { field: string; before: string; after: string }[] = []
+    if (itemName.trim() !== order.item_name) changes.push({ field: '품목명', before: order.item_name, after: itemName.trim() })
+    if (Number(quantity) !== order.quantity) changes.push({ field: '수량', before: `${order.quantity}${order.unit}`, after: `${quantity}${unit}` })
+    else if (unit !== order.unit) changes.push({ field: '단위', before: order.unit, after: unit })
+    if ((memo.trim() || null) !== (order.memo || null)) changes.push({ field: '메모', before: order.memo || '없음', after: memo.trim() || '없음' })
+    await supabase.from('orders').update({ item_name: itemName.trim(), quantity: Number(quantity), unit, memo: memo.trim() || null }).eq('id', order.id)
+    if (changes.length > 0) {
+      await Promise.all(changes.map(c => supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: `${c.field} 수정`, before_value: c.before, after_value: c.after, memo: null })))
+    }
+    setSaving(false); onSaved(); onClose()
+  }
+  async function handleDelete() {
+    if (!confirm(`"${order.item_name}" 발주를 삭제할까요?`)) return
+    await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '발주 삭제', before_value: `${order.item_name} ${order.quantity}${order.unit}`, after_value: '삭제됨', memo: null })
+    await supabase.from('orders').delete().eq('id', order.id)
+    onSaved(); onClose()
+  }
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 320, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 360 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>✏️ 발주 수정</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>품목명</div>
+          <input value={itemName} onChange={e => setItemName(e.target.value)} style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <div style={{ flex: 2 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수량</div>
+            <input type="number" step="0.1" value={quantity} onChange={e => setQuantity(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
+            <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
+              <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} disabled={saving} style={{ flex: 1, padding: '10px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{saving ? '저장 중...' : '수정 저장'}</button>
+          <button onClick={handleDelete} style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', fontSize: 13, cursor: 'pointer' }}>삭제</button>
+          <button onClick={onClose} style={{ padding: '10px 14px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { order: any; userName: string; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [showReceive, setShowReceive] = useState(false)
+  const [showIssue, setShowIssue] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
+  const [showEditReceipt, setShowEditReceipt] = useState(false)
+  const [receipt, setReceipt] = useState<any>(null)
+  const [logs, setLogs] = useState<any[]>([])
   const now = new Date()
   const diffDays = (now.getTime() - new Date(order.ordered_at).getTime()) / 86400000
   const isOverdue = (order.status === 'requested' || order.status === 'ordered') && diffDays > 2
   const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.requested
   const d = new Date(order.ordered_at)
 
+  useEffect(() => { if (expanded) loadDetail() }, [expanded])
+
+  async function loadDetail() {
+    const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at').limit(1).single()
+    setReceipt(r || null)
+    const { data: l } = await supabase.from('order_receipt_logs').select('*').eq('order_id', order.id).order('changed_at', { ascending: false })
+    setLogs(l || [])
+  }
+
+  async function handleCancelReceipt() {
+    if (!confirm('수령을 취소할까요?\n재고에 합산된 수량도 자동으로 차감돼요.')) return
+    if (order.inventory_item_id) {
+      const { data: receipts } = await supabase.from('order_receipts').select('received_quantity, inventory_place, inventory_applied').eq('order_id', order.id).eq('inventory_applied', true)
+      if (receipts) {
+        for (const r of receipts) {
+          if (r.inventory_place) {
+            const { data: existing } = await supabase.from('inventory_stock').select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).single()
+            await supabase.from('inventory_stock').upsert({ item_id: order.inventory_item_id, place: r.inventory_place, quantity: Math.max(0, (existing?.quantity ?? 0) - Number(r.received_quantity)), updated_by: userName, updated_at: new Date().toISOString() }, { onConflict: 'item_id,place' })
+          }
+        }
+      }
+    }
+    await supabase.from('orders').update({ status: 'ordered' }).eq('id', order.id)
+    await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '수령취소', before_value: '수령완료', after_value: '주문완료(수령취소)', memo: null })
+    onRefresh()
+  }
+
   return (
     <>
       {showConfirm && <ConfirmOrderModal order={order} userName={userName} onDone={() => { setShowConfirm(false); onRefresh() }} onClose={() => setShowConfirm(false)} />}
       {showReceive && <ReceiveModal order={order} userName={userName} places={places} onDone={() => { setShowReceive(false); onRefresh() }} onClose={() => setShowReceive(false)} />}
+      {showIssue && <AdminIssueModal order={order} userName={userName} onClose={() => setShowIssue(false)} onSaved={onRefresh} />}
+      {showEdit && <AdminEditOrderModal order={order} userName={userName} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
+      {showEditReceipt && receipt && <AdminEditReceiptModal receipt={receipt} order={order} userName={userName} onClose={() => setShowEditReceipt(false)} onSaved={() => loadDetail()} />}
       <div data-admin-order-id={order.id} style={{ background: '#fff', borderRadius: 14, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: highlighted ? `0 0 0 3px ${cfg.color}, 0 2px 12px ${cfg.color}44` : '0 1px 6px rgba(0,0,0,0.06)', transition: 'box-shadow 0.3s' }}>
         <div style={{ background: cfg.headerBg, padding: '7px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{cfg.label}</span>
             {isOverdue && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.2)', color: '#fff', fontWeight: 700 }}>⏰ 지연</span>}
+            {/* 수령완료 시 헤더에 바로 표시 */}
+            {order.status === 'received' && order.received_by && (
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {order.received_by}</span>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <StoreBadge storeId={order.store_id} />
@@ -216,7 +393,7 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
             {order.supplier_name && <span>🏪 {order.supplier_name}</span>}
             {order.memo && <span>💬 {order.memo}</span>}
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {order.status === 'requested' && (
               <button onClick={() => setShowConfirm(true)} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(108,92,231,0.1)', border: '1px solid rgba(108,92,231,0.3)', color: '#6C5CE7', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>✅ 주문확인</button>
             )}
@@ -224,45 +401,62 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
               <button onClick={() => setShowReceive(true)} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.3)', color: '#00B894', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>📦 수령</button>
             )}
             {order.status === 'received' && (
-              <button onClick={async () => {
-                if (!confirm('수령을 취소할까요?\n재고에 합산된 수량도 자동으로 차감돼요.')) return
-                // 재고 차감 (연동된 경우)
-                if (order.inventory_item_id) {
-                  const { data: receipts } = await supabase.from('order_receipts')
-                    .select('received_quantity, inventory_place, inventory_applied')
-                    .eq('order_id', order.id)
-                    .eq('inventory_applied', true)
-                  if (receipts && receipts.length > 0) {
-                    for (const r of receipts) {
-                      if (r.inventory_place) {
-                        const { data: existing } = await supabase.from('inventory_stock')
-                          .select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).single()
-                        const newQty = Math.max(0, (existing?.quantity ?? 0) - Number(r.received_quantity))
-                        await supabase.from('inventory_stock').upsert({
-                          item_id: order.inventory_item_id, place: r.inventory_place,
-                          quantity: newQty, updated_by: userName, updated_at: new Date().toISOString(),
-                        }, { onConflict: 'item_id,place' })
-                      }
-                    }
-                  }
-                }
-                await supabase.from('orders').update({ status: 'ordered' }).eq('id', order.id)
-                await supabase.from('order_receipt_logs').insert({
-                  order_id: order.id, changed_by: userName, field_name: '수령취소',
-                  before_value: '수령완료', after_value: '주문완료(수령취소)', memo: null,
-                })
-                onRefresh()
-              }} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.25)', color: '#E84393', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>↩️ 수령취소</button>
+              <button onClick={handleCancelReceipt} style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.25)', color: '#E84393', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>↩️ 수령취소</button>
             )}
+            {!['received', 'returned'].includes(order.status) && (
+              <button onClick={() => setShowIssue(true)} style={{ padding: '5px 10px', borderRadius: 8, background: 'rgba(232,67,147,0.06)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>🚨 이슈</button>
+            )}
+            <button onClick={() => setShowEdit(true)} style={{ padding: '5px 10px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>✏️ 수정</button>
             <button onClick={() => setExpanded(p => !p)} style={{ padding: '5px 10px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>
               {expanded ? '▲' : '▼ 상세'}
             </button>
           </div>
+
           {expanded && (
-            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #E8ECF0', fontSize: 11, color: '#aaa', display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <span>📅 {new Date(order.ordered_at).toLocaleDateString('ko', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-              {order.status === 'ordered' && order.confirmed_by && <span style={{ color: '#6C5CE7' }}>✅ 주문확인: {order.confirmed_by}</span>}
-              {order.status === 'received' && <span style={{ color: '#00B894' }}>📦 수령: {order.received_quantity ?? order.quantity}{order.unit} · {order.received_by}</span>}
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #E8ECF0' }}>
+              {/* 타임라인 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: '#aaa' }}>
+                  📅 요청: {order.ordered_by} · {new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                </div>
+                {order.confirmed_by && (
+                  <div style={{ fontSize: 10, color: '#6C5CE7' }}>
+                    ✅ 주문확인: {order.confirmed_by} · {order.confirmed_at ? `${new Date(order.confirmed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} ${new Date(order.confirmed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}` : ''}
+                  </div>
+                )}
+                {receipt && (
+                  <div style={{ fontSize: 10, color: '#00B894' }}>
+                    📦 수령: {receipt.received_by} · {new Date(receipt.created_at || receipt.received_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(receipt.created_at || receipt.received_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })} · {receipt.received_quantity}{order.unit}
+                    {receipt.inventory_applied && <span style={{ marginLeft: 4, color: '#2DC6D6' }}>✓ {receipt.inventory_place} 재고반영</span>}
+                  </div>
+                )}
+              </div>
+
+              {/* 수령 수정 버튼 */}
+              {receipt && (
+                <div style={{ marginBottom: 10 }}>
+                  <button onClick={() => setShowEditReceipt(true)} style={{ padding: '4px 10px', borderRadius: 7, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>✏️ 수령 수정</button>
+                </div>
+              )}
+
+              {/* 수정이력 */}
+              {logs.length > 0 && (
+                <div style={{ borderTop: '1px solid #F4F6F9', paddingTop: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>🔍 수정 이력</div>
+                  {logs.map((log, i) => (
+                    <div key={i} style={{ fontSize: 10, color: '#888', padding: '3px 0', borderBottom: '1px solid #F8F9FB', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span>
+                        <strong style={{ color: log.field_name.includes('수정') ? '#FF6B35' : log.field_name.includes('삭제') || log.field_name.includes('취소') ? '#E84393' : '#6C5CE7' }}>{log.changed_by}</strong>
+                        {' · '}{log.field_name}
+                        {log.before_value && <span style={{ color: '#ccc' }}> <span style={{ textDecoration: 'line-through' }}>{log.before_value}</span> → <span style={{ color: '#1a1a2e' }}>{log.after_value}</span></span>}
+                        {!log.before_value && log.after_value && <span> {log.after_value}</span>}
+                        {log.memo && <span style={{ color: '#bbb' }}> "{log.memo}"</span>}
+                      </span>
+                      <span style={{ flexShrink: 0 }}>{new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
