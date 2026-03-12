@@ -80,6 +80,18 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
 
   async function handleQtyNext() {
     if (!recvQty) return
+    const qtyMismatch = Number(recvQty) !== Number(order.quantity)
+    if (qtyMismatch) {
+      const confirmMsg = `주문 수량(${order.quantity}${order.unit})과 실제 수령 수량(${recvQty}${order.unit})이 달라요.\n자동으로 이슈가 등록됩니다. 계속 진행할까요?`
+      if (!confirm(confirmMsg)) return
+      await createSupabaseBrowserClient().from('order_issues').insert({
+        order_id: order.id,
+        issue_type: 'quantity_mismatch',
+        description: `수령 수량 불일치: 주문 ${order.quantity}${order.unit} → 실제 ${recvQty}${order.unit}`,
+        reported_by: userName,
+        status: 'open',
+      })
+    }
     if (hasInventoryLink) { setStep('place') } else { await doSave(null) }
   }
 
