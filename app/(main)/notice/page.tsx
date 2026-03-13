@@ -284,7 +284,7 @@ function OverdueTodoItem({ todo, checks, onToggle, onMove, onDelete, myName, day
   const urgentColor = dayCount >= 3 ? '#E84393' : dayCount >= 2 ? '#FF6B35' : '#FDC400'
   return (
     <div style={{ borderRadius:10, border:`1px solid ${urgentColor}40`, background:myChecked?'rgba(0,184,148,0.04)':`${urgentColor}08`, marginBottom:6, overflow:'hidden' }}>
-      <button onClick={onToggle} style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'none', border:'none', cursor:'pointer', textAlign:'left' }}>
+      <div onClick={onToggle} style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'none', cursor:'pointer' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10, flex:1, minWidth:0 }}>
           <span style={{ fontSize:17, color:myChecked?'#00B894':'#ddd', lineHeight:1, flexShrink:0 }}>{myChecked?'✓':'○'}</span>
           <div style={{ minWidth:0 }}>
@@ -304,7 +304,7 @@ function OverdueTodoItem({ todo, checks, onToggle, onMove, onDelete, myName, day
             <button onClick={e => { e.stopPropagation(); onDelete() }} style={{ fontSize:10, padding:'4px 8px', borderRadius:7, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.25)', color:'#E84393', fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>삭제</button>
           </div>
         )}
-      </button>
+      </div>
       {checks.length > 0 && (
         <div style={{ padding:'6px 14px 10px', borderTop:'1px solid rgba(0,184,148,0.1)', background:'rgba(0,184,148,0.02)' }}>
           <div style={{ fontSize:9, color:'#00B894', fontWeight:700, marginBottom:3 }}>✓ 완료한 사람</div>
@@ -473,6 +473,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [statsYear, setStatsYear] = useState(new Date().getFullYear())
   const [statsMonth, setStatsMonth] = useState(new Date().getMonth() + 1)
   const [expandedTodo, setExpandedTodo] = useState<string|null>(null)
+  const [statsStoreFilter, setStatsStoreFilter] = useState<string>('all')
 
   // 빠른 할일 추가
   const [quickInputs, setQuickInputs] = useState<Record<string, string>>({})
@@ -629,6 +630,42 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         })
       }
       setChecklistMap(clMap)
+
+      // 오늘 날짜 자동 이월 (checklistMap 로드 후 바로 실행)
+      const todayStr = new Date().toISOString().slice(0, 10)
+      const todayItems = clMap[todayStr] || []
+      const todayTexts = new Set(todayItems.map((i: any) => i.text))
+      const newItems = [...todayItems]
+      let changed = false
+      for (let d = 1; d <= 14; d++) {
+        const prev = new Date(todayStr)
+        prev.setDate(prev.getDate() - d)
+        const prevDate = prev.toISOString().slice(0, 10)
+        const prevItems = clMap[prevDate]
+        if (!prevItems || prevItems.length === 0) continue
+        const undone = prevItems.filter((i: any) => {
+          if (i.done) return false
+          if (todayTexts.has(i.text)) return false
+          if (i.repeat === 'monthly') return new Date(prevDate).getDate() === new Date(todayStr).getDate()
+          return true
+        })
+        for (const item of undone) {
+          newItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
+          todayTexts.add(item.text)
+          changed = true
+        }
+      }
+      if (changed) {
+        const jsonContent = JSON.stringify(newItems)
+        const clTitle = '__PERSONAL_CHECKLIST__'
+        const { data: rows } = await supabase.from('notices').select('id').eq('notice_date', todayStr).eq('title', clTitle).eq('created_by', userName)
+        if (rows && rows.length > 0) {
+          await supabase.from('notices').update({ content: jsonContent }).eq('id', rows[0].id)
+        } else {
+          await supabase.from('notices').insert({ store_id: storeId, title: clTitle, content: jsonContent, notice_date: todayStr, created_by: userName, is_from_closing: false, is_pinned: false, attachment_url: null, attachment_type: null })
+        }
+        setChecklistMap(p => ({ ...p, [todayStr]: newItems }))
+      }
 
     } catch (e) { console.error('Admin data load error:', e) }
     setLoading(false)
@@ -1528,40 +1565,63 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           </div>
           <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
             <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>📋 전체 할일 완료 현황</div>
+            {/* 지점 필터 탭 */}
+            <div style={{ display:'flex', gap:4, marginBottom:10, flexWrap:'wrap' }}>
+              {[{id:'all',name:'전체'}, ...stores.map((s:any)=>({id:s.id,name:s.name}))].map((s:any)=>(
+                <button key={s.id} onClick={()=>setStatsStoreFilter(s.id)}
+                  style={{ padding:'4px 10px', borderRadius:8, border: statsStoreFilter===s.id?'1.5px solid #6C5CE7':'1px solid #E8ECF0', background: statsStoreFilter===s.id?'rgba(108,92,231,0.1)':'#F4F6F9', color: statsStoreFilter===s.id?'#6C5CE7':'#888', fontSize:11, fontWeight: statsStoreFilter===s.id?700:400, cursor:'pointer' }}>
+                  {s.name}
+                </button>
+              ))}
+              <span style={{ marginLeft:'auto', fontSize:11, color:'#aaa', alignSelf:'center' }}>
+                {statsData.allTodos.filter((t:any)=> statsStoreFilter==='all' || t.store?.id===statsStoreFilter).length}건
+              </span>
+            </div>
             {statsData.allTodos.length===0 ? (
               <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>할일 없음</div>
-            ) : statsData.allTodos.sort((a:any,b:any)=>a.noticeDate>b.noticeDate?-1:1).map((todo:any)=>{
-              const isDone=todo.checkers.length>0
-              const isExp=expandedTodo===todo.id
-              return (
-                <div key={todo.id} style={{ marginBottom:6, borderRadius:10, border:`1px solid ${isDone?'rgba(0,184,148,0.2)':'#F0F0F0'}`, overflow:'hidden' }}>
-                  <div onClick={()=>setExpandedTodo(isExp?null:todo.id)}
-                    style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', cursor:'pointer', background:isDone?'rgba(0,184,148,0.04)':'#fff' }}>
-                    <span style={{ fontSize:13, color:isDone?'#00B894':'#ddd' }}>{isDone?'✅':'○'}</span>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:12, color:isDone?'#555':'#333', textDecoration:isDone?'line-through':'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</div>
-                      <div style={{ fontSize:10, color:'#bbb', marginTop:1 }}>{todo.noticeDate} · {todo.store?.name}</div>
-                    </div>
-                    {isDone&&<span style={{ fontSize:10, color:'#00B894', fontWeight:700, flexShrink:0 }}>{todo.checkers.length}명 ▾</span>}
-                  </div>
-                  {isExp&&isDone&&(
-                    <div style={{ background:'rgba(0,184,148,0.04)', padding:'6px 12px 10px', borderTop:'1px solid rgba(0,184,148,0.1)' }}>
-                      {todo.checkers.map((c:any,i:number)=>(
-                        <div key={i} style={{ fontSize:11, color:'#555', padding:'3px 0', display:'flex', justifyContent:'space-between' }}>
-                          <span>✓ <strong>{c.checked_by}</strong></span>
-                          <span style={{ color:'#aaa' }}>{new Date(c.checked_at).toLocaleString('ko',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}</span>
+            ) : (() => {
+              const filtered = statsData.allTodos
+                .filter((t:any) => statsStoreFilter==='all' || t.store?.id===statsStoreFilter)
+                .sort((a:any,b:any)=> a.noticeDate>b.noticeDate?-1:1)
+              const done = filtered.filter((t:any)=>t.checkers.length>0)
+              const undone = filtered.filter((t:any)=>t.checkers.length===0)
+              const sorted = [...undone, ...done] // 미완료 먼저
+              return sorted.map((todo:any)=>{
+                const isDone=todo.checkers.length>0
+                const isExp=expandedTodo===todo.id
+                return (
+                  <div key={todo.id} style={{ marginBottom:6, borderRadius:10, border:`1px solid ${isDone?'rgba(0,184,148,0.2)':'rgba(232,67,147,0.2)'}`, overflow:'hidden' }}>
+                    <div onClick={()=>setExpandedTodo(isExp?null:todo.id)}
+                      style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', cursor:'pointer', background:isDone?'rgba(0,184,148,0.04)':'rgba(232,67,147,0.02)' }}>
+                      <span style={{ fontSize:13, color:isDone?'#00B894':'#E84393' }}>{isDone?'✅':'○'}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, color:isDone?'#555':'#333', textDecoration:isDone?'line-through':'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</div>
+                        <div style={{ fontSize:10, color:'#bbb', marginTop:1, display:'flex', gap:6 }}>
+                          <span>{todo.noticeDate}</span>
+                          <span style={{ color: todo.store?.color||'#aaa', fontWeight:600 }}>{todo.store?.name}</span>
                         </div>
-                      ))}
+                      </div>
+                      <span style={{ fontSize:10, color:isDone?'#00B894':'#E84393', fontWeight:700, flexShrink:0 }}>{isDone?`${todo.checkers.length}명 ▾`:'미완료'}</span>
                     </div>
-                  )}
-                  {isExp&&!isDone&&(
-                    <div style={{ background:'#FFF9F0', padding:'8px 12px', borderTop:'1px solid #F0F0F0' }}>
-                      <div style={{ fontSize:11, color:'#FFB347' }}>⚠️ 아직 아무도 완료하지 않았어요</div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                    {isExp&&isDone&&(
+                      <div style={{ background:'rgba(0,184,148,0.04)', padding:'6px 12px 10px', borderTop:'1px solid rgba(0,184,148,0.1)' }}>
+                        {todo.checkers.map((c:any,i:number)=>(
+                          <div key={i} style={{ fontSize:11, color:'#555', padding:'3px 0', display:'flex', justifyContent:'space-between' }}>
+                            <span>✓ <strong>{c.checked_by}</strong></span>
+                            <span style={{ color:'#aaa' }}>{new Date(c.checked_at).toLocaleString('ko',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {isExp&&!isDone&&(
+                      <div style={{ background:'#FFF3F8', padding:'8px 12px', borderTop:'1px solid rgba(232,67,147,0.1)' }}>
+                        <div style={{ fontSize:11, color:'#E84393' }}>⚠️ 아직 아무도 완료하지 않았어요</div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            })()}
           </div>
           <div style={{ background:'#fff', borderRadius:14, padding:'14px', border:'1px solid #F0F0F0' }}>
             <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>📢 공지 읽음 현황</div>
@@ -1675,7 +1735,8 @@ export default function NoticePage() {
   // subTab 변경 시 localStorage 저장
   useEffect(() => {
     if (typeof window !== 'undefined') localStorage.setItem('notice_subTab', subTab)
-  }, [subTab])
+    if (subTab === 'stats' && storeId) loadMyStats(myStatsYear, myStatsMonth)
+  }, [subTab, storeId])
 
   // ── 공지 상태 ──
   const [notices, setNotices] = useState<any[]>([])
@@ -2936,6 +2997,7 @@ export default function NoticePage() {
             </>
           )}
         </div>
+      </div>
       )}
 
       {subTab === 'admin' && isOwner && (
