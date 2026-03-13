@@ -2997,7 +2997,6 @@ export default function NoticePage() {
             </>
           )}
         </div>
-      </div>
       )}
 
       {subTab === 'admin' && isOwner && (
