@@ -736,18 +736,33 @@ export default function RecipePage() {
                       <span style={{ color: '#ddd', fontWeight: 400 }}>({sub.recs.length})</span>
                     </div>
                   )}
-                  {/* PC: 2열 그리드 / 모바일: 1열 */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: isPC ? 'repeat(2, 1fr)' : '1fr',
-                    gap: 0,
-                  }}>
-                    {sub.recs.map(r => (
-                      <RecipeCard key={r.id} r={r} groupRecs={sub.recs}
-                        onEdit={isEdit ? () => openEdit(r) : undefined}
-                        onDelete={isEdit ? () => deleteRecipe(r.id) : undefined} />
-                    ))}
-                  </div>
+                  {/* PC: 독립 2컬럼 / 모바일: 1열 */}
+                  {isPC ? (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {sub.recs.filter((_: any, i: number) => i % 2 === 0).map((r: any) => (
+                          <RecipeCard key={r.id} r={r} groupRecs={sub.recs}
+                            onEdit={isEdit ? () => openEdit(r) : undefined}
+                            onDelete={isEdit ? () => deleteRecipe(r.id) : undefined} />
+                        ))}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {sub.recs.filter((_: any, i: number) => i % 2 === 1).map((r: any) => (
+                          <RecipeCard key={r.id} r={r} groupRecs={sub.recs}
+                            onEdit={isEdit ? () => openEdit(r) : undefined}
+                            onDelete={isEdit ? () => deleteRecipe(r.id) : undefined} />
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      {sub.recs.map((r: any) => (
+                        <RecipeCard key={r.id} r={r} groupRecs={sub.recs}
+                          onEdit={isEdit ? () => openEdit(r) : undefined}
+                          onDelete={isEdit ? () => deleteRecipe(r.id) : undefined} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
