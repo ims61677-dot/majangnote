@@ -632,39 +632,44 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       setChecklistMap(clMap)
 
       // 오늘 날짜 자동 이월 (checklistMap 로드 후 바로 실행)
+      // 단, 오늘 이미 이월된 항목(carriedFrom 있음)이 있으면 중복 이월 방지
       const todayStr = new Date().toISOString().slice(0, 10)
       const todayItems = clMap[todayStr] || []
-      const todayTexts = new Set(todayItems.map((i: any) => i.text))
-      const newItems = [...todayItems]
-      let changed = false
-      for (let d = 1; d <= 14; d++) {
-        const prev = new Date(todayStr)
-        prev.setDate(prev.getDate() - d)
-        const prevDate = prev.toISOString().slice(0, 10)
-        const prevItems = clMap[prevDate]
-        if (!prevItems || prevItems.length === 0) continue
-        const undone = prevItems.filter((i: any) => {
-          if (i.done) return false
-          if (todayTexts.has(i.text)) return false
-          if (i.repeat === 'monthly') return new Date(prevDate).getDate() === new Date(todayStr).getDate()
-          return true
-        })
-        for (const item of undone) {
-          newItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
-          todayTexts.add(item.text)
-          changed = true
+      // 오늘에 이미 이월 항목이 하나라도 있으면 자동이월 건너뜀 (중복방지)
+      const alreadyCarried = todayItems.some((i: any) => !!i.carriedFrom)
+      if (!alreadyCarried) {
+        const todayTexts = new Set(todayItems.map((i: any) => i.text))
+        const newItems = [...todayItems]
+        let changed = false
+        for (let d = 1; d <= 14; d++) {
+          const prev = new Date(todayStr)
+          prev.setDate(prev.getDate() - d)
+          const prevDate = prev.toISOString().slice(0, 10)
+          const prevItems = clMap[prevDate]
+          if (!prevItems || prevItems.length === 0) continue
+          const undone = prevItems.filter((i: any) => {
+            if (i.done) return false  // 완료된 건 이월 안함
+            if (todayTexts.has(i.text)) return false  // 이미 오늘에 있으면 skip
+            if (i.repeat === 'monthly') return new Date(prevDate).getDate() === new Date(todayStr).getDate()
+            return true
+          })
+          for (const item of undone) {
+            newItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
+            todayTexts.add(item.text)
+            changed = true
+          }
         }
-      }
-      if (changed) {
-        const jsonContent = JSON.stringify(newItems)
-        const clTitle = '__PERSONAL_CHECKLIST__'
-        const { data: rows } = await supabase.from('notices').select('id').eq('notice_date', todayStr).eq('title', clTitle).eq('created_by', userName)
-        if (rows && rows.length > 0) {
-          await supabase.from('notices').update({ content: jsonContent }).eq('id', rows[0].id)
-        } else {
-          await supabase.from('notices').insert({ store_id: storeId, title: clTitle, content: jsonContent, notice_date: todayStr, created_by: userName, is_from_closing: false, is_pinned: false, attachment_url: null, attachment_type: null })
+        if (changed) {
+          const jsonContent = JSON.stringify(newItems)
+          const clTitle = '__PERSONAL_CHECKLIST__'
+          const { data: rows } = await supabase.from('notices').select('id').eq('notice_date', todayStr).eq('title', clTitle).eq('created_by', userName)
+          if (rows && rows.length > 0) {
+            await supabase.from('notices').update({ content: jsonContent }).eq('id', rows[0].id)
+          } else {
+            await supabase.from('notices').insert({ store_id: storeId, title: clTitle, content: jsonContent, notice_date: todayStr, created_by: userName, is_from_closing: false, is_pinned: false, attachment_url: null, attachment_type: null })
+          }
+          setChecklistMap(p => ({ ...p, [todayStr]: newItems }))
         }
-        setChecklistMap(p => ({ ...p, [todayStr]: newItems }))
       }
 
     } catch (e) { console.error('Admin data load error:', e) }
@@ -1511,6 +1516,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // ── 전 지점 통합 통계 UI ──
   const adminStatsSection = (
     <div>
+      {/* 월 네비게이션 */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, background:'#fff', borderRadius:14, padding:'10px 14px', border:'1px solid #F0F0F0' }}>
         <button onClick={()=>{ const d=new Date(statsYear,statsMonth-2,1); setStatsYear(d.getFullYear()); setStatsMonth(d.getMonth()+1); loadStats(d.getFullYear(),d.getMonth()+1) }}
           style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>‹</button>
@@ -1531,77 +1537,124 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         </button>
       ) : (
         <>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
-            {[
-              {label:'전체 할일', value:statsData.totalTodos+'개', color:'#6C5CE7'},
-              {label:'완료 체크', value:statsData.totalChecks+'건', color:'#00B894'},
-              {label:'활동 인원', value:Object.keys(statsData.personMap).length+'명', color:'#E84393'},
-            ].map(({label,value,color})=>(
-              <div key={label} style={{ background:'#fff', borderRadius:12, padding:'12px 8px', textAlign:'center', border:`1px solid ${color}33` }}>
-                <div style={{ fontSize:17, fontWeight:800, color }}>{value}</div>
-                <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>{label}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
-            <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏆 전 직원 완료 랭킹</div>
-            {Object.entries(statsData.personMap as Record<string,any>).sort((a,b)=>b[1].checks-a[1].checks).map(([name,data],idx)=>{
-              const maxC=Math.max(...Object.values(statsData.personMap as Record<string,any>).map((v:any)=>v.checks),1)
-              const pct=Math.round((data.checks/maxC)*100)
-              const medals=['🥇','🥈','🥉']
+          {/* ① 지점 선택 탭 - 맨 위 */}
+          <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' }}>
+            {[{id:'all',name:'전체',color:'#1a1a2e'}, ...stores.map((s:any)=>({id:s.id,name:s.name,color:'#6C5CE7'}))].map((s:any)=>{
+              const isActive = statsStoreFilter===s.id
+              const cnt = s.id==='all'
+                ? statsData.allTodos.length
+                : statsData.allTodos.filter((t:any)=>t.store?.id===s.id).length
+              const done = s.id==='all'
+                ? statsData.allTodos.filter((t:any)=>t.checkers.length>0).length
+                : statsData.allTodos.filter((t:any)=>t.store?.id===s.id&&t.checkers.length>0).length
               return (
-                <div key={name} style={{ marginBottom:10 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                    <span style={{ fontSize:12 }}>{medals[idx]||`${idx+1}.`} {name}</span>
-                    <span style={{ fontSize:11, color:'#888' }}>{data.checks}건 · {data.days}일</span>
-                  </div>
-                  <div style={{ background:'#F4F6F9', borderRadius:8, height:8, overflow:'hidden' }}>
-                    <div style={{ width:`${pct}%`, height:'100%', background:idx===0?'linear-gradient(90deg,#6C5CE7,#E84393)':'#a29bfe88', borderRadius:8 }} />
-                  </div>
-                </div>
+                <button key={s.id} onClick={()=>setStatsStoreFilter(s.id)}
+                  style={{ flex:1, minWidth:70, padding:'10px 8px', borderRadius:12, border: isActive?`2px solid #6C5CE7`:'1px solid #E8ECF0', background: isActive?'rgba(108,92,231,0.08)':'#F8F9FB', cursor:'pointer', textAlign:'center' as const }}>
+                  <div style={{ fontSize:13, fontWeight:700, color: isActive?'#6C5CE7':'#888' }}>{s.name}</div>
+                  <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>{done}/{cnt}개</div>
+                </button>
               )
             })}
-            {Object.keys(statsData.personMap).length===0&&<div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>활동 기록 없음</div>}
           </div>
+
+          {/* ② 요약 카드 */}
+          {(()=>{
+            const filtered = statsStoreFilter==='all'
+              ? statsData.allTodos
+              : statsData.allTodos.filter((t:any)=>t.store?.id===statsStoreFilter)
+            const doneCount = filtered.filter((t:any)=>t.checkers.length>0).length
+            const undoneCount = filtered.length - doneCount
+            const checkCount = statsStoreFilter==='all'
+              ? statsData.totalChecks
+              : filtered.reduce((s:number,t:any)=>s+t.checkers.length, 0)
+            return (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
+                {[
+                  {label:'전체 할일', value:filtered.length+'개', color:'#6C5CE7'},
+                  {label:'완료 할일', value:doneCount+'개', color:'#00B894'},
+                  {label:'미완료', value:undoneCount+'개', color:'#E84393'},
+                ].map(({label,value,color})=>(
+                  <div key={label} style={{ background:'#fff', borderRadius:12, padding:'12px 8px', textAlign:'center', border:`1px solid ${color}33` }}>
+                    <div style={{ fontSize:17, fontWeight:800, color }}>{value}</div>
+                    <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+
+          {/* ③ 직원별 완료 랭킹 (선택 지점 기준) */}
           <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
-            <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>📋 전체 할일 완료 현황</div>
-            {/* 지점 필터 탭 */}
-            <div style={{ display:'flex', gap:4, marginBottom:10, flexWrap:'wrap' }}>
-              {[{id:'all',name:'전체'}, ...stores.map((s:any)=>({id:s.id,name:s.name}))].map((s:any)=>(
-                <button key={s.id} onClick={()=>setStatsStoreFilter(s.id)}
-                  style={{ padding:'4px 10px', borderRadius:8, border: statsStoreFilter===s.id?'1.5px solid #6C5CE7':'1px solid #E8ECF0', background: statsStoreFilter===s.id?'rgba(108,92,231,0.1)':'#F4F6F9', color: statsStoreFilter===s.id?'#6C5CE7':'#888', fontSize:11, fontWeight: statsStoreFilter===s.id?700:400, cursor:'pointer' }}>
-                  {s.name}
-                </button>
-              ))}
-              <span style={{ marginLeft:'auto', fontSize:11, color:'#aaa', alignSelf:'center' }}>
-                {statsData.allTodos.filter((t:any)=> statsStoreFilter==='all' || t.store?.id===statsStoreFilter).length}건
-              </span>
+            <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏆 직원별 완료 랭킹</div>
+            {(()=>{
+              // 선택된 지점 기준 checkers 집계
+              const filteredTodos = statsStoreFilter==='all'
+                ? statsData.allTodos
+                : statsData.allTodos.filter((t:any)=>t.store?.id===statsStoreFilter)
+              const pm: Record<string,{checks:number;days:Set<string>}> = {}
+              for (const t of filteredTodos) {
+                for (const c of t.checkers) {
+                  if (!pm[c.checked_by]) pm[c.checked_by] = {checks:0, days:new Set()}
+                  pm[c.checked_by].checks++
+                  pm[c.checked_by].days.add(c.checked_at.slice(0,10))
+                }
+              }
+              const sorted = Object.entries(pm).sort((a:any,b:any)=>b[1].checks-a[1].checks)
+              const maxC = sorted.length > 0 ? sorted[0][1].checks : 1
+              const medals = ['🥇','🥈','🥉']
+              if (sorted.length === 0) return <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>활동 기록 없음</div>
+              return sorted.map(([name, data], idx) => {
+                const pct = Math.round((data.checks/maxC)*100)
+                return (
+                  <div key={name} style={{ marginBottom:10 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                      <span style={{ fontSize:12 }}>{medals[idx]||`${idx+1}.`} {name}</span>
+                      <span style={{ fontSize:11, color:'#888' }}>{data.checks}건 · {data.days.size}일</span>
+                    </div>
+                    <div style={{ background:'#F4F6F9', borderRadius:8, height:8, overflow:'hidden' }}>
+                      <div style={{ width:`${pct}%`, height:'100%', background:idx===0?'linear-gradient(90deg,#6C5CE7,#E84393)':'#a29bfe88', borderRadius:8 }} />
+                    </div>
+                  </div>
+                )
+              })
+            })()}
+          </div>
+
+          {/* ④ 할일 전체 목록 (선택 지점, 미완료 먼저) */}
+          <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
+            <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>
+              📋 할일 완료 현황
+              <span style={{ fontSize:10, color:'#aaa', fontWeight:400, marginLeft:6 }}>누르면 누가 완료했는지 확인</span>
             </div>
-            {statsData.allTodos.length===0 ? (
-              <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>할일 없음</div>
-            ) : (() => {
-              const filtered = statsData.allTodos
-                .filter((t:any) => statsStoreFilter==='all' || t.store?.id===statsStoreFilter)
-                .sort((a:any,b:any)=> a.noticeDate>b.noticeDate?-1:1)
-              const done = filtered.filter((t:any)=>t.checkers.length>0)
-              const undone = filtered.filter((t:any)=>t.checkers.length===0)
-              const sorted = [...undone, ...done] // 미완료 먼저
-              return sorted.map((todo:any)=>{
+            {(()=>{
+              const filtered = (statsStoreFilter==='all'
+                ? statsData.allTodos
+                : statsData.allTodos.filter((t:any)=>t.store?.id===statsStoreFilter)
+              ).sort((a:any,b:any)=> {
+                // 미완료 먼저, 같으면 날짜 최신순
+                if (a.checkers.length===0 && b.checkers.length>0) return -1
+                if (a.checkers.length>0 && b.checkers.length===0) return 1
+                return a.noticeDate > b.noticeDate ? -1 : 1
+              })
+              if (filtered.length===0) return <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>할일 없음</div>
+              return filtered.map((todo:any)=>{
                 const isDone=todo.checkers.length>0
                 const isExp=expandedTodo===todo.id
                 return (
                   <div key={todo.id} style={{ marginBottom:6, borderRadius:10, border:`1px solid ${isDone?'rgba(0,184,148,0.2)':'rgba(232,67,147,0.2)'}`, overflow:'hidden' }}>
                     <div onClick={()=>setExpandedTodo(isExp?null:todo.id)}
                       style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', cursor:'pointer', background:isDone?'rgba(0,184,148,0.04)':'rgba(232,67,147,0.02)' }}>
-                      <span style={{ fontSize:13, color:isDone?'#00B894':'#E84393' }}>{isDone?'✅':'○'}</span>
+                      <span style={{ fontSize:13, color:isDone?'#00B894':'#E84393', flexShrink:0 }}>{isDone?'✅':'○'}</span>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:12, color:isDone?'#555':'#333', textDecoration:isDone?'line-through':'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</div>
                         <div style={{ fontSize:10, color:'#bbb', marginTop:1, display:'flex', gap:6 }}>
                           <span>{todo.noticeDate}</span>
-                          <span style={{ color: todo.store?.color||'#aaa', fontWeight:600 }}>{todo.store?.name}</span>
+                          {statsStoreFilter==='all' && <span style={{ color:'#6C5CE7', fontWeight:600 }}>{todo.store?.name}</span>}
                         </div>
                       </div>
-                      <span style={{ fontSize:10, color:isDone?'#00B894':'#E84393', fontWeight:700, flexShrink:0 }}>{isDone?`${todo.checkers.length}명 ▾`:'미완료'}</span>
+                      <span style={{ fontSize:10, color:isDone?'#00B894':'#E84393', fontWeight:700, flexShrink:0 }}>
+                        {isDone?`${todo.checkers.length}명 ▾`:'미완료'}
+                      </span>
                     </div>
                     {isExp&&isDone&&(
                       <div style={{ background:'rgba(0,184,148,0.04)', padding:'6px 12px 10px', borderTop:'1px solid rgba(0,184,148,0.1)' }}>
@@ -1623,16 +1676,18 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
               })
             })()}
           </div>
+
+          {/* ⑤ 공지 읽음 현황 */}
           <div style={{ background:'#fff', borderRadius:14, padding:'14px', border:'1px solid #F0F0F0' }}>
             <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>📢 공지 읽음 현황</div>
-            {statsData.noticeList.map((n:any)=>{
+            {(statsStoreFilter==='all' ? statsData.noticeList : statsData.noticeList.filter((n:any)=>n.store_id===statsStoreFilter)).map((n:any)=>{
               const readers=statsData.noticeReadMap[n.id]||[]
               const store=stores.find((s:any)=>s.id===n.store_id)
               return (
                 <div key={n.id} style={{ padding:'8px 0', borderBottom:'1px solid #F4F6F9' }}>
                   <div style={{ display:'flex', justifyContent:'space-between' }}>
                     <div style={{ fontSize:12, color:'#333', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
-                      {n.title} <span style={{ color:'#bbb', fontSize:10 }}>{store?.name}</span>
+                      {n.title} {statsStoreFilter==='all' && <span style={{ color:'#bbb', fontSize:10 }}>{store?.name}</span>}
                     </div>
                     <span style={{ fontSize:10, color:readers.length>0?'#00B894':'#FFB347', fontWeight:700, marginLeft:8, flexShrink:0 }}>{readers.length}명 읽음</span>
                   </div>
@@ -1735,7 +1790,10 @@ export default function NoticePage() {
   // subTab 변경 시 localStorage 저장
   useEffect(() => {
     if (typeof window !== 'undefined') localStorage.setItem('notice_subTab', subTab)
-    if (subTab === 'stats' && storeId) loadMyStats(myStatsYear, myStatsMonth)
+    if (subTab === 'stats') {
+      const sid = storeId || JSON.parse(localStorage.getItem('mj_store') || '{}').id
+      if (sid) loadMyStats(myStatsYear, myStatsMonth, sid)
+    }
   }, [subTab, storeId])
 
   // ── 공지 상태 ──
@@ -1806,6 +1864,12 @@ export default function NoticePage() {
     if (!store.id) return
     setStoreId(store.id); setUserName(user.nm || ''); setUserRole(user.role || ''); setUserId(user.id || user.nm || '')
     loadNotices(store.id); loadTodoDates(store.id); loadOverdueTodos(store.id)
+    // 통계탭이 기본 선택된 경우 바로 로드
+    const savedTab = localStorage.getItem('notice_subTab')
+    if (savedTab === 'stats') {
+      const now = new Date()
+      loadMyStats(now.getFullYear(), now.getMonth() + 1, store.id)
+    }
   }, [])
 
   useEffect(() => {
@@ -1849,8 +1913,9 @@ export default function NoticePage() {
   }
 
   // ── 로드 함수들 ──
-  async function loadMyStats(year: number, month: number) {
-    if (!storeId) return
+  async function loadMyStats(year: number, month: number, overrideSid?: string) {
+    const sid = overrideSid || storeId
+    if (!sid) return
     setMyStatsLoading(true)
     try {
       const startDate = `${year}-${String(month).padStart(2,'0')}-01`
@@ -1861,7 +1926,7 @@ export default function NoticePage() {
       const { data: noticeList } = await supabase
         .from('notices')
         .select('id, title, notice_date, store_id, notice_todos(*)')
-        .eq('store_id', storeId)
+        .eq('store_id', sid)
         .gte('notice_date', startDate)
         .lte('notice_date', endDate)
         .eq('is_from_closing', false)
@@ -2455,14 +2520,14 @@ export default function NoticePage() {
       <button style={tabBtn(subTab==='todo')} onClick={() => setSubTab('todo')}>
         ✅ 할일 {overdueCount > 0 ? `(${overdueCount} 미완료)` : ''}
       </button>
+      <button style={tabBtn(subTab==='stats')} onClick={() => setSubTab('stats')}>
+        📊 통계
+      </button>
       {isOwner && (
         <button style={tabBtn(subTab==='admin')} onClick={() => setSubTab('admin')}>
           👑 관리
         </button>
       )}
-      <button style={tabBtn(subTab==='stats')} onClick={() => setSubTab('stats')}>
-        📊 통계
-      </button>
     </div>
   )
 
@@ -2634,18 +2699,16 @@ export default function NoticePage() {
                     <span style={{ fontSize:13, fontWeight:800, color:'#E84393' }}>⚠️ 미완료 이월</span>
                     <span style={{ fontSize:11, padding:'2px 8px', borderRadius:8, background:'rgba(232,67,147,0.15)', color:'#E84393', fontWeight:700 }}>{overdueCount}개</span>
                   </div>
-                  {overdueTodos.map(todo => {
-                    const urgentColor = todo.day_count >= 3 ? '#E84393' : todo.day_count >= 2 ? '#FF6B35' : '#FDC400'
-                    return (
-                      <div key={`${todo.id}-${todo.origin_date}`} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 0', borderBottom:'1px solid rgba(232,67,147,0.1)' }}>
-                        <span style={{ fontSize:10, fontWeight:700, color:urgentColor, background:`${urgentColor}15`, padding:'2px 6px', borderRadius:6, flexShrink:0 }}>{todo.day_count}일째</span>
-                        <span style={{ fontSize:12, color:'#333', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</span>
-                        {isManager && (
-                          <button onClick={() => moveTodoToToday(todo)} style={{ fontSize:10, padding:'3px 8px', borderRadius:6, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', cursor:'pointer', flexShrink:0 }}>이동</button>
-                        )}
-                      </div>
-                    )
-                  })}
+                  {overdueTodos.map(todo => (
+                    <OverdueTodoItem
+                      key={`${todo.id}-${todo.origin_date}`}
+                      todo={todo} checks={overdueChecks[todo.id]||[]}
+                      onToggle={() => toggleOverdueTodo(todo.id)}
+                      onMove={() => moveTodoToToday(todo)}
+                      onDelete={() => deleteOverdueTodo(todo)}
+                      myName={userName} dayCount={todo.day_count} isManager={isManager}
+                    />
+                  ))}
                 </div>
               ) : (
                 <div style={{ borderRadius:14, border:'1px solid rgba(0,184,148,0.25)', background:'rgba(0,184,148,0.04)', padding:14, textAlign:'center' }}>
