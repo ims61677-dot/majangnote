@@ -30,7 +30,7 @@ export default function RecipePage() {
   // ── 내 지점 레시피 ────────────────────────────
   const [recipes, setRecipes]       = useState<any[]>([])
   const [filterCat, setFilterCat]   = useState('전체')
-  const [expand, setExpand]         = useState<string | null>(null)
+  const [expandSet, setExpandSet]   = useState<Set<string>>(new Set())
   const [highlight, setHighlight]   = useState<string | null>(null)
   const [search, setSearch]         = useState('')
   const [showForm, setShowForm]     = useState(false)
@@ -224,7 +224,9 @@ export default function RecipePage() {
       r.note?.includes(q)
     )
     if (found) {
-      setFilterCat('전체'); setExpand(found.id); setHighlight(found.id)
+      setFilterCat('전체')
+      setExpandSet(prev => new Set([...prev, found.id]))
+      setHighlight(found.id)
       setTimeout(() => {
         itemRefs.current[found.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }, 150)
@@ -268,7 +270,7 @@ export default function RecipePage() {
     if (!confirm('삭제하시겠습니까?')) return
     await supabase.from('recipes').delete().eq('id', id)
     setRecipes(p => p.filter(x => x.id !== id))
-    if (expand === id) setExpand(null)
+    if (expand === id) setExpandSet(prev => { const s = new Set(prev); s.delete(id); return s })
     if (highlight === id) setHighlight(null)
   }
 
@@ -548,7 +550,11 @@ export default function RecipePage() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
-          onClick={() => setExpand(expand === r.id ? null : r.id)}>
+          onClick={() => setExpandSet(prev => {
+            const s = new Set(prev)
+            s.has(r.id) ? s.delete(r.id) : s.add(r.id)
+            return s
+          })}>
           {/* 드래그 핸들 */}
           {onEdit && (
             <span style={{ color: '#ddd', fontSize: 14, flexShrink: 0, userSelect: 'none' }}>⠿</span>
@@ -575,11 +581,11 @@ export default function RecipePage() {
               {onDelete && <button onClick={onDelete} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}>✕</button>}
             </div>
           )}
-          <span style={{ fontSize: 11, color: '#ccc', flexShrink: 0 }}>{expand === r.id ? '▲' : '▼'}</span>
+          <span style={{ fontSize: 11, color: '#ccc', flexShrink: 0 }}>{expandSet.has(r.id) ? '▲' : '▼'}</span>
         </div>
 
         {/* 펼쳐지는 상세 */}
-        {expand === r.id && (
+        {expandSet.has(r.id) && (
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #F4F6F9' }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35', marginBottom: 8 }}>재료</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
