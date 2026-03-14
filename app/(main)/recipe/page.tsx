@@ -270,7 +270,7 @@ export default function RecipePage() {
     if (!confirm('삭제하시겠습니까?')) return
     await supabase.from('recipes').delete().eq('id', id)
     setRecipes(p => p.filter(x => x.id !== id))
-    if (expand === id) setExpandSet(prev => { const s = new Set(prev); s.delete(id); return s })
+    setExpandSet(prev => { const s = new Set(prev); s.delete(id); return s })
     if (highlight === id) setHighlight(null)
   }
 
