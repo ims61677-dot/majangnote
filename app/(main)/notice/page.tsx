@@ -2084,7 +2084,7 @@ export default function NoticePage() {
     if (typeof window !== 'undefined') localStorage.setItem('notice_subTab', subTab)
     if (subTab === 'stats') {
       const sid = storeId || JSON.parse(localStorage.getItem('mj_store') || '{}').id
-      if (sid) loadMyStats(myStatsYear, myStatsMonth, sid)
+      if (sid && !myStatsData) loadMyStats(myStatsYear, myStatsMonth, sid)
     }
   }, [subTab, storeId])
 
@@ -2547,17 +2547,21 @@ export default function NoticePage() {
       if (error) throw error
       const attachUrl = formTodoAttachType !== 'none' ? formTodoAttachUrl : null
       const attachType = formTodoAttachType !== 'none' ? formTodoAttachType : null
-      await supabase.from('notice_todos').insert(
-        validTodos.map(content => ({
-          notice_id: data.id, content, created_by: userName,
-          visibility: formTodoVisibility,
-          repeat_type: formTodoRepeat,
-          is_mission: formTodoMission,
-          category: formTodoCategory || null,
-          attachment_url: attachUrl,
-          attachment_type: attachType,
-        }))
-      )
+      const todoRows = validTodos.map(content => ({
+        notice_id: data.id, content, created_by: userName,
+        visibility: formTodoVisibility,
+        repeat_type: formTodoRepeat,
+        is_mission: formTodoMission,
+        category: formTodoCategory || null,
+        attachment_url: attachUrl,
+        attachment_type: attachType,
+      }))
+      const { error: todoErr } = await supabase.from('notice_todos').insert(todoRows)
+      if (todoErr) {
+        // category 컬럼 없을 경우 제외하고 재시도
+        const todoRowsNoCategory = todoRows.map(({ category, ...rest }) => rest)
+        await supabase.from('notice_todos').insert(todoRowsNoCategory)
+      }
       setShowTodoForm(false); setFormTodoTitle(''); setFormTodos([''])
       setFormTodoVisibility('all'); setFormTodoRepeat('none'); setFormTodoMission(false)
       setFormTodoCategory('')
@@ -3430,7 +3434,12 @@ export default function NoticePage() {
           {myStatsLoading ? (
             <div style={{ textAlign:'center', padding:'40px 0', color:'#bbb' }}>📊 불러오는 중...</div>
           ) : !myStatsData ? (
-            <div style={{ textAlign:'center', padding:'40px 0', color:'#bbb' }}>‹ › 로 월을 선택하세요</div>
+            <div style={{ textAlign:'center', padding:'40px 0' }}>
+              <button onClick={() => { const sid = storeId || JSON.parse(localStorage.getItem('mj_store')||'{}').id; if(sid) loadMyStats(myStatsYear, myStatsMonth, sid) }}
+                style={{ padding:'14px 28px', borderRadius:12, background:'rgba(108,92,231,0.08)', border:'1px dashed rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                📊 통계 불러오기
+              </button>
+            </div>
           ) : (
             <>
               {/* 요약 */}
