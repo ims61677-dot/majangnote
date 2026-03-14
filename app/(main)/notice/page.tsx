@@ -851,7 +851,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       // 이 기간 공지+할일 전체 (누가 눌렀는지 확인용)
       const { data: noticeList } = await supabase
         .from('notices')
-        .select('id, title, notice_date, store_id, notice_todos(id, content, created_by, visibility, repeat_type, is_mission, category)')
+        .select('id, title, notice_date, store_id, notice_todos(*)')
         .in('store_id', storeIds)
         .gte('notice_date', startDate)
         .lte('notice_date', endDate)
@@ -1258,16 +1258,28 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     )
     await saveChecklist(date, items)
 
-    // 이월된 항목을 완료하면 원본 날짜도 done 처리 (이월 반복 방지)
+    // 이월된 항목 완료 시: 원본 날짜까지 체인으로 거슬러 올라가 모두 done+carriedForward 처리
     const toggled = items.find((i: any) => i.id === itemId)
     if (toggled?.done && toggled?.carriedFrom) {
-      const srcDate = toggled.carriedFrom
-      const srcItems = checklistMap[srcDate]
-      if (srcItems) {
+      // DB에서 직접 원본 날짜 데이터 조회 (state가 오래됐을 수 있으므로)
+      let srcDate = toggled.carriedFrom
+      const clTitle = '__PERSONAL_CHECKLIST__'
+      // 최대 30일까지 체인 추적
+      for (let depth = 0; depth < 30 && srcDate; depth++) {
+        const { data: srcRows } = await supabase.from('notices').select('id, content')
+          .eq('notice_date', srcDate).eq('title', clTitle).eq('created_by', userName).limit(1)
+        if (!srcRows || srcRows.length === 0) break
+        let srcItems: any[]
+        try { srcItems = JSON.parse(srcRows[0].content || '[]') } catch { break }
+        const target = srcItems.find((i: any) => i.text === toggled.text && !i.done)
+        if (!target) break  // 이미 완료됐거나 없으면 중단
         const updatedSrc = srcItems.map((i: any) =>
           i.text === toggled.text && !i.done ? { ...i, done: true, carriedForward: true } : i
         )
-        await saveChecklist(srcDate, updatedSrc)
+        await supabase.from('notices').update({ content: JSON.stringify(updatedSrc) }).eq('id', srcRows[0].id)
+        setChecklistMap(p => ({ ...p, [srcDate]: updatedSrc }))
+        // 원본도 carriedFrom이 있으면 더 거슬러 올라감
+        srcDate = target.carriedFrom || null
       }
     }
   }
@@ -2011,6 +2023,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   if (isPC) {
     return (
       <div>
+        {showCatMgr && <CategoryManager categories={categories} onSave={saveCategories} onClose={() => setShowCatMgr(false)} />}
         {adminSubTabBar}
         {adminSubTab === 'main' && (
       <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 16, alignItems: 'start', width: '100%', minWidth: 0 }}>
@@ -2036,6 +2049,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // 모바일
   return (
     <div>
+      {showCatMgr && <CategoryManager categories={categories} onSave={saveCategories} onClose={() => setShowCatMgr(false)} />}
       {adminSubTabBar}
       {adminSubTab === 'stats' ? adminStatsSection : (
       <div>
@@ -2221,7 +2235,7 @@ export default function NoticePage() {
       // 내 지점 공지+할일
       const { data: noticeList } = await supabase
         .from('notices')
-        .select('id, title, notice_date, store_id, notice_todos(id, content, created_by, visibility, repeat_type, is_mission, category)')
+        .select('id, title, notice_date, store_id, notice_todos(*)')
         .eq('store_id', sid)
         .gte('notice_date', startDate)
         .lte('notice_date', endDate)
