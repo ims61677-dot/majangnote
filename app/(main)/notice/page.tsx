@@ -33,6 +33,13 @@ function VisibilityBadge({ value }: { value?: string }) {
 }
 
 // ── 반복 옵션 ──
+const DEFAULT_CATEGORIES = [
+  { name: '청소', color: '#2DC6D6', icon: '🧹' },
+  { name: '작업', color: '#6C5CE7', icon: '🔧' },
+  { name: '전달사항', color: '#FF6B35', icon: '📢' },
+  { name: '기타', color: '#aaa', icon: '📌' },
+]
+
 const REPEAT_OPTIONS = [
   { value: 'none',    label: '반복 없음', icon: '' },
   { value: 'daily',   label: '매일',      icon: '📅' },
@@ -242,6 +249,9 @@ function TodoItem({ todo, checks, onToggle, canCheck, myName, userRole, onMissio
               {todo.is_mission && <span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(253,196,0,0.15)', color:'#FDC400', fontWeight:700 }}>📸 미션</span>}
             </div>
             {todo.created_by && <div style={{ fontSize:10, color:'#bbb', marginTop:1 }}>작성: {todo.created_by}</div>}
+            {todo.category && (
+              <span style={{ fontSize:9, padding:'1px 6px', borderRadius:4, background:'rgba(108,92,231,0.1)', color:'#6C5CE7', fontWeight:600, display:'inline-block', marginTop:2 }}>{todo.category}</span>
+            )}
           </div>
         </div>
         {!canCheck && <span style={{ fontSize:9, color:'#bbb', flexShrink:0 }}>당일만</span>}
@@ -393,6 +403,119 @@ function NoticeCard({ notice, reads, myName, isManager, onRead, onEdit, onDelete
 }
 
 // ── 드래그 가능한 체크리스트 아이템 ──
+// ── 카테고리 관리 모달 ──
+function CategoryManager({ categories, onSave, onClose }: { categories: any[]; onSave: (cats: any[]) => void; onClose: () => void }) {
+  const [cats, setCats] = useState<any[]>(categories.map(c => ({ ...c })))
+  const [editIdx, setEditIdx] = useState<number | null>(null)
+  const [newName, setNewName] = useState('')
+  const [newIcon, setNewIcon] = useState('📌')
+  const [newColor, setNewColor] = useState('#6C5CE7')
+  const dragItem = useRef<number | null>(null)
+  const dragOver = useRef<number | null>(null)
+  const PRESET_COLORS = ['#6C5CE7','#FF6B35','#E84393','#00B894','#2DC6D6','#FDC400','#1a1a2e','#aaa']
+  const PRESET_ICONS = ['🧹','🔧','📢','📌','✅','🍽','📦','⚠️','🔑','💡','🚗','📋']
+
+  function onDragStart(e: React.DragEvent, idx: number) { dragItem.current = idx; e.dataTransfer.effectAllowed = 'move' }
+  function onDragEnter(idx: number) { dragOver.current = idx }
+  function onDragEnd() {
+    if (dragItem.current === null || dragOver.current === null || dragItem.current === dragOver.current) return
+    const newList = [...cats]
+    const dragged = newList.splice(dragItem.current, 1)[0]
+    newList.splice(dragOver.current, 0, dragged)
+    dragItem.current = null; dragOver.current = null
+    setCats(newList)
+  }
+
+  function addCat() {
+    if (!newName.trim()) return
+    setCats([...cats, { name: newName.trim(), icon: newIcon, color: newColor }])
+    setNewName(''); setNewIcon('📌'); setNewColor('#6C5CE7')
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:300, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+      <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'85vh', overflowY:'auto' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+          <span style={{ fontSize:16, fontWeight:700, color:'#1a1a2e' }}>⚙ 카테고리 관리</span>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
+        </div>
+        <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>☰ 드래그로 순서 변경 가능</div>
+
+        {cats.map((cat, idx) => (
+          editIdx === idx ? (
+            <div key={idx} style={{ background:'rgba(108,92,231,0.06)', borderRadius:12, padding:12, marginBottom:8, border:'1px solid rgba(108,92,231,0.2)' }}>
+              <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+                <input value={cat.icon} onChange={e => setCats(cats.map((c,i)=>i===idx?{...c,icon:e.target.value}:c))}
+                  style={{ width:48, padding:'6px', borderRadius:8, border:'1px solid #E0E4E8', fontSize:16, textAlign:'center' }} />
+                <input value={cat.name} onChange={e => setCats(cats.map((c,i)=>i===idx?{...c,name:e.target.value}:c))}
+                  style={{ flex:1, padding:'6px 10px', borderRadius:8, border:'1px solid #E0E4E8', fontSize:13 }} />
+              </div>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:8 }}>
+                {PRESET_ICONS.map(ic => (
+                  <button key={ic} onClick={() => setCats(cats.map((c,i)=>i===idx?{...c,icon:ic}:c))}
+                    style={{ fontSize:16, padding:'4px', borderRadius:6, border: cat.icon===ic?'2px solid #6C5CE7':'1px solid #E8ECF0', background: cat.icon===ic?'rgba(108,92,231,0.1)':'transparent', cursor:'pointer' }}>{ic}</button>
+                ))}
+              </div>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:10 }}>
+                {PRESET_COLORS.map(c => (
+                  <button key={c} onClick={() => setCats(cats.map((ct,i)=>i===idx?{...ct,color:c}:ct))}
+                    style={{ width:24, height:24, borderRadius:'50%', background:c, border: cat.color===c?'3px solid #1a1a2e':'2px solid #fff', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+                ))}
+              </div>
+              <div style={{ display:'flex', gap:6 }}>
+                <button onClick={() => setEditIdx(null)} style={{ flex:1, padding:'8px', borderRadius:8, background:'linear-gradient(135deg,#6C5CE7,#a29bfe)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>저장</button>
+                <button onClick={() => { setCats(cats.filter((_,i)=>i!==idx)); setEditIdx(null) }} style={{ padding:'8px 12px', borderRadius:8, background:'rgba(232,67,147,0.1)', border:'1px solid rgba(232,67,147,0.3)', color:'#E84393', fontSize:12, cursor:'pointer' }}>삭제</button>
+              </div>
+            </div>
+          ) : (
+            <div key={idx} draggable onDragStart={e=>onDragStart(e,idx)} onDragEnter={()=>onDragEnter(idx)} onDragEnd={onDragEnd} onDragOver={e=>e.preventDefault()}
+              style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:10, background:'#F8F9FB', border:'1px solid #E8ECF0', marginBottom:6, cursor:'grab' }}>
+              <span style={{ fontSize:14, color:'#ccc' }}>☰</span>
+              <span style={{ fontSize:18 }}>{cat.icon}</span>
+              <span style={{ fontSize:13, fontWeight:600, color:cat.color, flex:1 }}>{cat.name}</span>
+              <button onClick={() => setEditIdx(idx)} style={{ background:'none', border:'none', fontSize:11, color:'#aaa', cursor:'pointer' }}>수정</button>
+            </div>
+          )
+        ))}
+
+        <div style={{ marginTop:12, padding:'12px', borderRadius:12, background:'rgba(0,184,148,0.05)', border:'1px dashed rgba(0,184,148,0.3)' }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#00B894', marginBottom:10 }}>+ 새 카테고리</div>
+          <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+            <input value={newIcon} onChange={e=>setNewIcon(e.target.value)}
+              style={{ width:48, padding:'6px', borderRadius:8, border:'1px solid #E0E4E8', fontSize:16, textAlign:'center' }} />
+            <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="카테고리명"
+              style={{ flex:1, padding:'6px 10px', borderRadius:8, border:'1px solid #E0E4E8', fontSize:13 }} />
+          </div>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:8 }}>
+            {PRESET_ICONS.map(ic => (
+              <button key={ic} onClick={()=>setNewIcon(ic)}
+                style={{ fontSize:16, padding:'4px', borderRadius:6, border: newIcon===ic?'2px solid #6C5CE7':'1px solid #E8ECF0', background: newIcon===ic?'rgba(108,92,231,0.1)':'transparent', cursor:'pointer' }}>{ic}</button>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:10 }}>
+            {PRESET_COLORS.map(c => (
+              <button key={c} onClick={()=>setNewColor(c)}
+                style={{ width:24, height:24, borderRadius:'50%', background:c, border: newColor===c?'3px solid #1a1a2e':'2px solid #fff', cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+            ))}
+          </div>
+          <button onClick={addCat} disabled={!newName.trim()}
+            style={{ width:'100%', padding:'9px', borderRadius:10, background: newName.trim()?'linear-gradient(135deg,#00B894,#2DC6D6)':'#E8ECF0', border:'none', color: newName.trim()?'#fff':'#bbb', fontSize:13, fontWeight:700, cursor: newName.trim()?'pointer':'default' }}>
+            + 추가
+          </button>
+        </div>
+
+        <div style={{ display:'flex', gap:8, marginTop:16 }}>
+          <button onClick={() => { onSave(cats); onClose() }}
+            style={{ flex:1, padding:'12px', borderRadius:12, background:'linear-gradient(135deg,#6C5CE7,#a29bfe)', border:'none', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' }}>
+            저장 완료
+          </button>
+          <button onClick={onClose} style={{ padding:'12px 16px', borderRadius:12, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', cursor:'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SortableChecklistItem({ item, date, movePopup, setMovePopup, toggleChecklistItem, toggleUrgent, deleteChecklistItem, moveItemToDate, setMovePopupNull }: any) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const style = {
@@ -480,8 +603,18 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   const [quickVisibility, setQuickVisibility] = useState('all')
   const [quickRepeat, setQuickRepeat] = useState('none')
   const [quickMission, setQuickMission] = useState(false)
+  const [quickCategory, setQuickCategory] = useState('')
   const [savingStore, setSavingStore] = useState<string | null>(null)
   const [addedStore, setAddedStore] = useState<string | null>(null)
+
+  // 카테고리
+  const [categories, setCategories] = useState<{id:string;name:string;color:string;sort:number}[]>([])
+  const [showCatMgr, setShowCatMgr] = useState(false)
+  const [catInput, setCatInput] = useState('')
+  const [catEditId, setCatEditId] = useState<string|null>(null)
+  const [catEditName, setCatEditName] = useState('')
+  const [catDragIdx, setCatDragIdx] = useState<number|null>(null)
+  const CAT_COLORS = ['#6C5CE7','#E84393','#FF6B35','#00B894','#FDC400','#2DC6D6','#a29bfe','#fd79a8']
 
   // 통합 캘린더
   const nowD = new Date()
@@ -555,6 +688,12 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       }
       setStores(storeList)
       loadAdminNotices(storeList.map((s: any) => s.id), storeList)
+      // 카테고리 로드
+      const { data: catSetting } = await supabase.from('store_settings')
+        .select('value').eq('store_id', storeId).eq('key', 'todo_categories').maybeSingle()
+      if (catSetting?.value) {
+        try { setCategories(JSON.parse(catSetting.value)) } catch {}
+      }
 
       const sevenDaysAgo = toDateStr(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000))
       const fourteenDaysAhead = toDateStr(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000))
@@ -632,12 +771,9 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       setChecklistMap(clMap)
 
       // 오늘 날짜 자동 이월 (checklistMap 로드 후 바로 실행)
-      // 단, 오늘 이미 이월된 항목(carriedFrom 있음)이 있으면 중복 이월 방지
+      // 오늘 자동 이월: carriedForward=true(이미 이월됨) 또는 done=true 항목은 제외
       const todayStr = new Date().toISOString().slice(0, 10)
       const todayItems = clMap[todayStr] || []
-      // 오늘에 이미 이월 항목이 하나라도 있으면 자동이월 건너뜀 (중복방지)
-      const alreadyCarried = todayItems.some((i: any) => !!i.carriedFrom)
-      if (!alreadyCarried) {
         const todayTexts = new Set(todayItems.map((i: any) => i.text))
         const newItems = [...todayItems]
         let changed = false
@@ -648,11 +784,25 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           const prevItems = clMap[prevDate]
           if (!prevItems || prevItems.length === 0) continue
           const undone = prevItems.filter((i: any) => {
-            if (i.done) return false  // 완료된 건 이월 안함
-            if (todayTexts.has(i.text)) return false  // 이미 오늘에 있으면 skip
+            if (i.done) return false           // 완료된 건 이월 안함
+            if (i.carriedForward) return false // 이미 이월된 원본은 스킵
+            if (todayTexts.has(i.text)) return false
             if (i.repeat === 'monthly') return new Date(prevDate).getDate() === new Date(todayStr).getDate()
             return true
           })
+          if (undone.length > 0) {
+            // 원본 날짜에 carriedForward 표시 후 저장
+            const markedPrev = prevItems.map((i: any) =>
+              undone.find((u: any) => u.id === i.id) ? { ...i, carriedForward: true } : i
+            )
+            clMap[prevDate] = markedPrev
+            const clTitle = '__PERSONAL_CHECKLIST__'
+            const { data: prevRows } = await supabase.from('notices').select('id')
+              .eq('notice_date', prevDate).eq('title', clTitle).eq('created_by', userName)
+            if (prevRows && prevRows.length > 0) {
+              await supabase.from('notices').update({ content: JSON.stringify(markedPrev) }).eq('id', prevRows[0].id)
+            }
+          }
           for (const item of undone) {
             newItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
             todayTexts.add(item.text)
@@ -670,7 +820,6 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           }
           setChecklistMap(p => ({ ...p, [todayStr]: newItems }))
         }
-      }
 
     } catch (e) { console.error('Admin data load error:', e) }
     setLoading(false)
@@ -702,7 +851,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       // 이 기간 공지+할일 전체 (누가 눌렀는지 확인용)
       const { data: noticeList } = await supabase
         .from('notices')
-        .select('id, title, notice_date, store_id, notice_todos(*)')
+        .select('id, title, notice_date, store_id, notice_todos(id, content, created_by, visibility, repeat_type, is_mission, category)')
         .in('store_id', storeIds)
         .gte('notice_date', startDate)
         .lte('notice_date', endDate)
@@ -759,19 +908,70 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         }
       }
 
+      // 카테고리별 집계
+      const categoryMap: Record<string, {total:number; done:number; checks:number}> = {}
+      for (const t of allTodos) {
+        const cat = t.category || '미분류'
+        if (!categoryMap[cat]) categoryMap[cat] = {total:0, done:0, checks:0}
+        categoryMap[cat].total++
+        if (t.checkers.length > 0) categoryMap[cat].done++
+        categoryMap[cat].checks += t.checkers.length
+      }
+
       setStatsData({
         year, month, startDate, endDate,
         personMap: Object.fromEntries(Object.entries(personMap).map(([k,v]) => [k, { ...v, days: v.days.size }])),
         dateMap,
         noticeList: noticeList || [],
         noticeReadMap,
-        allTodos,
+        allTodos, categoryMap,
         totalChecks: (checks || []).length,
         totalTodos: allTodos.length,
         totalNotices: (noticeList || []).length,
       })
     } catch(e) { console.error(e) }
     setStatsLoading(false)
+  }
+
+  // ── 카테고리 관리 함수들 ──
+  async function saveCategories(newCats: any[]) {
+    setCategories(newCats)
+    await supabase.from('store_settings').upsert(
+      { store_id: storeId, key: 'todo_categories', value: JSON.stringify(newCats), updated_at: new Date().toISOString() },
+      { onConflict: 'store_id,key' }
+    )
+  }
+
+  async function addCategory() {
+    if (!catInput.trim()) return
+    const newCat = { id: Date.now().toString(), name: catInput.trim(), color: CAT_COLORS[categories.length % CAT_COLORS.length], sort: categories.length }
+    await saveCategories([...categories, newCat])
+    setCatInput('')
+  }
+
+  async function updateCategory(id: string) {
+    if (!catEditName.trim()) return
+    await saveCategories(categories.map(c => c.id === id ? { ...c, name: catEditName.trim() } : c))
+    setCatEditId(null)
+  }
+
+  async function deleteCategory(id: string) {
+    if (!confirm('이 카테고리를 삭제할까요?')) return
+    await saveCategories(categories.filter(c => c.id !== id))
+  }
+
+  function onCatDragStart(idx: number) { setCatDragIdx(idx) }
+  function onCatDragEnter(idx: number) {
+    if (catDragIdx === null || catDragIdx === idx) return
+    const newList = [...categories]
+    const dragged = newList.splice(catDragIdx, 1)[0]
+    newList.splice(idx, 0, dragged)
+    setCatDragIdx(idx)
+    setCategories(newList.map((c, i) => ({ ...c, sort: i })))
+  }
+  async function onCatDragEnd() {
+    setCatDragIdx(null)
+    await saveCategories(categories)
   }
 
   async function loadAdminNotices(storeIdList?: string[], storeListOverride?: any[]) {
@@ -915,7 +1115,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       await supabase.from('notice_todos').insert({
         notice_id: noticeId, content, created_by: userName,
         visibility: quickVisibility, repeat_type: quickRepeat,
-        is_mission: quickMission, attachment_url: null, attachment_type: null
+        is_mission: quickMission, attachment_url: null, attachment_type: null,
+        category: quickCategory || null
       })
       setQuickInputs(p => ({ ...p, [sId]: '' }))
       setAddedStore(sId)
@@ -983,13 +1184,21 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
       const undone = prevItems.filter((i: any) => {
         if (i.done) return false
-        if (todayTexts.has(i.text)) return false  // 이미 오늘에 있으면 skip
-        // 매월: 같은 날짜(일)일 때만 이월
+        if (i.carriedForward) return false  // 이미 이월된 원본은 스킵
+        if (todayTexts.has(i.text)) return false
         if (i.repeat === 'monthly') {
           return new Date(prevDate).getDate() === new Date(date).getDate()
         }
         return true
       })
+
+      if (undone.length > 0) {
+        // 원본에 carriedForward 표시
+        const markedPrev = prevItems.map((i: any) =>
+          undone.find((u: any) => u.id === i.id) ? { ...i, carriedForward: true } : i
+        )
+        await saveChecklist(prevDate, markedPrev)
+      }
 
       for (const item of undone) {
         todayItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
@@ -1048,6 +1257,19 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       item.id === itemId ? { ...item, done: !item.done } : item
     )
     await saveChecklist(date, items)
+
+    // 이월된 항목을 완료하면 원본 날짜도 done 처리 (이월 반복 방지)
+    const toggled = items.find((i: any) => i.id === itemId)
+    if (toggled?.done && toggled?.carriedFrom) {
+      const srcDate = toggled.carriedFrom
+      const srcItems = checklistMap[srcDate]
+      if (srcItems) {
+        const updatedSrc = srcItems.map((i: any) =>
+          i.text === toggled.text && !i.done ? { ...i, done: true, carriedForward: true } : i
+        )
+        await saveChecklist(srcDate, updatedSrc)
+      }
+    }
   }
 
   async function deleteChecklistItem(date: string, itemId: string) {
@@ -1103,7 +1325,13 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   // ── 빠른 할일 추가 ──
   const quickAddSection = (
     <div style={{ ...bx, marginBottom: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>⚡ 빠른 할일 추가 <span style={{ fontSize: 11, fontWeight: 400, color: selectedCalDate === today ? '#6C5CE7' : '#E84393', marginLeft: 4 }}>{selectedCalDate === today ? '(오늘)' : `(${selectedCalDate.replace(/-/g,'.')}) ← 선택날짜`}</span></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>⚡ 빠른 할일 추가 <span style={{ fontSize: 11, fontWeight: 400, color: selectedCalDate === today ? '#6C5CE7' : '#E84393', marginLeft: 4 }}>{selectedCalDate === today ? '(오늘)' : `(${selectedCalDate.replace(/-/g,'.')}) ← 선택날짜`}</span></div>
+        <button onClick={() => setShowCatMgr(true)}
+          style={{ padding: '4px 10px', borderRadius: 8, background: 'rgba(108,92,231,0.08)', border: '1px solid rgba(108,92,231,0.25)', color: '#6C5CE7', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+          🏷 카테고리 관리
+        </button>
+      </div>
       {/* 공통 옵션 */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
         {VISIBILITY_OPTIONS.map(opt => (
@@ -1123,6 +1351,24 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           style={{ padding: '4px 10px', borderRadius: 8, border: quickMission ? '1.5px solid #FDC400' : '1px solid #E8ECF0', background: quickMission ? 'rgba(253,196,0,0.12)' : '#F4F6F9', color: quickMission ? '#d4a800' : '#aaa', fontSize: 10, fontWeight: quickMission ? 700 : 400, cursor: 'pointer' }}>
           📸 미션 {quickMission ? 'ON' : 'OFF'}
         </button>
+        {/* 카테고리 선택 */}
+        {categories.length > 0 && (
+          <div style={{ width: '100%', marginTop: 4 }}>
+            <div style={{ fontSize: 10, color: '#888', marginBottom: 4, fontWeight: 600 }}>🏷 카테고리</div>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              <button onClick={() => setQuickCategory('')}
+                style={{ padding: '3px 9px', borderRadius: 7, border: !quickCategory ? '1.5px solid #888' : '1px solid #E8ECF0', background: !quickCategory ? '#1a1a2e' : '#F4F6F9', color: !quickCategory ? '#fff' : '#aaa', fontSize: 10, fontWeight: !quickCategory ? 700 : 400, cursor: 'pointer' }}>
+                없음
+              </button>
+              {categories.map(cat => (
+                <button key={cat.id} onClick={() => setQuickCategory(quickCategory === cat.name ? '' : cat.name)}
+                  style={{ padding: '3px 9px', borderRadius: 7, border: quickCategory === cat.name ? `1.5px solid ${cat.color}` : '1px solid #E8ECF0', background: quickCategory === cat.name ? cat.color : '#F4F6F9', color: quickCategory === cat.name ? '#fff' : cat.color, fontSize: 10, fontWeight: quickCategory === cat.name ? 700 : 400, cursor: 'pointer' }}>
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       {/* 지점별 입력 */}
       {stores.map(store => (
@@ -1345,6 +1591,10 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 12, color: done ? '#888' : '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: done ? 'line-through' : 'none' }}>{todo.content}</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
+                              {todo.category && (() => {
+                                const cat = categories.find(c => c.name === todo.category)
+                                return <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: cat ? `${cat.color}20` : 'rgba(108,92,231,0.1)', color: cat ? cat.color : '#6C5CE7', fontWeight: 700, border: `1px solid ${cat ? cat.color+'30' : 'rgba(108,92,231,0.2)'}` }}>🏷 {todo.category}</span>
+                              })()}
                               {todo.repeat_type && todo.repeat_type !== 'none' && <RepeatBadge value={todo.repeat_type} />}
                               {todo.visibility && todo.visibility !== 'all' && <VisibilityBadge value={todo.visibility} />}
                               <span style={{ fontSize: 10, color: '#bbb' }}>{todo.origin_date?.replace(/-/g,'.')}</span>
@@ -1620,6 +1870,48 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
             })()}
           </div>
 
+          {/* ③-b 카테고리별 현황 */}
+          {statsData.categoryMap && (
+            <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
+              <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏷 카테고리별 현황</div>
+              {Object.entries(
+                statsStoreFilter === 'all'
+                  ? (statsData.categoryMap as Record<string,any>)
+                  : (() => {
+                      const filtered = statsData.allTodos.filter((t:any) => t.store?.id === statsStoreFilter)
+                      const cm: Record<string,any> = {}
+                      for (const t of filtered) {
+                        const cat = t.category || '미분류'
+                        if (!cm[cat]) cm[cat] = {total:0,done:0,checks:0}
+                        cm[cat].total++
+                        if (t.checkers.length>0) cm[cat].done++
+                        cm[cat].checks += t.checkers.length
+                      }
+                      return cm
+                    })()
+              ).sort((a:any,b:any)=>b[1].total-a[1].total).map(([cat, data]: any)=>{
+                const rate = data.total>0 ? Math.round((data.done/data.total)*100) : 0
+                return (
+                  <div key={cat} style={{ marginBottom:12 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                      <span style={{ fontSize:12, fontWeight:600, color:'#1a1a2e' }}>{cat}</span>
+                      <div style={{ display:'flex', gap:8, fontSize:11 }}>
+                        <span style={{ color:'#6C5CE7' }}>총 {data.total}개</span>
+                        <span style={{ color:'#00B894' }}>완료 {data.done}</span>
+                        {data.total-data.done>0 && <span style={{ color:'#E84393' }}>미완료 {data.total-data.done}</span>}
+                        <span style={{ color:'#aaa' }}>체크 {data.checks}건</span>
+                      </div>
+                    </div>
+                    <div style={{ height:7, borderRadius:4, background:'#F4F6F9' }}>
+                      <div style={{ height:7, borderRadius:4, background:'linear-gradient(90deg,#6C5CE7,#00B894)', width:`${rate}%`, transition:'width 0.4s' }} />
+                    </div>
+                    <div style={{ fontSize:10, color:'#aaa', marginTop:2, textAlign:'right' }}>{rate}% 완료</div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {/* ④ 할일 전체 목록 (선택 지점, 미완료 먼저) */}
           <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
             <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>
@@ -1827,8 +2119,11 @@ export default function NoticePage() {
   const [formTodoVisibility, setFormTodoVisibility] = useState('all')
   const [formTodoRepeat, setFormTodoRepeat] = useState('none')
   const [formTodoMission, setFormTodoMission] = useState(false)
+  const [formTodoCategory, setFormTodoCategory] = useState('')
   const [formTodoAttachType, setFormTodoAttachType] = useState<'none'|'link'|'image'>('none')
   const [formTodoAttachUrl, setFormTodoAttachUrl] = useState('')
+  const [categories, setCategories] = useState<any[]>([])
+  const [showCategoryMgr, setShowCategoryMgr] = useState(false)
   const [isUploadingTodoAttach, setIsUploadingTodoAttach] = useState(false)
   const [isSavingTodo, setIsSavingTodo] = useState(false)
 
@@ -1864,6 +2159,7 @@ export default function NoticePage() {
     if (!store.id) return
     setStoreId(store.id); setUserName(user.nm || ''); setUserRole(user.role || ''); setUserId(user.id || user.nm || '')
     loadNotices(store.id); loadTodoDates(store.id); loadOverdueTodos(store.id)
+    loadCategories(store.id)
     // 통계탭이 기본 선택된 경우 바로 로드
     const savedTab = localStorage.getItem('notice_subTab')
     if (savedTab === 'stats') {
@@ -1925,7 +2221,7 @@ export default function NoticePage() {
       // 내 지점 공지+할일
       const { data: noticeList } = await supabase
         .from('notices')
-        .select('id, title, notice_date, store_id, notice_todos(*)')
+        .select('id, title, notice_date, store_id, notice_todos(id, content, created_by, visibility, repeat_type, is_mission, category)')
         .eq('store_id', sid)
         .gte('notice_date', startDate)
         .lte('notice_date', endDate)
@@ -1985,10 +2281,20 @@ export default function NoticePage() {
         }))
       )
 
+      // 카테고리별 집계
+      const categoryMap: Record<string, {total:number; done:number; checks:number}> = {}
+      for (const t of allTodos) {
+        const cat = t.category || '미분류'
+        if (!categoryMap[cat]) categoryMap[cat] = {total:0, done:0, checks:0}
+        categoryMap[cat].total++
+        if (t.checkers.length > 0) categoryMap[cat].done++
+        categoryMap[cat].checks += t.checkers.length
+      }
+
       setMyStatsData({
         year, month, startDate, endDate,
         personMap: Object.fromEntries(Object.entries(personMap).map(([k,v])=>[k,{...v,days:v.days.size}])),
-        dateMap, noticeList:noticeList||[], noticeReadMap, allTodos,
+        dateMap, noticeList:noticeList||[], noticeReadMap, allTodos, categoryMap,
         totalChecks: checks.length,
         totalTodos: allTodos.length,
         totalNotices: (noticeList||[]).length,
@@ -2206,6 +2512,28 @@ export default function NoticePage() {
     loadNotices(storeId)
   }
 
+  // ── 카테고리 관리 ──
+  async function loadCategories(sid?: string) {
+    const id = sid || storeId
+    if (!id) return
+    const { data } = await supabase.from('store_settings')
+      .select('value').eq('store_id', id).eq('key', 'todo_categories').maybeSingle()
+    if (data?.value) {
+      try { setCategories(JSON.parse(data.value)) } catch { setCategories(DEFAULT_CATEGORIES) }
+    } else {
+      setCategories(DEFAULT_CATEGORIES)
+    }
+  }
+
+  async function saveCategories(cats: any[]) {
+    if (!storeId) return
+    setCategories(cats)
+    await supabase.from('store_settings').upsert(
+      { store_id: storeId, key: 'todo_categories', value: JSON.stringify(cats), updated_at: new Date().toISOString() },
+      { onConflict: 'store_id,key' }
+    )
+  }
+
   async function saveTodo() {
     if (!formTodoTitle.trim()) { alert('제목을 입력해주세요'); return }
     const validTodos = formTodos.filter(t => t.trim())
@@ -2225,12 +2553,14 @@ export default function NoticePage() {
           visibility: formTodoVisibility,
           repeat_type: formTodoRepeat,
           is_mission: formTodoMission,
+          category: formTodoCategory || null,
           attachment_url: attachUrl,
           attachment_type: attachType,
         }))
       )
       setShowTodoForm(false); setFormTodoTitle(''); setFormTodos([''])
       setFormTodoVisibility('all'); setFormTodoRepeat('none'); setFormTodoMission(false)
+      setFormTodoCategory('')
       setFormTodoAttachType('none'); setFormTodoAttachUrl('')
       loadDayTodos(storeId, selectedDate); loadTodoDates(storeId)
     } catch (e: any) { alert('저장 실패: ' + e?.message) }
@@ -2337,6 +2667,26 @@ export default function NoticePage() {
         {formTodoMission && (
           <div style={{ fontSize: 10, color: '#d4a800', marginTop: 4, paddingLeft: 4 }}>완료 시 사진 촬영이 요청됩니다. 사진 없이 완료도 가능해요.</div>
         )}
+      </div>
+
+      {/* 카테고리 선택 */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+          <div style={{ fontSize: 11, color: '#888' }}>카테고리 (선택)</div>
+          <button onClick={() => setShowCategoryMgr(true)} style={{ fontSize:10, color:'#6C5CE7', background:'none', border:'none', cursor:'pointer', padding:0 }}>⚙ 카테고리 관리</button>
+        </div>
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+          <button onClick={() => setFormTodoCategory('')}
+            style={{ padding:'5px 10px', borderRadius:8, border: formTodoCategory===''?'1.5px solid #1a1a2e':'1px solid #E8ECF0', background: formTodoCategory===''?'rgba(26,26,46,0.08)':'#F4F6F9', color: formTodoCategory===''?'#1a1a2e':'#aaa', fontSize:11, fontWeight: formTodoCategory===''?700:400, cursor:'pointer' }}>
+            없음
+          </button>
+          {categories.map(cat => (
+            <button key={cat.name} onClick={() => setFormTodoCategory(cat.name)}
+              style={{ padding:'5px 10px', borderRadius:8, border: formTodoCategory===cat.name?`1.5px solid ${cat.color}`:'1px solid #E8ECF0', background: formTodoCategory===cat.name?`${cat.color}15`:'#F4F6F9', color: formTodoCategory===cat.name?cat.color:'#aaa', fontSize:11, fontWeight: formTodoCategory===cat.name?700:400, cursor:'pointer' }}>
+              {cat.icon} {cat.name}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{ fontSize: 11, color:'#888', marginBottom:6 }}>할일 항목</div>
@@ -2553,6 +2903,13 @@ export default function NoticePage() {
   if (isPC) {
     return (
       <div style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
+        {showCategoryMgr && (
+          <CategoryManager
+            categories={categories}
+            onSave={saveCategories}
+            onClose={() => setShowCategoryMgr(false)}
+          />
+        )}
         {/* 헤더 */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -2802,6 +3159,137 @@ export default function NoticePage() {
           </div>
         )}
 
+        {/* 통계 탭: PC */}
+        {subTab === 'stats' && (
+          <div>
+            <div style={{ fontSize:11, color:'#888', marginBottom:10, padding:'6px 10px', background:'rgba(108,92,231,0.05)', borderRadius:8 }}>📍 내 지점 기준 통계</div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, background:'#fff', borderRadius:14, padding:'10px 14px', border:'1px solid #F0F0F0' }}>
+              <button onClick={() => { const d=new Date(myStatsYear,myStatsMonth-2,1); setMyStatsYear(d.getFullYear()); setMyStatsMonth(d.getMonth()+1); loadMyStats(d.getFullYear(),d.getMonth()+1) }}
+                style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>‹</button>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontSize:15, fontWeight:800, color:'#1a1a2e' }}>{myStatsYear}년 {myStatsMonth}월</div>
+                <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{myStatsData ? `할일 ${myStatsData.totalTodos}개 · 완료 ${myStatsData.totalChecks}건` : '로딩 중...'}</div>
+              </div>
+              <button onClick={() => { const d=new Date(myStatsYear,myStatsMonth,1); setMyStatsYear(d.getFullYear()); setMyStatsMonth(d.getMonth()+1); loadMyStats(d.getFullYear(),d.getMonth()+1) }}
+                style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>›</button>
+            </div>
+            {myStatsLoading ? (
+              <div style={{ textAlign:'center', padding:'40px 0', color:'#bbb' }}>📊 불러오는 중...</div>
+            ) : !myStatsData ? (
+              <div style={{ textAlign:'center', padding:'40px 0' }}>
+                <button onClick={() => { const sid = storeId || JSON.parse(localStorage.getItem('mj_store')||'{}').id; if(sid) loadMyStats(myStatsYear, myStatsMonth, sid) }}
+                  style={{ padding:'14px 28px', borderRadius:12, background:'rgba(108,92,231,0.08)', border:'1px dashed rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                  📊 통계 불러오기
+                </button>
+              </div>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+                <div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
+                    {[
+                      { label:'전체 할일', value:myStatsData.totalTodos+'개', color:'#6C5CE7' },
+                      { label:'완료 체크', value:myStatsData.totalChecks+'건', color:'#00B894' },
+                      { label:'활동 인원', value:Object.keys(myStatsData.personMap).length+'명', color:'#E84393' },
+                    ].map(({label,value,color})=>(
+                      <div key={label} style={{ background:'#fff', borderRadius:12, padding:'12px 8px', textAlign:'center', border:`1px solid ${color}33` }}>
+                        <div style={{ fontSize:17, fontWeight:800, color }}>{value}</div>
+                        <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
+                    <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏆 직원별 완료 랭킹</div>
+                    {Object.entries(myStatsData.personMap as Record<string,any>).sort((a,b)=>b[1].checks-a[1].checks).map(([name,data],idx)=>{
+                      const maxC=Math.max(...Object.values(myStatsData.personMap as Record<string,any>).map((v:any)=>v.checks),1)
+                      const pct=Math.round((data.checks/maxC)*100)
+                      const medals=['🥇','🥈','🥉']
+                      const isMe=name===userName
+                      return (
+                        <div key={name} style={{ marginBottom:10 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                            <div style={{ fontSize:12, fontWeight:isMe?700:400, color:isMe?'#E84393':'#333' }}>{medals[idx]||`${idx+1}.`} {name}{isMe&&<span style={{fontSize:10,marginLeft:4,color:'#E84393'}}>(나)</span>}</div>
+                            <div style={{ fontSize:11, color:'#888' }}>{data.checks}건 · {data.days}일</div>
+                          </div>
+                          <div style={{ background:'#F4F6F9', borderRadius:8, height:8, overflow:'hidden' }}>
+                            <div style={{ width:`${pct}%`, height:'100%', background:idx===0?'linear-gradient(90deg,#6C5CE7,#E84393)':'#a29bfe88', borderRadius:8 }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {Object.keys(myStatsData.personMap).length===0 && <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>활동 기록이 없어요</div>}
+                  </div>
+                  <div style={{ background:'#fff', borderRadius:14, padding:'14px', border:'1px solid #F0F0F0' }}>
+                    <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>📈 날짜별 완료</div>
+                    {(()=>{
+                      const dates:string[]=[]
+                      for(let d=new Date(myStatsData.startDate);d<=new Date(myStatsData.endDate);d.setDate(d.getDate()+1)) dates.push(d.toISOString().slice(0,10))
+                      const maxV=Math.max(...dates.map(d=>myStatsData.dateMap[d]||0),1)
+                      return (
+                        <div style={{ display:'flex', alignItems:'flex-end', gap:2, height:64 }}>
+                          {dates.map(d=>{
+                            const val=myStatsData.dateMap[d]||0
+                            const h=Math.max((val/maxV)*52,val>0?4:0)
+                            const isToday=d===today
+                            return (
+                              <div key={d} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:1 }}>
+                                {val>0&&<div style={{ fontSize:7, color:'#6C5CE7', fontWeight:700 }}>{val}</div>}
+                                <div style={{ width:'100%', height:h, background:isToday?'linear-gradient(180deg,#E84393,#6C5CE7)':'#a29bfe', borderRadius:'2px 2px 0 0', minHeight:val>0?4:0 }} />
+                                <div style={{ fontSize:6, color:isToday?'#E84393':'#ccc', fontWeight:isToday?700:400 }}>{d.slice(8)}</div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
+                    <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>📋 이달 할일 <span style={{ fontSize:10, color:'#aaa', fontWeight:400 }}>누가 완료했는지</span></div>
+                    {myStatsData.allTodos.sort((a:any,b:any)=>{
+                      if(a.checkers.length===0&&b.checkers.length>0) return -1
+                      if(a.checkers.length>0&&b.checkers.length===0) return 1
+                      return a.noticeDate>b.noticeDate?-1:1
+                    }).map((todo:any)=>{
+                      const isDone=todo.checkers.length>0
+                      const isExp=myExpandedTodo===todo.id
+                      return (
+                        <div key={todo.id} style={{ marginBottom:6, borderRadius:10, border:`1px solid ${isDone?'rgba(0,184,148,0.2)':'rgba(232,67,147,0.2)'}`, overflow:'hidden' }}>
+                          <div onClick={()=>setMyExpandedTodo(isExp?null:todo.id)}
+                            style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', cursor:'pointer', background:isDone?'rgba(0,184,148,0.04)':'rgba(232,67,147,0.02)' }}>
+                            <span style={{ fontSize:13, color:isDone?'#00B894':'#E84393', flexShrink:0 }}>{isDone?'✅':'○'}</span>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontSize:12, color:isDone?'#555':'#333', textDecoration:isDone?'line-through':'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</div>
+                              <div style={{ fontSize:10, color:'#bbb', marginTop:1 }}>{todo.noticeDate}</div>
+                            </div>
+                            <span style={{ fontSize:10, color:isDone?'#00B894':'#E84393', fontWeight:700, flexShrink:0 }}>{isDone?`${todo.checkers.length}명 ▾`:'미완료'}</span>
+                          </div>
+                          {isExp&&isDone&&(
+                            <div style={{ background:'rgba(0,184,148,0.04)', padding:'6px 12px 10px', borderTop:'1px solid rgba(0,184,148,0.1)' }}>
+                              {todo.checkers.map((c:any,i:number)=>(
+                                <div key={i} style={{ fontSize:11, color:'#555', padding:'3px 0', display:'flex', justifyContent:'space-between' }}>
+                                  <span>✓ <strong>{c.checked_by}</strong></span>
+                                  <span style={{ color:'#aaa' }}>{new Date(c.checked_at).toLocaleString('ko',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {isExp&&!isDone&&(
+                            <div style={{ background:'#FFF3F8', padding:'8px 12px', borderTop:'1px solid rgba(232,67,147,0.1)' }}>
+                              <div style={{ fontSize:11, color:'#E84393' }}>⚠️ 아직 아무도 완료하지 않았어요</div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {myStatsData.allTodos.length===0&&<div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>이 기간 할일이 없어요</div>}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 반복 할일 복사 제안 */}
         {repeatSuggest && (
           <div style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:'#fff', borderRadius:16, padding:16, boxShadow:'0 4px 20px rgba(0,0,0,0.15)', border:'1px solid rgba(0,184,148,0.3)', zIndex:100, maxWidth:360, width:'90%' }}>
@@ -2832,6 +3320,13 @@ export default function NoticePage() {
   // ══ 모바일 레이아웃 ══
   return (
     <div>
+      {showCategoryMgr && (
+        <CategoryManager
+          categories={categories}
+          onSave={saveCategories}
+          onClose={() => setShowCategoryMgr(false)}
+        />
+      )}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>📢 공지</span>
@@ -3000,6 +3495,32 @@ export default function NoticePage() {
                   )
                 })()}
               </div>
+              {/* 카테고리별 현황 */}
+              {myStatsData.categoryMap && Object.keys(myStatsData.categoryMap).length > 0 && (
+                <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
+                  <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏷 카테고리별 현황</div>
+                  {Object.entries(myStatsData.categoryMap as Record<string,any>).sort((a,b)=>b[1].total-a[1].total).map(([cat, data])=>{
+                    const rate = data.total > 0 ? Math.round((data.done/data.total)*100) : 0
+                    return (
+                      <div key={cat} style={{ marginBottom:12 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                          <span style={{ fontSize:12, fontWeight:600, color:'#1a1a2e' }}>{cat}</span>
+                          <div style={{ display:'flex', gap:8, fontSize:11 }}>
+                            <span style={{ color:'#6C5CE7' }}>총 {data.total}개</span>
+                            <span style={{ color:'#00B894' }}>완료 {data.done}</span>
+                            {data.total-data.done>0 && <span style={{ color:'#E84393' }}>미완료 {data.total-data.done}</span>}
+                          </div>
+                        </div>
+                        <div style={{ height:7, borderRadius:4, background:'#F4F6F9' }}>
+                          <div style={{ height:7, borderRadius:4, background:'linear-gradient(90deg,#6C5CE7,#00B894)', width:`${rate}%`, transition:'width 0.4s' }} />
+                        </div>
+                        <div style={{ fontSize:10, color:'#aaa', marginTop:2, textAlign:'right' }}>{rate}% 완료</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
               {/* 전체 할일 + 체커 */}
               <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
                 <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>📋 이달 할일 전체 <span style={{ fontSize:10, color:'#aaa', fontWeight:400 }}>누가 완료했는지</span></div>
@@ -3088,6 +3609,78 @@ export default function NoticePage() {
           isUploading={isUploadingMissionPhoto}
           photoUrl={missionPhotoUrl}
         />
+      )}
+
+      {/* 카테고리 관리 모달 */}
+      {showCatMgr && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:300, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+          onClick={() => setShowCatMgr(false)}>
+          <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'80vh', overflowY:'auto' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <span style={{ fontSize:16, fontWeight:700, color:'#1a1a2e' }}>🏷 카테고리 관리</span>
+              <button onClick={() => setShowCatMgr(false)} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
+            </div>
+            <div style={{ fontSize:11, color:'#aaa', marginBottom:12 }}>☰ 드래그로 순서 변경 · 카테고리를 눌러 수정</div>
+
+            {/* 카테고리 목록 */}
+            <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:16 }}>
+              {categories.length === 0 && (
+                <div style={{ textAlign:'center', padding:'16px 0', color:'#bbb', fontSize:12 }}>카테고리가 없어요. 아래에서 추가해주세요!</div>
+              )}
+              {categories.map((cat, idx) => (
+                <div key={cat.id}
+                  draggable
+                  onDragStart={() => onCatDragStart(idx)}
+                  onDragEnter={() => onCatDragEnter(idx)}
+                  onDragEnd={onCatDragEnd}
+                  onDragOver={e => e.preventDefault()}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:12, background:'#F8F9FB', border:`1px solid ${cat.color}30`, cursor:'grab' }}>
+                  <span style={{ fontSize:14, color:'#ccc', flexShrink:0 }}>☰</span>
+                  <div style={{ width:10, height:10, borderRadius:'50%', background:cat.color, flexShrink:0 }} />
+                  {catEditId === cat.id ? (
+                    <div style={{ display:'flex', gap:6, flex:1 }}>
+                      <input value={catEditName} onChange={e => setCatEditName(e.target.value)}
+                        onKeyDown={e => { if (e.key==='Enter') updateCategory(cat.id); if (e.key==='Escape') setCatEditId(null) }}
+                        autoFocus
+                        style={{ flex:1, padding:'5px 8px', borderRadius:7, border:'1px solid #6C5CE7', fontSize:13, outline:'none' }} />
+                      {/* 컬러 선택 */}
+                      <div style={{ display:'flex', gap:3 }}>
+                        {CAT_COLORS.map(c => (
+                          <button key={c} onClick={async () => { await saveCategories(categories.map(x => x.id===cat.id ? {...x, color:c} : x)) }}
+                            style={{ width:16, height:16, borderRadius:'50%', background:c, border: cat.color===c ? '2px solid #1a1a2e' : 'none', cursor:'pointer', padding:0, flexShrink:0 }} />
+                        ))}
+                      </div>
+                      <button onClick={() => updateCategory(cat.id)} style={{ padding:'4px 8px', borderRadius:7, background:'#6C5CE7', border:'none', color:'#fff', fontSize:11, cursor:'pointer' }}>저장</button>
+                      <button onClick={() => setCatEditId(null)} style={{ padding:'4px 8px', borderRadius:7, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:11, cursor:'pointer' }}>취소</button>
+                    </div>
+                  ) : (
+                    <>
+                      <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e', flex:1 }}>{cat.name}</span>
+                      <button onClick={() => { setCatEditId(cat.id); setCatEditName(cat.name) }}
+                        style={{ background:'none', border:'none', fontSize:11, color:'#aaa', cursor:'pointer', padding:'2px 6px' }}>수정</button>
+                      <button onClick={() => deleteCategory(cat.id)}
+                        style={{ background:'none', border:'none', fontSize:11, color:'#E84393', cursor:'pointer', padding:'2px 6px' }}>삭제</button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* 새 카테고리 추가 */}
+            <div style={{ border:'2px dashed rgba(108,92,231,0.25)', borderRadius:14, padding:14 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>+ 새 카테고리</div>
+              <input value={catInput} onChange={e => setCatInput(e.target.value)}
+                onKeyDown={e => e.key==='Enter' && addCategory()}
+                placeholder="카테고리 이름 입력"
+                style={{ width:'100%', padding:'9px 12px', borderRadius:10, border:'1px solid #E8ECF0', fontSize:13, outline:'none', boxSizing:'border-box' as const, marginBottom:10 }} />
+              <button onClick={addCategory} disabled={!catInput.trim()}
+                style={{ width:'100%', padding:'10px 0', borderRadius:10, background: catInput.trim() ? 'linear-gradient(135deg,#6C5CE7,#a29bfe)' : '#E8ECF0', border:'none', color: catInput.trim() ? '#fff' : '#bbb', fontSize:13, fontWeight:700, cursor: catInput.trim() ? 'pointer' : 'default' }}>
+                추가
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
