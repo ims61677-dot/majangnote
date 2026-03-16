@@ -770,56 +770,79 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       }
       setChecklistMap(clMap)
 
-      // 오늘 날짜 자동 이월 (checklistMap 로드 후 바로 실행)
-      // 오늘 자동 이월: carriedForward=true(이미 이월됨) 또는 done=true 항목은 제외
+      // 오늘 날짜 자동 이월
       const todayStr = new Date().toISOString().slice(0, 10)
       const todayItems = clMap[todayStr] || []
-        const todayTexts = new Set(todayItems.map((i: any) => i.text))
-        const newItems = [...todayItems]
-        let changed = false
-        for (let d = 1; d <= 14; d++) {
-          const prev = new Date(todayStr)
-          prev.setDate(prev.getDate() - d)
-          const prevDate = prev.toISOString().slice(0, 10)
-          const prevItems = clMap[prevDate]
-          if (!prevItems || prevItems.length === 0) continue
-          const undone = prevItems.filter((i: any) => {
-            if (i.done) return false           // 완료된 건 이월 안함
-            if (i.carriedForward) return false // 이미 이월된 원본은 스킵
-            if (todayTexts.has(i.text)) return false
-            if (i.repeat === 'monthly') return new Date(prevDate).getDate() === new Date(todayStr).getDate()
-            return true
-          })
-          if (undone.length > 0) {
-            // 원본 날짜에 carriedForward 표시 후 저장
-            const markedPrev = prevItems.map((i: any) =>
-              undone.find((u: any) => u.id === i.id) ? { ...i, carriedForward: true } : i
-            )
-            clMap[prevDate] = markedPrev
-            const clTitle = '__PERSONAL_CHECKLIST__'
-            const { data: prevRows } = await supabase.from('notices').select('id')
-              .eq('notice_date', prevDate).eq('title', clTitle).eq('created_by', userName)
-            if (prevRows && prevRows.length > 0) {
-              await supabase.from('notices').update({ content: JSON.stringify(markedPrev) }).eq('id', prevRows[0].id)
-            }
-          }
-          for (const item of undone) {
-            newItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
-            todayTexts.add(item.text)
-            changed = true
+      const clTitle = '__PERSONAL_CHECKLIST__'
+
+      // ① 오늘 완료(done:true)된 carriedFrom 항목 → 원본 날짜도 DB에서 직접 done:true 처리
+      const completedCarried = todayItems.filter((i: any) => i.done && i.carriedFrom)
+      for (const ci of completedCarried) {
+        let srcDate = ci.carriedFrom
+        for (let depth = 0; depth < 30 && srcDate; depth++) {
+          const { data: srcRows } = await supabase.from('notices').select('id, content')
+            .eq('notice_date', srcDate).eq('title', clTitle).eq('created_by', userName).limit(1)
+          if (!srcRows || srcRows.length === 0) break
+          let srcItems: any[]
+          try { srcItems = JSON.parse(srcRows[0].content || '[]') } catch { break }
+          const target = srcItems.find((si: any) => si.text === ci.text && !si.done)
+          if (!target) break
+          const updated = srcItems.map((si: any) =>
+            si.text === ci.text ? { ...si, done: true, carriedForward: true } : si
+          )
+          await supabase.from('notices').update({ content: JSON.stringify(updated) }).eq('id', srcRows[0].id)
+          clMap[srcDate] = updated
+          srcDate = target.carriedFrom || null
+        }
+      }
+
+      // ② 완료된 텍스트 목록 (이월 대상에서 제외)
+      const completedTexts = new Set(todayItems.filter((i: any) => i.done).map((i: any) => i.text))
+      const todayTexts = new Set(todayItems.map((i: any) => i.text))
+      const newItems = [...todayItems]
+      let changed = false
+
+      for (let d = 1; d <= 14; d++) {
+        const prev = new Date(todayStr)
+        prev.setDate(prev.getDate() - d)
+        const prevDate = prev.toISOString().slice(0, 10)
+        const prevItems = clMap[prevDate]
+        if (!prevItems || prevItems.length === 0) continue
+        const undone = prevItems.filter((i: any) => {
+          if (i.done) return false
+          if (i.carriedForward) return false
+          if (todayTexts.has(i.text)) return false
+          if (completedTexts.has(i.text)) return false  // 오늘 완료된 텍스트는 이월 안함
+          if (i.repeat === 'monthly') return new Date(prevDate).getDate() === new Date(todayStr).getDate()
+          return true
+        })
+        if (undone.length > 0) {
+          const markedPrev = prevItems.map((i: any) =>
+            undone.find((u: any) => u.id === i.id) ? { ...i, carriedForward: true } : i
+          )
+          clMap[prevDate] = markedPrev
+          const { data: prevRows } = await supabase.from('notices').select('id')
+            .eq('notice_date', prevDate).eq('title', clTitle).eq('created_by', userName)
+          if (prevRows && prevRows.length > 0) {
+            await supabase.from('notices').update({ content: JSON.stringify(markedPrev) }).eq('id', prevRows[0].id)
           }
         }
-        if (changed) {
-          const jsonContent = JSON.stringify(newItems)
-          const clTitle = '__PERSONAL_CHECKLIST__'
-          const { data: rows } = await supabase.from('notices').select('id').eq('notice_date', todayStr).eq('title', clTitle).eq('created_by', userName)
-          if (rows && rows.length > 0) {
-            await supabase.from('notices').update({ content: jsonContent }).eq('id', rows[0].id)
-          } else {
-            await supabase.from('notices').insert({ store_id: storeId, title: clTitle, content: jsonContent, notice_date: todayStr, created_by: userName, is_from_closing: false, is_pinned: false, attachment_url: null, attachment_type: null })
-          }
-          setChecklistMap(p => ({ ...p, [todayStr]: newItems }))
+        for (const item of undone) {
+          newItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
+          todayTexts.add(item.text)
+          changed = true
         }
+      }
+      if (changed) {
+        const jsonContent = JSON.stringify(newItems)
+        const { data: rows } = await supabase.from('notices').select('id').eq('notice_date', todayStr).eq('title', clTitle).eq('created_by', userName)
+        if (rows && rows.length > 0) {
+          await supabase.from('notices').update({ content: jsonContent }).eq('id', rows[0].id)
+        } else {
+          await supabase.from('notices').insert({ store_id: storeId, title: clTitle, content: jsonContent, notice_date: todayStr, created_by: userName, is_from_closing: false, is_pinned: false, attachment_url: null, attachment_type: null })
+        }
+        setChecklistMap(p => ({ ...p, [todayStr]: newItems }))
+      }
 
     } catch (e) { console.error('Admin data load error:', e) }
     setLoading(false)
@@ -2161,7 +2184,7 @@ export default function NoticePage() {
 
   // ── PC 감지 ──
   useEffect(() => {
-    const check = () => setIsPC(window.innerWidth >= 768)
+    const check = () => setIsPC(window.innerWidth >= 1024)
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
