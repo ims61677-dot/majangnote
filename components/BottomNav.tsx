@@ -11,7 +11,6 @@ const MOBILE_TABS = [
   { href: '/more',     ic: '☰',  l: '더보기' },
 ]
 
-// 태블릿 — 핵심 7개 + 더보기
 const TABLET_TABS = [
   { href: '/dash',       ic: '📊', l: '대시' },
   { href: '/schedule',   ic: '📅', l: '스케줄' },
@@ -32,11 +31,10 @@ const MORE_ITEMS = [
   { href: '/attendance',  ic: '🕐', l: '출퇴근' },
   { href: '/placerank',   ic: '📍', l: '순위' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
-  { href: '/mypage',      ic: '📋', l: '마이페이지' },
+  { href: '/mypage',      ic: '👤', l: '마이페이지' },
   { href: '/export',      ic: '📥', l: '내보내기' },
 ]
 
-// 태블릿 더보기에는 이미 바에 있는 것 제외
 const TABLET_MORE_ITEMS = MORE_ITEMS.filter(
   m => !['/inventory', '/analytics', '/attendance'].includes(m.href)
 )
@@ -49,6 +47,7 @@ export default function BottomNav({ current }: { current: string }) {
   const [showMore, setShowMore] = useState(false)
   const [badge, setBadge] = useState(0)
   const [screen, setScreen] = useState<ScreenType>('mobile')
+  const [mounted, setMounted] = useState(false)
   const isMore = MORE_PATHS.some(p => current.startsWith(p))
 
   useEffect(() => {
@@ -59,6 +58,7 @@ export default function BottomNav({ current }: { current: string }) {
       else setScreen('mobile')
     }
     updateScreen()
+    setMounted(true)
     window.addEventListener('resize', updateScreen)
     return () => window.removeEventListener('resize', updateScreen)
   }, [])
@@ -81,20 +81,16 @@ export default function BottomNav({ current }: { current: string }) {
     } catch {}
   }
 
-  // PC는 layout.tsx 헤더에서 처리 — BottomNav는 null 반환
-  if (screen === 'pc') return null
+  if (!mounted || screen === 'pc') return null
 
   const tabs = screen === 'tablet' ? TABLET_TABS : MOBILE_TABS
   const moreItems = screen === 'tablet' ? TABLET_MORE_ITEMS : MORE_ITEMS
-
-  // 바 너비 / 최대폭
   const barMaxWidth = screen === 'tablet' ? 900 : 480
   const iconSize = screen === 'tablet' ? 20 : 18
   const labelSize = screen === 'tablet' ? 11 : 10
 
   return (
     <>
-      {/* 더보기 오버레이 */}
       {showMore && (
         <div
           onClick={() => setShowMore(false)}
@@ -107,12 +103,11 @@ export default function BottomNav({ current }: { current: string }) {
         />
       )}
 
-      {/* 더보기 패널 */}
       {showMore && (
         <div style={{
           position: 'fixed', bottom: screen === 'tablet' ? 80 : 72,
           left: '50%', transform: 'translateX(-50%)',
-          width: `calc(100% - 32px)`,
+          width: 'calc(100% - 32px)',
           maxWidth: screen === 'tablet' ? 868 : 448,
           background: '#ffffff',
           border: '1px solid #E8ECF0',
@@ -159,7 +154,6 @@ export default function BottomNav({ current }: { current: string }) {
         </div>
       )}
 
-      {/* 하단 바 */}
       <div style={{
         position: 'fixed', bottom: 0, left: '50%',
         transform: 'translateX(-50%)',

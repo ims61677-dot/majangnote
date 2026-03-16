@@ -6,7 +6,6 @@ import BottomNav from '@/components/BottomNav'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import PushSetup from '@/components/PushSetup'
 
-// PC 상단 네비에 표시할 메뉴 전체
 const PC_NAV = [
   { href: '/dash',        ic: '📊', l: '대시보드' },
   { href: '/schedule',    ic: '📅', l: '스케줄' },
@@ -19,6 +18,9 @@ const PC_NAV = [
   { href: '/recipe',      ic: '🍳', l: '레시피' },
   { href: '/goal',        ic: '🎯', l: '목표매출' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
+  { href: '/placerank',   ic: '📍', l: '순위' },
+  { href: '/mypage',      ic: '👤', l: '마이페이지' },
+  { href: '/export',      ic: '📥', l: '내보내기' },
 ]
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
@@ -30,11 +32,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [stores, setStores] = useState<any[]>([])
   const [showDropdown, setShowDropdown] = useState(false)
   const [isPC, setIsPC] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const [badge, setBadge] = useState(0)
 
   useEffect(() => {
     function check() { setIsPC(window.innerWidth >= 1024) }
     check()
+    setMounted(true)
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
@@ -93,6 +97,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     window.location.href = '/dash'
   }
 
+  function logout() {
+    localStorage.removeItem('mj_user')
+    localStorage.removeItem('mj_store')
+    localStorage.removeItem('mj_user_expire')
+    router.push('/login')
+  }
+
   const isOwner = user?.role === 'owner'
 
   const isFullWidth = [
@@ -100,12 +111,17 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     '/inventory', '/closing', '/notice'
   ].includes(pathname)
 
-  // ── PC 레이아웃 ──────────────────────────────────────
+  if (!mounted) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#F4F6F9' }}>
+        <main style={{ padding: '16px 16px 100px' }}>{children}</main>
+      </div>
+    )
+  }
+
   if (isPC) {
     return (
       <div style={{ minHeight: '100vh', background: '#F4F6F9', display: 'flex', flexDirection: 'column' }}>
-
-        {/* PC 헤더 — 로고 + 네비 + 로그아웃 한 줄 */}
         <header style={{
           background: '#fff',
           borderBottom: '1px solid #E8ECF0',
@@ -114,7 +130,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           padding: '0 24px',
           display: 'flex', alignItems: 'center', gap: 0, height: 56,
         }}>
-          {/* 로고 + 매장 선택 */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <div onClick={() => setShowDropdown(p => !p)}
               style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '8px 0', marginRight: 24 }}>
@@ -133,7 +148,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               </div>
             </div>
 
-            {/* 매장 드롭다운 */}
             {showDropdown && (
               <>
                 <div onClick={() => setShowDropdown(false)} style={{ position: 'fixed', inset: 0, zIndex: 98 }} />
@@ -184,10 +198,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             )}
           </div>
 
-          {/* 구분선 */}
           <div style={{ width: 1, height: 28, background: '#E8ECF0', marginRight: 20, flexShrink: 0 }} />
 
-          {/* PC 네비 메뉴 */}
           <nav style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, overflowX: 'auto', scrollbarWidth: 'none' }}>
             {PC_NAV.map(item => {
               const active = pathname.startsWith(item.href)
@@ -232,20 +244,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             })}
           </nav>
 
-          {/* 로그아웃 */}
-          <button onClick={() => {
-            localStorage.removeItem('mj_user')
-            localStorage.removeItem('mj_store')
-            localStorage.removeItem('mj_user_expire')
-            router.push('/login')
-          }} style={{
+          <button onClick={logout} style={{
             background: 'none', border: '1px solid #E8ECF0',
             color: '#999', padding: '5px 12px', borderRadius: 8,
             cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0, marginLeft: 12,
           }}>로그아웃</button>
         </header>
 
-        {/* PC 본문 — 하단 패딩 없음 */}
         <main style={{ flex: 1, padding: '20px 24px 24px' }}>
           {children}
         </main>
@@ -255,8 +260,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     )
   }
 
-  // ── 모바일 / 태블릿 레이아웃 ────────────────────────
-  const isTablet = typeof window !== 'undefined' && window.innerWidth >= 768
+  const isTablet = window.innerWidth >= 768
 
   return (
     <div style={{
@@ -267,7 +271,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       flexDirection: 'column',
       background: '#F4F6F9',
     }}>
-      {/* 모바일/태블릿 헤더 */}
       <header style={{
         background: '#ffffff',
         padding: '14px 20px',
@@ -346,12 +349,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           )}
         </div>
 
-        <button onClick={() => {
-          localStorage.removeItem('mj_user')
-          localStorage.removeItem('mj_store')
-          localStorage.removeItem('mj_user_expire')
-          router.push('/login')
-        }} style={{
+        <button onClick={logout} style={{
           background: 'none', border: '1px solid #E8ECF0',
           color: '#999', padding: '5px 12px', borderRadius: 8,
           cursor: 'pointer', fontSize: 12, fontWeight: 500,

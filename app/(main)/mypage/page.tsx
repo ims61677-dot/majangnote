@@ -17,7 +17,6 @@ const NOTIF_ITEMS = [
   { key: 'inventory',  label: '재고 부족 알림',    desc: '설정 수량 이하일 때',             roles: ['owner','manager'] },
   { key: 'schedule',   label: '스케줄 변경 알림',  desc: '내 스케줄이 변경되면',            roles: ['owner','manager','staff'] },
 ]
-
 const DEFAULT_SETTINGS: Record<string, boolean> = {
   attendance: true, late: true, absent: true, request: true,
   notice: true, closing: false, inventory: true, schedule: true,
@@ -36,9 +35,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   )
 }
 
-declare global {
-  interface Window { daum: any }
-}
+declare global { interface Window { daum: any } }
 
 export default function MyPage() {
   const supabase = createSupabaseBrowserClient()
@@ -57,13 +54,27 @@ export default function MyPage() {
   const [notifSettings, setNotifSettings] = useState<Record<string, boolean>>(DEFAULT_SETTINGS)
   const [notifSaving, setNotifSaving] = useState(false)
   const [notifSaved, setNotifSaved] = useState(false)
-
   const [storeAddress, setStoreAddress] = useState('')
   const [storeLat, setStoreLat] = useState<number | null>(null)
   const [storeLng, setStoreLng] = useState<number | null>(null)
   const [locationSaving, setLocationSaving] = useState(false)
   const [locationSaved, setLocationSaved] = useState(false)
   const [showLocationSection, setShowLocationSection] = useState(false)
+
+  // 급여 & 개인정보
+  const [showPersonal, setShowPersonal] = useState(false)
+  const [bankName, setBankName] = useState('')
+  const [bankAccount, setBankAccount] = useState('')
+  const [bankHolder, setBankHolder] = useState('')
+  const [payslipEmail, setPayslipEmail] = useState('')
+  const [idCardPath, setIdCardPath] = useState('')
+  const [bankbookPath, setBankbookPath] = useState('')
+  const [idCardPreview, setIdCardPreview] = useState('')
+  const [bankbookPreview, setBankbookPreview] = useState('')
+  const [personalSaving, setPersonalSaving] = useState(false)
+  const [personalSaved, setPersonalSaved] = useState(false)
+  const idCardRef = useRef<HTMLInputElement>(null)
+  const bankbookRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
@@ -72,6 +83,7 @@ export default function MyPage() {
     setUser(u); setStoreId(s.id)
     loadContracts(u.id, s.id)
     loadNotifSettings(u.id, s.id)
+    loadPersonalInfo(u.id)
     if (u.role === 'owner') loadStoreLocation(s.id)
   }, [])
 
@@ -84,6 +96,56 @@ export default function MyPage() {
     document.head.appendChild(script)
   }, [])
 
+  async function loadPersonalInfo(uid: string) {
+    const { data } = await supabase.from('profiles')
+      .select('bank_name, bank_account, bank_holder, payslip_email, id_card_path, bankbook_path')
+      .eq('id', uid).maybeSingle()
+    if (data) {
+      setBankName(data.bank_name || '')
+      setBankAccount(data.bank_account || '')
+      setBankHolder(data.bank_holder || '')
+      setPayslipEmail(data.payslip_email || '')
+      setIdCardPath(data.id_card_path || '')
+      setBankbookPath(data.bankbook_path || '')
+      if (data.id_card_path) {
+        const { data: s } = await supabase.storage.from('staff-documents').createSignedUrl(data.id_card_path, 3600)
+        if (s?.signedUrl) setIdCardPreview(s.signedUrl)
+      }
+      if (data.bankbook_path) {
+        const { data: s } = await supabase.storage.from('staff-documents').createSignedUrl(data.bankbook_path, 3600)
+        if (s?.signedUrl) setBankbookPreview(s.signedUrl)
+      }
+    }
+  }
+
+  async function uploadDocImage(file: File, type: 'id_card' | 'bankbook') {
+    if (!user?.id) return
+    const ext = file.name.split('.').pop()
+    const path = `${user.id}/${type}.${ext}`
+    const { error } = await supabase.storage.from('staff-documents').upload(path, file, { upsert: true })
+    if (error) { alert('업로드 실패: ' + error.message); return }
+    const { data: s } = await supabase.storage.from('staff-documents').createSignedUrl(path, 3600)
+    const previewUrl = s?.signedUrl || ''
+    if (type === 'id_card') { setIdCardPath(path); setIdCardPreview(previewUrl) }
+    else { setBankbookPath(path); setBankbookPreview(previewUrl) }
+  }
+
+  async function savePersonalInfo() {
+    if (!user?.id) return
+    setPersonalSaving(true)
+    await supabase.from('profiles').update({
+      bank_name: bankName || null,
+      bank_account: bankAccount || null,
+      bank_holder: bankHolder || null,
+      payslip_email: payslipEmail || null,
+      id_card_path: idCardPath || null,
+      bankbook_path: bankbookPath || null,
+    }).eq('id', user.id)
+    setPersonalSaving(false)
+    setPersonalSaved(true)
+    setTimeout(() => setPersonalSaved(false), 2500)
+  }
+
   async function loadStoreLocation(sid: string) {
     const { data } = await supabase.from('stores').select('address, lat, lng').eq('id', sid).maybeSingle()
     if (data) {
@@ -94,41 +156,26 @@ export default function MyPage() {
   }
 
   function openAddressSearch() {
-    if (!window.daum?.Postcode) {
-      alert('주소 검색 서비스를 불러오는 중입니다. 잠시 후 다시 시도해주세요.')
-      return
-    }
+    if (!window.daum?.Postcode) { alert('주소 검색 서비스를 불러오는 중입니다. 잠시 후 다시 시도해주세요.'); return }
     new window.daum.Postcode({
       oncomplete: async (data: any) => {
         const fullAddress = data.roadAddress || data.jibunAddress
         setStoreAddress(fullAddress)
         try {
           const query = encodeURIComponent(fullAddress)
-          const res = await fetch(
-            'https://nominatim.openstreetmap.org/search?q=' + query + '&format=json&limit=1',
-            { headers: { 'Accept-Language': 'ko' } }
-          )
+          const res = await fetch('https://nominatim.openstreetmap.org/search?q=' + query + '&format=json&limit=1', { headers: { 'Accept-Language': 'ko' } })
           const json = await res.json()
-          if (json && json.length > 0) {
-            setStoreLat(parseFloat(json[0].lat))
-            setStoreLng(parseFloat(json[0].lon))
-          }
-        } catch (e) {
-          console.error('좌표 변환 실패:', e)
-        }
+          if (json && json.length > 0) { setStoreLat(parseFloat(json[0].lat)); setStoreLng(parseFloat(json[0].lon)) }
+        } catch (e) { console.error('좌표 변환 실패:', e) }
       }
     }).open()
   }
 
   async function saveStoreLocation() {
-    if (!storeId || !storeAddress || !storeLat || !storeLng) {
-      alert('주소 검색을 통해 위치를 입력해주세요.')
-      return
-    }
+    if (!storeId || !storeAddress || !storeLat || !storeLng) { alert('주소 검색을 통해 위치를 입력해주세요.'); return }
     setLocationSaving(true)
     await supabase.from('stores').update({ address: storeAddress, lat: storeLat, lng: storeLng }).eq('id', storeId)
-    setLocationSaving(false)
-    setLocationSaved(true)
+    setLocationSaving(false); setLocationSaved(true)
     setTimeout(() => setLocationSaved(false), 2500)
   }
 
@@ -157,15 +204,13 @@ export default function MyPage() {
     setNotifSaving(true)
     await supabase.from('push_subscriptions')
       .upsert({ profile_id: user.id, store_id: storeId, settings: newSettings, subscription: {} }, { onConflict: 'profile_id,store_id' })
-    setNotifSaving(false)
-    setNotifSaved(true)
+    setNotifSaving(false); setNotifSaved(true)
     setTimeout(() => setNotifSaved(false), 2000)
   }
 
   function toggleNotif(key: string) {
     const next = { ...notifSettings, [key]: !notifSettings[key] }
-    setNotifSettings(next)
-    saveNotifSettings(next)
+    setNotifSettings(next); saveNotifSettings(next)
   }
 
   async function signContract(id: string) {
@@ -201,8 +246,7 @@ export default function MyPage() {
     await supabase.from('profiles').update({ pin: newPw }).eq('id', user.id)
     const updated = { ...user, pin: newPw }
     localStorage.setItem('mj_user', JSON.stringify(updated))
-    setUser(updated)
-    setPwMsg('PIN이 변경되었습니다 ✓')
+    setUser(updated); setPwMsg('PIN이 변경되었습니다 ✓')
     setCurPw(''); setNewPw(''); setNewPw2('')
     setTimeout(() => setPwMsg(''), 3000)
   }
@@ -210,6 +254,8 @@ export default function MyPage() {
   const pending = contracts.filter(c => c.status === 'pending' && c.to_profile === user?.id)
   const visibleNotifItems = NOTIF_ITEMS.filter(item => item.roles.includes(user?.role || 'staff'))
   const isOwner = user?.role === 'owner'
+  const personalComplete = bankAccount && bankHolder && payslipEmail && idCardPath && bankbookPath
+  const personalPartial = bankAccount || bankHolder || payslipEmail || idCardPath || bankbookPath
 
   return (
     <div>
@@ -231,27 +277,123 @@ export default function MyPage() {
         </div>
       </div>
 
+      {/* 급여 & 개인정보 */}
+      <div style={bx}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowPersonal(p => !p)}>
+          <div>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>💼 급여 & 개인정보</span>
+            {!showPersonal && (
+              <div style={{ fontSize: 11, marginTop: 3, color: personalComplete ? '#00B894' : '#FF6B35' }}>
+                {personalComplete ? '✓ 정보 등록 완료' : personalPartial ? '⚠ 일부 미입력 — 급여 지급 전 완성해주세요' : '미입력 — 급여 정보를 입력해주세요'}
+              </div>
+            )}
+          </div>
+          <span style={{ fontSize: 14, color: '#bbb' }}>{showPersonal ? '▲' : '▼'}</span>
+        </div>
+
+        {showPersonal && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 11, color: '#aaa', marginBottom: 14, lineHeight: 1.7, padding: '8px 12px', background: '#FFF8F5', borderRadius: 10, border: '1px solid rgba(255,107,53,0.15)' }}>
+              💡 급여 지급 및 세금 처리를 위해 필요합니다.<br />
+              대표자만 열람 가능하며 안전하게 보관됩니다.
+            </div>
+
+            {/* 신분증 업로드 */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>🪪 신분증 사본</div>
+              {idCardPreview ? (
+                <div style={{ position: 'relative', marginBottom: 8 }}>
+                  <img src={idCardPreview} alt="신분증" style={{ width: '100%', borderRadius: 10, border: '1px solid #E8ECF0', maxHeight: 160, objectFit: 'cover' }} />
+                  <button onClick={() => idCardRef.current?.click()}
+                    style={{ position: 'absolute', bottom: 8, right: 8, padding: '4px 10px', borderRadius: 6, background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', fontSize: 11, cursor: 'pointer' }}>
+                    재업로드
+                  </button>
+                </div>
+              ) : (
+                <div onClick={() => idCardRef.current?.click()}
+                  style={{ padding: '20px 0', borderRadius: 10, border: '2px dashed #E0E4E8', textAlign: 'center', cursor: 'pointer', background: '#F8F9FB', marginBottom: 8 }}>
+                  <div style={{ fontSize: 24, marginBottom: 4 }}>📷</div>
+                  <div style={{ fontSize: 12, color: '#aaa' }}>신분증 이미지 업로드</div>
+                  <div style={{ fontSize: 11, color: '#ccc', marginTop: 2 }}>주민등록증 또는 운전면허증</div>
+                </div>
+              )}
+              <input ref={idCardRef} type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={async e => {
+                  const file = e.target.files?.[0]
+                  if (file) { await uploadDocImage(file, 'id_card'); e.target.value = '' }
+                }} />
+            </div>
+
+            {/* 통장 사본 + 계좌정보 */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>🏦 통장 사본 & 계좌정보</div>
+              {bankbookPreview ? (
+                <div style={{ position: 'relative', marginBottom: 8 }}>
+                  <img src={bankbookPreview} alt="통장사본" style={{ width: '100%', borderRadius: 10, border: '1px solid #E8ECF0', maxHeight: 160, objectFit: 'cover' }} />
+                  <button onClick={() => bankbookRef.current?.click()}
+                    style={{ position: 'absolute', bottom: 8, right: 8, padding: '4px 10px', borderRadius: 6, background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', fontSize: 11, cursor: 'pointer' }}>
+                    재업로드
+                  </button>
+                </div>
+              ) : (
+                <div onClick={() => bankbookRef.current?.click()}
+                  style={{ padding: '20px 0', borderRadius: 10, border: '2px dashed #E0E4E8', textAlign: 'center', cursor: 'pointer', background: '#F8F9FB', marginBottom: 8 }}>
+                  <div style={{ fontSize: 24, marginBottom: 4 }}>📷</div>
+                  <div style={{ fontSize: 12, color: '#aaa' }}>통장 사본 이미지 업로드</div>
+                </div>
+              )}
+              <input ref={bankbookRef} type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={async e => {
+                  const file = e.target.files?.[0]
+                  if (file) { await uploadDocImage(file, 'bankbook'); e.target.value = '' }
+                }} />
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>은행명</div>
+                  <input value={bankName} onChange={e => setBankName(e.target.value)} placeholder="예: 국민은행" style={inp} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>예금주</div>
+                  <input value={bankHolder} onChange={e => setBankHolder(e.target.value)} placeholder="예금주명" style={inp} />
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>계좌번호</div>
+              <input value={bankAccount} onChange={e => setBankAccount(e.target.value)} placeholder="- 없이 숫자만 입력" style={{ ...inp, marginBottom: 0 }} />
+            </div>
+
+            {/* 급여 이메일 */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>📧 급여명세서 이메일</div>
+              <input value={payslipEmail} onChange={e => setPayslipEmail(e.target.value)}
+                placeholder="급여명세서 받을 이메일 주소" type="email"
+                style={{ ...inp, marginBottom: 0 }} />
+            </div>
+
+            <button onClick={savePersonalInfo} disabled={personalSaving}
+              style={{ width: '100%', padding: '12px 0', borderRadius: 10, border: 'none', fontWeight: 700, fontSize: 13, cursor: personalSaving ? 'not-allowed' : 'pointer',
+                background: personalSaving ? '#ddd' : 'linear-gradient(135deg,#FF6B35,#E84393)', color: '#fff' }}>
+              {personalSaving ? '저장 중...' : personalSaved ? '✓ 저장되었습니다!' : '💾 저장'}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* 매장 위치 설정 - owner 전용 */}
       {isOwner && (
         <div style={bx}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowLocationSection(p => !p)}>
             <div>
               <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>🏪 매장 위치 설정</span>
-              {storeLat && !showLocationSection && (
-                <div style={{ fontSize: 11, color: '#00B894', marginTop: 3 }}>✓ 위치 등록됨 · 날씨 자동 수집 중</div>
-              )}
-              {!storeLat && !showLocationSection && (
-                <div style={{ fontSize: 11, color: '#FF6B35', marginTop: 3 }}>⚠ 위치 미설정 · 날씨 자동 수집 안됨</div>
-              )}
+              {storeLat && !showLocationSection && <div style={{ fontSize: 11, color: '#00B894', marginTop: 3 }}>✓ 위치 등록됨 · 날씨 자동 수집 중</div>}
+              {!storeLat && !showLocationSection && <div style={{ fontSize: 11, color: '#FF6B35', marginTop: 3 }}>⚠ 위치 미설정 · 날씨 자동 수집 안됨</div>}
             </div>
             <span style={{ fontSize: 14, color: '#bbb' }}>{showLocationSection ? '▲' : '▼'}</span>
           </div>
-
           {showLocationSection && (
             <div style={{ marginTop: 14 }}>
               <div style={{ fontSize: 11, color: '#aaa', marginBottom: 12, lineHeight: 1.6 }}>
-                매장 주소를 등록하면 마감일지 저장 시 날씨가 자동으로 기록돼요.<br />
-                각 지점마다 별도 설정되며, 대표만 변경할 수 있어요.
+                매장 주소를 등록하면 마감일지 저장 시 날씨가 자동으로 기록돼요.<br />각 지점마다 별도 설정되며, 대표만 변경할 수 있어요.
               </div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <input value={storeAddress} readOnly placeholder="아래 버튼으로 주소를 검색하세요"
@@ -366,7 +508,10 @@ export default function MyPage() {
       {/* PIN 변경 */}
       <div style={bx}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowPw(p => !p)}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>🔒 PIN 변경</span>
+          <div>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>🔒 PIN 변경</span>
+            {!showPw && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>보안을 위해 1234에서 꼭 변경하세요</div>}
+          </div>
           <span style={{ fontSize: 14, color: '#bbb' }}>{showPw ? '▲' : '▼'}</span>
         </div>
         {showPw && (

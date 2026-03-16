@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
@@ -7,7 +7,6 @@ const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '
 const ROLES: Record<string,string> = { owner:'대표', manager:'관리자', staff:'사원', pt:'PT' }
 const ROLE_COLORS: Record<string,string> = { owner:'#FF6B35', manager:'#6C5CE7', staff:'#2DC6D6', pt:'#00B894' }
 
-// ─── 정보 수정 모달 ───
 function EditInfoModal({ profile, member, storeId, onClose, onSaved }: {
   profile: any; member: any; storeId: string; onClose: () => void; onSaved: () => void
 }) {
@@ -24,17 +23,8 @@ function EditInfoModal({ profile, member, storeId, onClose, onSaved }: {
     const oldName = profile.nm
     const trimmed = newName.trim()
     try {
-      // profiles 업데이트
-      await supabase.from('profiles').update({
-        nm: trimmed, role: newRole, phone: newPhone || null, joined_at: newJoinedAt || null
-      }).eq('id', profile.id)
-
-      // store_members 직급 + 입사일 업데이트
-      await supabase.from('store_members').update({
-        role: newRole, joined_at: newJoinedAt || null
-      }).eq('store_id', storeId).eq('profile_id', profile.id)
-
-      // 이름 변경된 경우 모든 테이블 반영
+      await supabase.from('profiles').update({ nm: trimmed, role: newRole, phone: newPhone || null, joined_at: newJoinedAt || null }).eq('id', profile.id)
+      await supabase.from('store_members').update({ role: newRole, joined_at: newJoinedAt || null }).eq('store_id', storeId).eq('profile_id', profile.id)
       if (trimmed !== oldName) {
         await supabase.from('schedules').update({ staff_name: trimmed }).eq('store_id', storeId).eq('staff_name', oldName)
         await supabase.from('schedule_requests').update({ staff_name: trimmed }).eq('store_id', storeId).eq('staff_name', oldName)
@@ -54,12 +44,10 @@ function EditInfoModal({ profile, member, storeId, onClose, onSaved }: {
         await supabase.from('notice_todos').update({ created_by: trimmed }).eq('created_by', oldName)
         await supabase.from('notice_todo_checks').update({ checked_by: trimmed }).eq('checked_by', oldName)
       }
-
       alert('✅ 정보가 수정되었습니다!')
       onSaved(); onClose()
-    } catch (e: any) {
-      alert('수정 실패: ' + e?.message)
-    } finally { setSaving(false) }
+    } catch (e: any) { alert('수정 실패: ' + e?.message) }
+    finally { setSaving(false) }
   }
 
   return (
@@ -67,10 +55,8 @@ function EditInfoModal({ profile, member, storeId, onClose, onSaved }: {
       <div style={{ background:'#fff', borderRadius:20, padding:24, width:'100%', maxWidth:340 }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>✏️ 직원 정보 수정</div>
         <div style={{ fontSize:11, color:'#aaa', marginBottom:16 }}>이름 변경 시 모든 기록에 자동 반영됩니다</div>
-
         <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>이름</div>
         <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="이름" style={{ ...inp, marginBottom:12 }} />
-
         <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>직급</div>
         <select value={newRole} onChange={e => setNewRole(e.target.value)} style={{ ...inp, marginBottom:12, appearance:'auto' as const }}>
           <option value="staff">사원</option>
@@ -78,13 +64,10 @@ function EditInfoModal({ profile, member, storeId, onClose, onSaved }: {
           <option value="manager">관리자</option>
           <option value="owner">대표</option>
         </select>
-
         <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>전화번호</div>
         <input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="전화번호" style={{ ...inp, marginBottom:12 }} />
-
         <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>입사일</div>
         <input type="date" value={newJoinedAt} onChange={e => setNewJoinedAt(e.target.value)} style={{ ...inp, marginBottom:20, color: newJoinedAt?'#1a1a2e':'#aaa' }} />
-
         <div style={{ display:'flex', gap:8 }}>
           <button onClick={onClose} style={{ flex:1, padding:'11px 0', borderRadius:10, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:13, cursor:'pointer' }}>취소</button>
           <button onClick={handleSave} disabled={saving || !newName.trim()}
@@ -98,10 +81,8 @@ function EditInfoModal({ profile, member, storeId, onClose, onSaved }: {
   )
 }
 
-// ─── PIN 확인 모달 ───
 function PinViewModal({ members, onClose }: { members: any[]; onClose: () => void }) {
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
-
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
       <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'80vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
@@ -147,7 +128,6 @@ function PinViewModal({ members, onClose }: { members: any[]; onClose: () => voi
   )
 }
 
-// ─── 퇴사 처리 모달 ───
 function ResignModal({ profile, storeId, onClose, onSaved }: {
   profile: any; storeId: string; onClose: () => void; onSaved: () => void
 }) {
@@ -166,9 +146,8 @@ function ResignModal({ profile, storeId, onClose, onSaved }: {
       await supabase.from('profiles').update({ resigned: true }).eq('id', profile.id)
       alert(`✅ "${profile.nm}" 퇴사 처리 완료\n모든 기록은 보존됩니다.`)
       onSaved(); onClose()
-    } catch (e: any) {
-      alert('처리 실패: ' + e?.message)
-    } finally { setSaving(false) }
+    } catch (e: any) { alert('처리 실패: ' + e?.message) }
+    finally { setSaving(false) }
   }
 
   return (
@@ -195,9 +174,107 @@ function ResignModal({ profile, storeId, onClose, onSaved }: {
   )
 }
 
-// ═══════════════════════════════════════
-// 메인
-// ═══════════════════════════════════════
+function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [info, setInfo] = useState<any>(null)
+  const [idCardUrl, setIdCardUrl] = useState('')
+  const [bankbookUrl, setBankbookUrl] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      const { data } = await supabase.from('profiles')
+        .select('bank_name, bank_account, bank_holder, payslip_email, id_card_path, bankbook_path')
+        .eq('id', profile.id).maybeSingle()
+      setInfo(data)
+      if (data?.id_card_path) {
+        const { data: s } = await supabase.storage.from('staff-documents').createSignedUrl(data.id_card_path, 3600)
+        if (s?.signedUrl) setIdCardUrl(s.signedUrl)
+      }
+      if (data?.bankbook_path) {
+        const { data: s } = await supabase.storage.from('staff-documents').createSignedUrl(data.bankbook_path, 3600)
+        if (s?.signedUrl) setBankbookUrl(s.signedUrl)
+      }
+      setLoading(false)
+    }
+    load()
+  }, [profile.id])
+
+  const hasInfo = info?.bank_account || info?.payslip_email || info?.id_card_path || info?.bankbook_path
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
+      <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'85vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+          <div>
+            <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>💼 {profile.nm}님 급여 정보</div>
+            <div style={{ fontSize:11, color:'#aaa', marginTop:2 }}>대표만 열람 가능 · 외부 유출 금지</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign:'center', padding:40, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
+        ) : !hasInfo ? (
+          <div style={{ textAlign:'center', padding:32, color:'#bbb' }}>
+            <div style={{ fontSize:28, marginBottom:8 }}>📭</div>
+            <div style={{ fontSize:13 }}>아직 등록된 정보가 없습니다</div>
+            <div style={{ fontSize:11, color:'#ddd', marginTop:4 }}>직원에게 마이페이지에서 입력 요청하세요</div>
+          </div>
+        ) : (
+          <div style={{ marginTop:16 }}>
+            {(info.bank_name || info.bank_account || info.bank_holder) && (
+              <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:8 }}>🏦 계좌 정보</div>
+                {info.bank_name && (
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                    <span style={{ fontSize:12, color:'#aaa' }}>은행</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.bank_name}</span>
+                  </div>
+                )}
+                {info.bank_holder && (
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                    <span style={{ fontSize:12, color:'#aaa' }}>예금주</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.bank_holder}</span>
+                  </div>
+                )}
+                {info.bank_account && (
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ fontSize:12, color:'#aaa' }}>계좌번호</span>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', letterSpacing:1 }}>{info.bank_account}</span>
+                      <button onClick={() => { navigator.clipboard.writeText(info.bank_account); alert('복사됨!') }}
+                        style={{ padding:'2px 8px', borderRadius:6, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:10, cursor:'pointer' }}>복사</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {info.payslip_email && (
+              <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:6 }}>📧 급여명세서 이메일</div>
+                <div style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.payslip_email}</div>
+              </div>
+            )}
+            {idCardUrl && (
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:6 }}>🪪 신분증 사본</div>
+                <img src={idCardUrl} alt="신분증" style={{ width:'100%', borderRadius:10, border:'1px solid #E8ECF0' }} />
+              </div>
+            )}
+            {bankbookUrl && (
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:6 }}>📄 통장 사본</div>
+                <img src={bankbookUrl} alt="통장사본" style={{ width:'100%', borderRadius:10, border:'1px solid #E8ECF0' }} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function StaffPage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
@@ -209,11 +286,15 @@ export default function StaffPage() {
   const [showPinModal, setShowPinModal] = useState(false)
   const [editingProfile, setEditingProfile] = useState<any>(null)
   const [resigningProfile, setResigningProfile] = useState<any>(null)
+  const [personalProfile, setPersonalProfile] = useState<any>(null)
   const [nm, setNm] = useState('')
   const [role, setRole] = useState('staff')
   const [phone, setPhone] = useState('')
   const [saving, setSaving] = useState(false)
   const [joinedAt, setJoinedAt] = useState('')
+  const [allStores, setAllStores] = useState<any[]>([])
+  const [selectedStoreId, setSelectedStoreId] = useState('')
+  const [selectedStoreName, setSelectedStoreName] = useState('')
   const isOwner = myRole === 'owner'
 
   useEffect(() => {
@@ -221,18 +302,35 @@ export default function StaffPage() {
     const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
     if (!store.id) return
     setStoreId(store.id)
+    setSelectedStoreId(store.id)
+    setSelectedStoreName(store.name || '')
     setMyRole(user.role)
     loadMembers(store.id)
+    if (user.role === 'owner') loadAllStores(user.id)
   }, [])
+
+  async function loadAllStores(uid: string) {
+    const { data } = await supabase.from('store_members')
+      .select('*, stores(*)')
+      .eq('profile_id', uid)
+      .eq('role', 'owner')
+      .eq('active', true)
+    if (data && data.length > 1) setAllStores(data)
+  }
+
+  async function switchViewStore(sid: string, sname: string) {
+    setSelectedStoreId(sid)
+    setSelectedStoreName(sname)
+    await loadMembers(sid)
+  }
 
   async function loadMembers(sid: string) {
     const { data } = await supabase.from('store_members')
-      .select('*, profiles(id, nm, role, phone, pin, resigned, joined_at)') 
+      .select('*, profiles(id, nm, role, phone, pin, resigned, joined_at)')
       .eq('store_id', sid).eq('active', true)
       .order('created_at')
     const active = (data || []).filter(m => !m.profiles?.resigned)
     setMembers(active)
-
     const { data: res } = await supabase.from('store_members')
       .select('*, profiles(id, nm, role, phone, resigned), resigned_at, resign_reason')
       .eq('store_id', sid).eq('resigned', true)
@@ -241,7 +339,7 @@ export default function StaffPage() {
   }
 
   async function addStaff() {
-    if (!nm.trim() || !storeId) return
+    if (!nm.trim() || !selectedStoreId) return
     setSaving(true)
     const { data: existing } = await supabase.from('profiles').select('*').eq('nm', nm.trim()).eq('phone', phone.trim()).limit(1)
     let profile = existing?.[0]
@@ -250,18 +348,18 @@ export default function StaffPage() {
       profile = newProfile
     }
     if (profile) {
-      const { data: already } = await supabase.from('store_members').select('*').eq('store_id', storeId).eq('profile_id', profile.id).limit(1)
+      const { data: already } = await supabase.from('store_members').select('*').eq('store_id', selectedStoreId).eq('profile_id', profile.id).limit(1)
       if (!already?.length) {
-        await supabase.from('store_members').insert({ store_id: storeId, profile_id: profile.id, role, active: true, joined_at: joinedAt || null })
+        await supabase.from('store_members').insert({ store_id: selectedStoreId, profile_id: profile.id, role, active: true, joined_at: joinedAt || null })
       }
-      await loadMembers(storeId)
+      await loadMembers(selectedStoreId)
     }
     setNm(''); setRole('staff'); setPhone(''); setJoinedAt(''); setShowForm(false); setSaving(false)
   }
 
   async function deactivate(profileId: string) {
     if (!confirm('직원을 비활성화할까요?\n(퇴사와 다르게 임시로 숨깁니다)')) return
-    await supabase.from('store_members').update({ active: false }).eq('store_id', storeId).eq('profile_id', profileId)
+    await supabase.from('store_members').update({ active: false }).eq('store_id', selectedStoreId).eq('profile_id', profileId)
     setMembers(p => p.filter(m => m.profiles?.id !== profileId))
   }
 
@@ -273,17 +371,18 @@ export default function StaffPage() {
 
   async function reactivate(profileId: string) {
     if (!confirm('이 직원을 복직 처리할까요?')) return
-    await supabase.from('store_members').update({ active: true, resigned: false, resigned_at: null, resign_reason: null }).eq('store_id', storeId).eq('profile_id', profileId)
+    await supabase.from('store_members').update({ active: true, resigned: false, resigned_at: null, resign_reason: null }).eq('store_id', selectedStoreId).eq('profile_id', profileId)
     await supabase.from('profiles').update({ resigned: false }).eq('id', profileId)
-    await loadMembers(storeId)
+    await loadMembers(selectedStoreId)
     alert('복직 처리되었습니다!')
   }
 
   return (
     <div>
-      {editingProfile && <EditInfoModal profile={editingProfile} member={members.find(m => m.profiles?.id === editingProfile?.id)} storeId={storeId} onClose={() => setEditingProfile(null)} onSaved={() => loadMembers(storeId)} />}
-      {resigningProfile && <ResignModal profile={resigningProfile} storeId={storeId} onClose={() => setResigningProfile(null)} onSaved={() => loadMembers(storeId)} />}
+      {editingProfile && <EditInfoModal profile={editingProfile} member={members.find(m => m.profiles?.id === editingProfile?.id)} storeId={selectedStoreId} onClose={() => setEditingProfile(null)} onSaved={() => loadMembers(selectedStoreId)} />}
+      {resigningProfile && <ResignModal profile={resigningProfile} storeId={selectedStoreId} onClose={() => setResigningProfile(null)} onSaved={() => loadMembers(selectedStoreId)} />}
       {showPinModal && <PinViewModal members={members} onClose={() => setShowPinModal(false)} />}
+      {personalProfile && <PersonalInfoModal profile={personalProfile} onClose={() => setPersonalProfile(null)} />}
 
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
         <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>👥 직원관리</span>
@@ -302,6 +401,26 @@ export default function StaffPage() {
           )}
         </div>
       </div>
+
+      {/* 전지점 선택 (대표 + 복수 매장) */}
+      {isOwner && allStores.length > 1 && (
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:11, color:'#888', marginBottom:6, fontWeight:600 }}>🏪 지점 선택 (대표 전용)</div>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            {allStores.map(m => {
+              const isSel = m.stores?.id === selectedStoreId
+              return (
+                <button key={m.id} onClick={() => switchViewStore(m.stores?.id, m.stores?.name)}
+                  style={{ padding:'6px 14px', borderRadius:8, border:`1px solid ${isSel ? '#FF6B35' : '#E8ECF0'}`,
+                    background: isSel ? 'rgba(255,107,53,0.1)' : '#F8F9FB',
+                    color: isSel ? '#FF6B35' : '#888', fontSize:12, fontWeight: isSel ? 700 : 500, cursor:'pointer' }}>
+                  {isSel ? '✓ ' : ''}{m.stores?.name}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div style={{ ...bx, border:'1px solid rgba(255,107,53,0.3)', marginBottom:16 }}>
@@ -327,7 +446,9 @@ export default function StaffPage() {
         </div>
       )}
 
-      <div style={{ fontSize:12, color:'#999', marginBottom:8 }}>재직 중 {members.length}명</div>
+      <div style={{ fontSize:12, color:'#999', marginBottom:8 }}>
+        {allStores.length > 1 && isOwner ? `📍 ${selectedStoreName} · ` : ''}재직 중 {members.length}명
+      </div>
 
       {members.map(m => {
         const p = m.profiles
@@ -353,6 +474,10 @@ export default function StaffPage() {
                   <button onClick={() => setEditingProfile(p)}
                     style={{ padding:'4px 10px', borderRadius:6, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:10, cursor:'pointer', fontWeight:600 }}>
                     ✏️ 정보수정
+                  </button>
+                  <button onClick={() => setPersonalProfile(p)}
+                    style={{ padding:'4px 10px', borderRadius:6, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>
+                    💼 급여정보
                   </button>
                   <button onClick={() => resetPin(p.id)}
                     style={{ padding:'4px 10px', borderRadius:6, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:10, cursor:'pointer' }}>
@@ -380,7 +505,6 @@ export default function StaffPage() {
         </div>
       )}
 
-      {/* 퇴사자 목록 */}
       {isOwner && (
         <div style={{ marginTop:8 }}>
           <button onClick={() => setShowResigned(p => !p)}
@@ -417,10 +541,16 @@ export default function StaffPage() {
                           </div>
                         )}
                       </div>
-                      <button onClick={() => reactivate(p.id)}
-                        style={{ padding:'5px 10px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600, flexShrink:0 }}>
-                        복직
-                      </button>
+                      <div style={{ display:'flex', flexDirection:'column', gap:4, flexShrink:0 }}>
+                        <button onClick={() => setPersonalProfile(p)}
+                          style={{ padding:'4px 8px', borderRadius:7, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>
+                          💼 급여
+                        </button>
+                        <button onClick={() => reactivate(p.id)}
+                          style={{ padding:'5px 10px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>
+                          복직
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )
