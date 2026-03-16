@@ -796,10 +796,33 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         }
       }
 
-      // ② 완료된 텍스트 목록 (이월 대상에서 제외)
-      const completedTexts = new Set(todayItems.filter((i: any) => i.done).map((i: any) => i.text))
-      const todayTexts = new Set(todayItems.map((i: any) => i.text))
-      const newItems = [...todayItems]
+      // ② 최근 14일 전체에서 완료(done:true)된 텍스트 수집 → 이월 완전 차단
+      const doneTextsEver = new Set<string>()
+      for (let d = 0; d <= 14; d++) {
+        const pd = new Date(todayStr)
+        pd.setDate(pd.getDate() - d)
+        const pdStr = pd.toISOString().slice(0, 10)
+        const pdItems = clMap[pdStr] || []
+        pdItems.filter((i: any) => i.done).forEach((i: any) => doneTextsEver.add(i.text))
+      }
+
+      // ③ 이미 오늘에 이월돼 있는 항목 중 완료된 텍스트는 제거
+      const cleanedTodayItems = todayItems.filter((i: any) => {
+        if (i.carriedFrom && doneTextsEver.has(i.text)) return false  // 이미 완료된 이월항목 제거
+        return true
+      })
+      if (cleanedTodayItems.length < todayItems.length) {
+        // 오늘 데이터 DB에서 즉시 업데이트
+        const { data: todayRows } = await supabase.from('notices').select('id')
+          .eq('notice_date', todayStr).eq('title', clTitle).eq('created_by', userName)
+        if (todayRows && todayRows.length > 0) {
+          await supabase.from('notices').update({ content: JSON.stringify(cleanedTodayItems) }).eq('id', todayRows[0].id)
+        }
+        setChecklistMap(p => ({ ...p, [todayStr]: cleanedTodayItems }))
+      }
+
+      const todayTexts = new Set(cleanedTodayItems.map((i: any) => i.text))
+      const newItems = [...cleanedTodayItems]
       let changed = false
 
       for (let d = 1; d <= 14; d++) {
@@ -812,7 +835,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
           if (i.done) return false
           if (i.carriedForward) return false
           if (todayTexts.has(i.text)) return false
-          if (completedTexts.has(i.text)) return false  // 오늘 완료된 텍스트는 이월 안함
+          if (doneTextsEver.has(i.text)) return false  // 최근 어딘가에서 완료됐으면 절대 이월 안함
           if (i.repeat === 'monthly') return new Date(prevDate).getDate() === new Date(todayStr).getDate()
           return true
         })
