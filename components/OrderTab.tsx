@@ -248,6 +248,7 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
   const [selectedPlace, setSelectedPlace] = useState('')
   const [memo, setMemo] = useState('')
   const [saving, setSaving] = useState(false)
+  const [receivedAt, setReceivedAt] = useState(new Date().toISOString().split('T')[0])
 
   const hasInventoryLink = !!order.inventory_item_id
 
@@ -314,7 +315,7 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
       }, { onConflict: 'item_id,place' })
     }
 
-    await supabase.from('orders').update({ status: 'received', received_by: userName, received_at: new Date().toISOString() }).eq('id', order.id)
+    await supabase.from('orders').update({ status: 'received', received_by: userName, received_at: receivedAt ? new Date(receivedAt + 'T12:00:00').toISOString() : new Date().toISOString() }).eq('id', order.id)
     setSaving(false)
     onSaved(); onClose()
   }
@@ -339,6 +340,11 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>실제 수령 수량</div>
               <input type="number" step="0.1" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>📅 수령 날짜 <span style={{ color: '#aaa', fontWeight: 400 }}>(까먹었을 때 수정 가능)</span></div>
+              <input type="date" value={receivedAt} onChange={e => setReceivedAt(e.target.value)} style={inp} />
             </div>
 
             {hasInventoryLink && (

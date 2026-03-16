@@ -76,6 +76,7 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
   const [selectedPlace, setSelectedPlace] = useState('')
   const [memo, setMemo] = useState('')
   const [saving, setSaving] = useState(false)
+  const [receivedAt, setReceivedAt] = useState(new Date().toISOString().split('T')[0])
   const hasInventoryLink = !!order.inventory_item_id
 
   async function handleQtyNext() {
@@ -121,7 +122,7 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
         updated_by: userName, updated_at: new Date().toISOString(),
       }, { onConflict: 'item_id,place' })
     }
-    await supabase.from('orders').update({ status: 'received', received_by: userName, received_at: new Date().toISOString() }).eq('id', order.id)
+    await supabase.from('orders').update({ status: 'received', received_by: userName, received_at: receivedAt ? new Date(receivedAt + 'T12:00:00').toISOString() : new Date().toISOString() }).eq('id', order.id)
     setSaving(false); onDone(); onClose()
   }
 
@@ -139,6 +140,10 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>실제 수령 수량</div>
               <input type="number" step="0.1" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>📅 수령 날짜 <span style={{ color: '#aaa', fontWeight: 400 }}>(까먹었을 때 수정 가능)</span></div>
+              <input type="date" value={receivedAt} onChange={e => setReceivedAt(e.target.value)} style={inp} />
             </div>
             {hasInventoryLink && (
               <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.2)', marginBottom: 10, fontSize: 12, color: '#6C5CE7' }}>
@@ -187,6 +192,98 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
             </div>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ─── 발주처 관리 모달 (관리자용 — 전 지점 통합) ───
+function SupplierModal({ storeIds, onClose }: { storeIds: string[]; onClose: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [selectedStore, setSelectedStore] = useState(storeIds[0] || '')
+  const [suppliers, setSuppliers] = useState<any[]>([])
+  const [newName, setNewName] = useState('')
+  const [newMemo, setNewMemo] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editMemo, setEditMemo] = useState('')
+  const inp2 = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
+
+  useEffect(() => { if (selectedStore) load() }, [selectedStore])
+
+  async function load() {
+    const { data } = await supabase.from('order_suppliers').select('*').eq('store_id', selectedStore).order('created_at')
+    setSuppliers(data || [])
+  }
+  async function handleAdd() {
+    if (!newName.trim()) return
+    await supabase.from('order_suppliers').insert({ store_id: selectedStore, name: newName.trim(), memo: newMemo.trim() || null })
+    setNewName(''); setNewMemo(''); load()
+  }
+  async function handleUpdate(id: string) {
+    await supabase.from('order_suppliers').update({ name: editName, memo: editMemo || null }).eq('id', id)
+    setEditId(null); load()
+  }
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`"${name}" 발주처를 삭제할까요?`)) return
+    await supabase.from('order_suppliers').delete().eq('id', id)
+    load()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', width: '100%', maxWidth: 480, borderRadius: '20px 20px 0 0', padding: 20, maxHeight: '85vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>🏪 발주처 관리</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* 지점 선택 */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>지점 선택</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {STORES.map(s => (
+              <button key={s.id} onClick={() => setSelectedStore(s.id)}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 10, border: selectedStore === s.id ? `2px solid ${s.color}` : '1px solid #E8ECF0', background: selectedStore === s.id ? s.bg : '#F8F9FB', color: selectedStore === s.id ? s.color : '#888', fontSize: 12, fontWeight: selectedStore === s.id ? 700 : 400, cursor: 'pointer' }}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 추가 폼 */}
+        <div style={{ border: '2px dashed rgba(255,107,53,0.3)', borderRadius: 14, padding: 14, marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#FF6B35', marginBottom: 10 }}>새 발주처 추가</div>
+          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="발주처 이름 (예: 해산물 업체)" style={{ ...inp2, marginBottom: 8 }} />
+          <input value={newMemo} onChange={e => setNewMemo(e.target.value)} placeholder="메모 (선택)" style={{ ...inp2, marginBottom: 10 }} />
+          <button onClick={handleAdd} style={{ width: '100%', padding: '9px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>추가</button>
+        </div>
+
+        {/* 목록 */}
+        {suppliers.map(s => (
+          editId === s.id ? (
+            <div key={s.id} style={{ background: 'rgba(255,107,53,0.05)', borderRadius: 12, padding: 12, marginBottom: 8, border: '1px solid rgba(255,107,53,0.2)' }}>
+              <input value={editName} onChange={e => setEditName(e.target.value)} style={{ ...inp2, marginBottom: 8 }} />
+              <input value={editMemo} onChange={e => setEditMemo(e.target.value)} placeholder="메모" style={{ ...inp2, marginBottom: 10 }} />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => handleUpdate(s.id)} style={{ flex: 1, padding: '7px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
+                <button onClick={() => setEditId(null)} style={{ padding: '7px 14px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer', fontSize: 12 }}>취소</button>
+              </div>
+            </div>
+          ) : (
+            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8F9FB', borderRadius: 12, padding: '10px 14px', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{s.name}</div>
+                {s.memo && <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{s.memo}</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => { setEditId(s.id); setEditName(s.name); setEditMemo(s.memo || '') }} style={{ background: 'none', border: 'none', fontSize: 11, color: '#aaa', cursor: 'pointer' }}>수정</button>
+                <button onClick={() => handleDelete(s.id, s.name)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#E84393', cursor: 'pointer' }}>삭제</button>
+              </div>
+            </div>
+          )
+        ))}
+        {suppliers.length === 0 && <div style={{ textAlign: 'center', padding: 24, color: '#bbb', fontSize: 13 }}>이 지점에 등록된 발주처가 없어요</div>}
       </div>
     </div>
   )
@@ -939,6 +1036,7 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const [showDirectIssue, setShowDirectIssue] = useState(false)
   const [showAddOrder, setShowAddOrder] = useState(false)
+  const [showSupplierMgr, setShowSupplierMgr] = useState(false)
 
   const searchResults = useMemo(() => {
     const q = searchQ.trim()
@@ -1048,13 +1146,15 @@ export default function AdminOrderTab({ userName, places }: { userName: string; 
   return (
     <div>
       {showAddOrder && <AdminAddOrderModal userName={userName} onClose={() => setShowAddOrder(false)} onSaved={() => { loadOrders(); setSubTab('pending') }} />
-      }{showDirectIssue && <DirectIssueModal userName={userName} onClose={() => setShowDirectIssue(false)} onSaved={() => { loadOrders(); setSubTab('issues') }} />}
+      }{showDirectIssue && <DirectIssueModal userName={userName} onClose={() => setShowDirectIssue(false)} onSaved={() => { loadOrders(); setSubTab('issues') }} />
+      }{showSupplierMgr && <SupplierModal storeIds={STORES.map(s => s.id)} onClose={() => setShowSupplierMgr(false)} />}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
           <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>👑 관리자 발주 현황</span>
           <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>전지점 통합 뷰</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => setShowSupplierMgr(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(45,198,214,0.1)', border: '1px solid rgba(45,198,214,0.3)', color: '#2DC6D6', fontSize: 11, cursor: 'pointer' }}>🏪 발주처</button>
           <button onClick={() => setShowAddOrder(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>+ 발주 추가</button>
           <button onClick={() => setShowDirectIssue(true)} style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(232,67,147,0.1)', border: '1px solid rgba(232,67,147,0.3)', color: '#E84393', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>🚨 이슈등록</button>
           <button onClick={loadOrders} style={{ padding: '6px 12px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>🔄 새로고침</button>
