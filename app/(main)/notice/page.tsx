@@ -806,23 +806,11 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         pdItems.filter((i: any) => i.done).forEach((i: any) => doneTextsEver.add(i.text))
       }
 
-      // ③ 이미 오늘에 이월돼 있는 항목 중 완료된 텍스트는 제거
-      const cleanedTodayItems = todayItems.filter((i: any) => {
-        if (i.carriedFrom && doneTextsEver.has(i.text)) return false  // 이미 완료된 이월항목 제거
-        return true
-      })
-      if (cleanedTodayItems.length < todayItems.length) {
-        // 오늘 데이터 DB에서 즉시 업데이트
-        const { data: todayRows } = await supabase.from('notices').select('id')
-          .eq('notice_date', todayStr).eq('title', clTitle).eq('created_by', userName)
-        if (todayRows && todayRows.length > 0) {
-          await supabase.from('notices').update({ content: JSON.stringify(cleanedTodayItems) }).eq('id', todayRows[0].id)
-        }
-        setChecklistMap(p => ({ ...p, [todayStr]: cleanedTodayItems }))
-      }
+      // ③ 이미 오늘에 이월돼 있는 항목 중 완료된 텍스트는 화면에서만 숨김 (DB 건드리지 않음)
+      // → doneTextsEver 체크로 새 이월 차단은 아래 루프에서 처리
 
-      const todayTexts = new Set(cleanedTodayItems.map((i: any) => i.text))
-      const newItems = [...cleanedTodayItems]
+      const todayTexts = new Set(todayItems.map((i: any) => i.text))
+      const newItems = [...todayItems]
       let changed = false
 
       for (let d = 1; d <= 14; d++) {
