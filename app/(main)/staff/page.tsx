@@ -174,6 +174,7 @@ function ResignModal({ profile, storeId, onClose, onSaved }: {
   )
 }
 
+// ─── 개인정보 열람 모달 (대표 전용) ───
 function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [info, setInfo] = useState<any>(null)
@@ -184,7 +185,7 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
   useEffect(() => {
     async function load() {
       const { data } = await supabase.from('profiles')
-        .select('bank_name, bank_account, bank_holder, payslip_email, id_card_path, bankbook_path')
+        .select('bank_name, bank_account, bank_holder, payslip_email, id_card_path, bankbook_path, id_name, id_number, id_address')
         .eq('id', profile.id).maybeSingle()
       setInfo(data)
       if (data?.id_card_path) {
@@ -200,7 +201,7 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
     load()
   }, [profile.id])
 
-  const hasInfo = info?.bank_account || info?.payslip_email || info?.id_card_path || info?.bankbook_path
+  const hasInfo = info?.bank_account || info?.payslip_email || info?.id_card_path || info?.bankbook_path || info?.id_name || info?.id_number
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
@@ -223,6 +224,32 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
           </div>
         ) : (
           <div style={{ marginTop:16 }}>
+            {/* 신분증 정보 */}
+            {(info.id_name || info.id_number || info.id_address) && (
+              <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:8 }}>🪪 신분증 정보</div>
+                {info.id_name && (
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                    <span style={{ fontSize:12, color:'#aaa' }}>이름</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.id_name}</span>
+                  </div>
+                )}
+                {info.id_number && (
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                    <span style={{ fontSize:12, color:'#aaa' }}>주민등록번호</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.id_number}</span>
+                  </div>
+                )}
+                {info.id_address && (
+                  <div style={{ display:'flex', justifyContent:'space-between' }}>
+                    <span style={{ fontSize:12, color:'#aaa' }}>주소</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e', textAlign:'right', maxWidth:'60%' }}>{info.id_address}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 계좌 정보 */}
             {(info.bank_name || info.bank_account || info.bank_holder) && (
               <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:8 }}>🏦 계좌 정보</div>
@@ -250,6 +277,7 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
                 )}
               </div>
             )}
+
             {info.payslip_email && (
               <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:6 }}>📧 급여명세서 이메일</div>
@@ -275,6 +303,119 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
   )
 }
 
+// ─── 근로계약서 관리 모달 (대표 전용) ───
+function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: string; onClose: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [contracts, setContracts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const ownerNm = JSON.parse(localStorage.getItem('mj_user') || '{}').nm
+
+  useEffect(() => { loadContracts() }, [])
+
+  async function loadContracts() {
+    const { data } = await supabase.from('staff_contracts')
+      .select('*')
+      .eq('profile_id', profile.id)
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false })
+    setContracts(data || [])
+    setLoading(false)
+  }
+
+  async function uploadFiles(files: FileList) {
+    setUploading(true)
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const path = `${storeId}/${profile.id}/${Date.now()}_${file.name}`
+      const { error } = await supabase.storage.from('staff-contracts').upload(path, file)
+      if (error) { alert('업로드 실패: ' + error.message); continue }
+      await supabase.from('staff_contracts').insert({
+        store_id: storeId,
+        profile_id: profile.id,
+        file_name: file.name,
+        file_path: path,
+        uploaded_by: ownerNm,
+      })
+    }
+    await loadContracts()
+    setUploading(false)
+  }
+
+  async function deleteContract(id: string, filePath: string) {
+    if (!confirm('이 계약서를 삭제할까요?')) return
+    await supabase.storage.from('staff-contracts').remove([filePath])
+    await supabase.from('staff_contracts').delete().eq('id', id)
+    setContracts(p => p.filter(c => c.id !== id))
+  }
+
+  async function downloadContract(filePath: string, fileName: string) {
+    const { data } = await supabase.storage.from('staff-contracts').download(filePath)
+    if (!data) return
+    const url = URL.createObjectURL(data)
+    const a = document.createElement('a'); a.href = url; a.download = fileName; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
+      <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'85vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+          <div>
+            <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>📄 {profile.nm}님 근로계약서</div>
+            <div style={{ fontSize:11, color:'#aaa', marginTop:2 }}>PDF 파일 여러 개 업로드 가능</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
+        </div>
+
+        {/* 업로드 버튼 */}
+        <div onClick={() => fileRef.current?.click()}
+          style={{ padding:'16px 0', borderRadius:12, border:'2px dashed #E0E4E8', textAlign:'center', cursor:'pointer', background:'#F8F9FB', marginBottom:16 }}>
+          <div style={{ fontSize:24, marginBottom:4 }}>📎</div>
+          <div style={{ fontSize:13, color:'#aaa', fontWeight:600 }}>{uploading ? '업로드 중...' : 'PDF 파일 선택 (여러 개 가능)'}</div>
+        </div>
+        <input ref={fileRef} type="file" accept=".pdf" multiple style={{ display:'none' }}
+          onChange={async e => {
+            if (e.target.files && e.target.files.length > 0) {
+              await uploadFiles(e.target.files)
+              e.target.value = ''
+            }
+          }} />
+
+        {/* 계약서 목록 */}
+        {loading ? (
+          <div style={{ textAlign:'center', padding:24, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
+        ) : contracts.length === 0 ? (
+          <div style={{ textAlign:'center', padding:24, color:'#bbb' }}>
+            <div style={{ fontSize:13 }}>업로드된 계약서가 없습니다</div>
+          </div>
+        ) : contracts.map((c: any) => (
+          <div key={c.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', borderRadius:10, background:'#F8F9FB', border:'1px solid #E8ECF0', marginBottom:8 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:'#1a1a2e', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📎 {c.file_name}</div>
+              <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>{new Date(c.created_at).toLocaleDateString('ko')} · {c.uploaded_by}</div>
+            </div>
+            <div style={{ display:'flex', gap:6, flexShrink:0, marginLeft:8 }}>
+              <button onClick={() => downloadContract(c.file_path, c.file_name)}
+                style={{ padding:'5px 10px', borderRadius:8, background:'linear-gradient(135deg,#6C5CE7,#2DC6D6)', border:'none', color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                ⬇️
+              </button>
+              <button onClick={() => deleteContract(c.id, c.file_path)}
+                style={{ padding:'5px 10px', borderRadius:8, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:11, cursor:'pointer', fontWeight:600 }}>
+                🗑️
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════
+// 메인
+// ═══════════════════════════════════════
 export default function StaffPage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
@@ -287,6 +428,7 @@ export default function StaffPage() {
   const [editingProfile, setEditingProfile] = useState<any>(null)
   const [resigningProfile, setResigningProfile] = useState<any>(null)
   const [personalProfile, setPersonalProfile] = useState<any>(null)
+  const [contractProfile, setContractProfile] = useState<any>(null)
   const [nm, setNm] = useState('')
   const [role, setRole] = useState('staff')
   const [phone, setPhone] = useState('')
@@ -383,6 +525,7 @@ export default function StaffPage() {
       {resigningProfile && <ResignModal profile={resigningProfile} storeId={selectedStoreId} onClose={() => setResigningProfile(null)} onSaved={() => loadMembers(selectedStoreId)} />}
       {showPinModal && <PinViewModal members={members} onClose={() => setShowPinModal(false)} />}
       {personalProfile && <PersonalInfoModal profile={personalProfile} onClose={() => setPersonalProfile(null)} />}
+      {contractProfile && <ContractModal profile={contractProfile} storeId={selectedStoreId} onClose={() => setContractProfile(null)} />}
 
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
         <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>👥 직원관리</span>
@@ -402,7 +545,6 @@ export default function StaffPage() {
         </div>
       </div>
 
-      {/* 전지점 선택 (대표 + 복수 매장) */}
       {isOwner && allStores.length > 1 && (
         <div style={{ marginBottom:16 }}>
           <div style={{ fontSize:11, color:'#888', marginBottom:6, fontWeight:600 }}>🏪 지점 선택 (대표 전용)</div>
@@ -479,6 +621,10 @@ export default function StaffPage() {
                     style={{ padding:'4px 10px', borderRadius:6, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>
                     💼 급여정보
                   </button>
+                  <button onClick={() => setContractProfile(p)}
+                    style={{ padding:'4px 10px', borderRadius:6, background:'rgba(45,198,214,0.08)', border:'1px solid rgba(45,198,214,0.2)', color:'#2DC6D6', fontSize:10, cursor:'pointer', fontWeight:600 }}>
+                    📄 계약서
+                  </button>
                   <button onClick={() => resetPin(p.id)}
                     style={{ padding:'4px 10px', borderRadius:6, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:10, cursor:'pointer' }}>
                     PIN 초기화
@@ -545,6 +691,10 @@ export default function StaffPage() {
                         <button onClick={() => setPersonalProfile(p)}
                           style={{ padding:'4px 8px', borderRadius:7, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>
                           💼 급여
+                        </button>
+                        <button onClick={() => setContractProfile(p)}
+                          style={{ padding:'4px 8px', borderRadius:7, background:'rgba(45,198,214,0.08)', border:'1px solid rgba(45,198,214,0.2)', color:'#2DC6D6', fontSize:10, cursor:'pointer', fontWeight:600 }}>
+                          📄 계약서
                         </button>
                         <button onClick={() => reactivate(p.id)}
                           style={{ padding:'5px 10px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>

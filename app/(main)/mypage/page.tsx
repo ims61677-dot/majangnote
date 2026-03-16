@@ -41,16 +41,12 @@ export default function MyPage() {
   const supabase = createSupabaseBrowserClient()
   const [user, setUser] = useState<any>(null)
   const [storeId, setStoreId] = useState('')
-  const [contracts, setContracts] = useState<any[]>([])
-  const [files, setFiles] = useState<Record<string, any[]>>({})
-  const [view, setView] = useState<string | null>(null)
   const [showPw, setShowPw] = useState(false)
   const [curPw, setCurPw] = useState('')
   const [newPw, setNewPw] = useState('')
   const [newPw2, setNewPw2] = useState('')
   const [pwMsg, setPwMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
-  const [uploadTarget, setUploadTarget] = useState<string | null>(null)
   const [notifSettings, setNotifSettings] = useState<Record<string, boolean>>(DEFAULT_SETTINGS)
   const [notifSaving, setNotifSaving] = useState(false)
   const [notifSaved, setNotifSaved] = useState(false)
@@ -73,17 +69,24 @@ export default function MyPage() {
   const [bankbookPreview, setBankbookPreview] = useState('')
   const [personalSaving, setPersonalSaving] = useState(false)
   const [personalSaved, setPersonalSaved] = useState(false)
+  const [idName, setIdName] = useState('')
+  const [idNumber, setIdNumber] = useState('')
+  const [idAddress, setIdAddress] = useState('')
   const idCardRef = useRef<HTMLInputElement>(null)
   const bankbookRef = useRef<HTMLInputElement>(null)
+
+  // 근로계약서
+  const [contracts, setContracts] = useState<any[]>([])
+  const [showContracts, setShowContracts] = useState(false)
 
   useEffect(() => {
     const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
     const s = JSON.parse(localStorage.getItem('mj_store') || '{}')
     if (!u.id) return
     setUser(u); setStoreId(s.id)
-    loadContracts(u.id, s.id)
     loadNotifSettings(u.id, s.id)
     loadPersonalInfo(u.id)
+    loadContracts(u.id, s.id)
     if (u.role === 'owner') loadStoreLocation(s.id)
   }, [])
 
@@ -96,9 +99,26 @@ export default function MyPage() {
     document.head.appendChild(script)
   }, [])
 
+  async function loadContracts(uid: string, sid: string) {
+    const { data } = await supabase.from('staff_contracts')
+      .select('*')
+      .eq('profile_id', uid)
+      .eq('store_id', sid)
+      .order('created_at', { ascending: false })
+    setContracts(data || [])
+  }
+
+  async function downloadContract(filePath: string, fileName: string) {
+    const { data } = await supabase.storage.from('staff-contracts').download(filePath)
+    if (!data) return
+    const url = URL.createObjectURL(data)
+    const a = document.createElement('a'); a.href = url; a.download = fileName; a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function loadPersonalInfo(uid: string) {
     const { data } = await supabase.from('profiles')
-      .select('bank_name, bank_account, bank_holder, payslip_email, id_card_path, bankbook_path')
+      .select('bank_name, bank_account, bank_holder, payslip_email, id_card_path, bankbook_path, id_name, id_number, id_address')
       .eq('id', uid).maybeSingle()
     if (data) {
       setBankName(data.bank_name || '')
@@ -107,6 +127,9 @@ export default function MyPage() {
       setPayslipEmail(data.payslip_email || '')
       setIdCardPath(data.id_card_path || '')
       setBankbookPath(data.bankbook_path || '')
+      setIdName(data.id_name || '')
+      setIdNumber(data.id_number || '')
+      setIdAddress(data.id_address || '')
       if (data.id_card_path) {
         const { data: s } = await supabase.storage.from('staff-documents').createSignedUrl(data.id_card_path, 3600)
         if (s?.signedUrl) setIdCardPreview(s.signedUrl)
@@ -140,6 +163,9 @@ export default function MyPage() {
       payslip_email: payslipEmail || null,
       id_card_path: idCardPath || null,
       bankbook_path: bankbookPath || null,
+      id_name: idName || null,
+      id_number: idNumber || null,
+      id_address: idAddress || null,
     }).eq('id', user.id)
     setPersonalSaving(false)
     setPersonalSaved(true)
@@ -160,13 +186,7 @@ export default function MyPage() {
     new window.daum.Postcode({
       oncomplete: async (data: any) => {
         const fullAddress = data.roadAddress || data.jibunAddress
-        setStoreAddress(fullAddress)
-        try {
-          const query = encodeURIComponent(fullAddress)
-          const res = await fetch('https://nominatim.openstreetmap.org/search?q=' + query + '&format=json&limit=1', { headers: { 'Accept-Language': 'ko' } })
-          const json = await res.json()
-          if (json && json.length > 0) { setStoreLat(parseFloat(json[0].lat)); setStoreLng(parseFloat(json[0].lon)) }
-        } catch (e) { console.error('좌표 변환 실패:', e) }
+        setIdAddress(fullAddress)
       }
     }).open()
   }
@@ -179,18 +199,20 @@ export default function MyPage() {
     setTimeout(() => setLocationSaved(false), 2500)
   }
 
-  async function loadContracts(uid: string, sid: string) {
-    const { data } = await supabase.from('contracts')
-      .select('*, contract_files(*)')
-      .eq('store_id', sid)
-      .or(`to_profile.eq.${uid},from_nm.eq.${JSON.parse(localStorage.getItem('mj_user')||'{}').nm}`)
-      .order('created_at', { ascending: false })
-    if (data) {
-      setContracts(data)
-      const fm: Record<string, any[]> = {}
-      data.forEach((c: any) => { if (c.contract_files) fm[c.id] = c.contract_files })
-      setFiles(fm)
-    }
+  function openStorAddressSearch() {
+    if (!window.daum?.Postcode) { alert('주소 검색 서비스를 불러오는 중입니다. 잠시 후 다시 시도해주세요.'); return }
+    new window.daum.Postcode({
+      oncomplete: async (data: any) => {
+        const fullAddress = data.roadAddress || data.jibunAddress
+        setStoreAddress(fullAddress)
+        try {
+          const query = encodeURIComponent(fullAddress)
+          const res = await fetch('https://nominatim.openstreetmap.org/search?q=' + query + '&format=json&limit=1', { headers: { 'Accept-Language': 'ko' } })
+          const json = await res.json()
+          if (json && json.length > 0) { setStoreLat(parseFloat(json[0].lat)); setStoreLng(parseFloat(json[0].lon)) }
+        } catch (e) { console.error('좌표 변환 실패:', e) }
+      }
+    }).open()
   }
 
   async function loadNotifSettings(uid: string, sid: string) {
@@ -213,31 +235,6 @@ export default function MyPage() {
     setNotifSettings(next); saveNotifSettings(next)
   }
 
-  async function signContract(id: string) {
-    await supabase.from('contracts').update({ status: 'signed', signed_at: new Date().toISOString().split('T')[0] }).eq('id', id)
-    setContracts(p => p.map(c => c.id === id ? { ...c, status: 'signed', signed_at: new Date().toISOString().split('T')[0] } : c))
-  }
-
-  async function uploadFile(contractId: string, file: File) {
-    const path = `${storeId}/${contractId}/${Date.now()}_${file.name}`
-    const { error } = await supabase.storage.from('contract-files').upload(path, file)
-    if (error) { alert('업로드 실패: ' + error.message); return }
-    const nm = JSON.parse(localStorage.getItem('mj_user') || '{}').nm
-    const { data: rec } = await supabase.from('contract_files').insert({
-      contract_id: contractId, profile_id: user?.id,
-      file_name: file.name, file_size: file.size, storage_path: path, uploaded_by: nm
-    }).select().single()
-    if (rec) setFiles(p => ({ ...p, [contractId]: [...(p[contractId] || []), rec] }))
-  }
-
-  async function downloadFile(storagePath: string, fileName: string) {
-    const { data } = await supabase.storage.from('contract-files').download(storagePath)
-    if (!data) return
-    const url = URL.createObjectURL(data)
-    const a = document.createElement('a'); a.href = url; a.download = fileName; a.click()
-    URL.revokeObjectURL(url)
-  }
-
   async function changePw() {
     if (!user) return
     if (curPw !== user.pin) { setPwMsg('현재 PIN이 맞지 않습니다'); return }
@@ -251,7 +248,6 @@ export default function MyPage() {
     setTimeout(() => setPwMsg(''), 3000)
   }
 
-  const pending = contracts.filter(c => c.status === 'pending' && c.to_profile === user?.id)
   const visibleNotifItems = NOTIF_ITEMS.filter(item => item.roles.includes(user?.role || 'staff'))
   const isOwner = user?.role === 'owner'
   const personalComplete = bankAccount && bankHolder && payslipEmail && idCardPath && bankbookPath
@@ -298,9 +294,27 @@ export default function MyPage() {
               대표자만 열람 가능하며 안전하게 보관됩니다.
             </div>
 
-            {/* 신분증 업로드 */}
+            {/* 신분증 정보 */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>🪪 신분증 사본</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>🪪 신분증 정보</div>
+
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>이름</div>
+              <input value={idName} onChange={e => setIdName(e.target.value)} placeholder="신분증 상 이름" style={{ ...inp, marginBottom: 8 }} />
+
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>주민등록번호</div>
+              <input value={idNumber} onChange={e => setIdNumber(e.target.value)} placeholder="000000-0000000" style={{ ...inp, marginBottom: 8 }} />
+
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>주소</div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <input value={idAddress} onChange={e => setIdAddress(e.target.value)} placeholder="주소" style={{ ...inp, flex: 1, marginBottom: 0 }} />
+                <button onClick={openAddressSearch}
+                  style={{ padding: '8px 12px', borderRadius: 8, background: 'linear-gradient(135deg,#6C5CE7,#2DC6D6)', border: 'none', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  🔍 검색
+                </button>
+              </div>
+
+              {/* 신분증 이미지 */}
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>신분증 사본 이미지</div>
               {idCardPreview ? (
                 <div style={{ position: 'relative', marginBottom: 8 }}>
                   <img src={idCardPreview} alt="신분증" style={{ width: '100%', borderRadius: 10, border: '1px solid #E8ECF0', maxHeight: 160, objectFit: 'cover' }} />
@@ -347,7 +361,6 @@ export default function MyPage() {
                   const file = e.target.files?.[0]
                   if (file) { await uploadDocImage(file, 'bankbook'); e.target.value = '' }
                 }} />
-
               <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>은행명</div>
@@ -379,6 +392,42 @@ export default function MyPage() {
         )}
       </div>
 
+      {/* 근로계약서 */}
+      <div style={bx}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowContracts(p => !p)}>
+          <div>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>📄 근로계약서</span>
+            {!showContracts && (
+              <div style={{ fontSize: 11, marginTop: 3, color: contracts.length > 0 ? '#00B894' : '#aaa' }}>
+                {contracts.length > 0 ? `✓ ${contracts.length}개 파일` : '등록된 계약서가 없습니다'}
+              </div>
+            )}
+          </div>
+          <span style={{ fontSize: 14, color: '#bbb' }}>{showContracts ? '▲' : '▼'}</span>
+        </div>
+        {showContracts && (
+          <div style={{ marginTop: 14 }}>
+            {contracts.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px 0', color: '#bbb' }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>📭</div>
+                <div style={{ fontSize: 13 }}>대표가 계약서를 업로드하면 여기서 확인할 수 있어요</div>
+              </div>
+            ) : contracts.map((c: any) => (
+              <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 10, background: '#F8F9FB', border: '1px solid #E8ECF0', marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>📎 {c.file_name}</div>
+                  <div style={{ fontSize: 11, color: '#bbb', marginTop: 2 }}>{new Date(c.created_at).toLocaleDateString('ko')}</div>
+                </div>
+                <button onClick={() => downloadContract(c.file_path, c.file_name)}
+                  style={{ padding: '6px 12px', borderRadius: 8, background: 'linear-gradient(135deg,#6C5CE7,#2DC6D6)', border: 'none', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  ⬇️ 다운
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* 매장 위치 설정 - owner 전용 */}
       {isOwner && (
         <div style={bx}>
@@ -398,7 +447,7 @@ export default function MyPage() {
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <input value={storeAddress} readOnly placeholder="아래 버튼으로 주소를 검색하세요"
                   style={{ ...inp, flex: 1, background: '#F4F6F9', cursor: 'default', color: storeAddress ? '#1a1a2e' : '#bbb' }} />
-                <button onClick={openAddressSearch}
+                <button onClick={openStorAddressSearch}
                   style={{ padding: '8px 14px', borderRadius: 8, background: 'linear-gradient(135deg,#6C5CE7,#2DC6D6)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                   🔍 검색
                 </button>
@@ -420,72 +469,6 @@ export default function MyPage() {
           )}
         </div>
       )}
-
-      {/* 서명 대기 */}
-      {pending.length > 0 && (
-        <div style={{ background: '#FFF5F0', border: '1px solid rgba(255,107,53,0.3)', borderRadius: 14, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#FF6B35', marginBottom: 10 }}>📄 서명 대기 {pending.length}건</div>
-          {pending.map((c: any) => (
-            <div key={c.id} style={{ padding: '8px 0', borderBottom: '1px solid #F4F6F9' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{c.type}</div>
-              <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{c.period} · {c.wage}</div>
-              <button onClick={() => signContract(c.id)}
-                style={{ marginTop: 8, padding: '7px 18px', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                ✍️ 서명
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* 계약서 목록 */}
-      {contracts.length > 0 && (
-        <>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>📄 계약서</div>
-          {contracts.map((c: any) => (
-            <div key={c.id} style={bx}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setView(view === c.id ? null : c.id)}>
-                <div>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{c.type}</span>
-                  <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 7px', borderRadius: 5, background: c.status==='signed' ? 'rgba(0,184,148,0.1)' : 'rgba(255,107,53,0.1)', color: c.status==='signed' ? '#00B894' : '#FF6B35', fontWeight: 700 }}>
-                    {c.status === 'signed' ? '서명완료' : '대기'}
-                  </span>
-                </div>
-                <span style={{ fontSize: 10, color: '#bbb' }}>{c.created_at?.split('T')[0]}</span>
-              </div>
-              {view === c.id && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #F4F6F9' }}>
-                  {c.period && <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>📅 {c.period}</div>}
-                  {c.wage && <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>💰 {c.wage}</div>}
-                  {c.hours && <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>⏰ {c.hours}</div>}
-                  {c.clauses && c.clauses.map((cl: string, i: number) => (
-                    <div key={i} style={{ fontSize: 11, color: '#888', padding: '2px 0' }}>• {cl}</div>
-                  ))}
-                  <div style={{ marginTop: 10 }}>
-                    {(files[c.id] || []).map((f: any) => (
-                      <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #F4F6F9' }}>
-                        <span style={{ fontSize: 11, color: '#555' }}>📎 {f.file_name}</span>
-                        <button onClick={() => downloadFile(f.storage_path, f.file_name)}
-                          style={{ background: 'none', border: 'none', color: '#2DC6D6', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>⬇️ 다운</button>
-                      </div>
-                    ))}
-                    <button onClick={() => { setUploadTarget(c.id); fileRef.current?.click() }}
-                      style={{ marginTop: 8, padding: '6px 14px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>
-                      📎 파일 첨부
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </>
-      )}
-
-      <input ref={fileRef} type="file" style={{ display: 'none' }}
-        onChange={async e => {
-          const file = e.target.files?.[0]
-          if (file && uploadTarget) { await uploadFile(uploadTarget, file); e.target.value = '' }
-        }} />
 
       {/* 알림 설정 */}
       <div style={bx}>
