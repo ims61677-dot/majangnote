@@ -174,7 +174,6 @@ function ResignModal({ profile, storeId, onClose, onSaved }: {
   )
 }
 
-// ─── 개인정보 열람 모달 (대표 전용) ───
 function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [info, setInfo] = useState<any>(null)
@@ -213,7 +212,6 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
         </div>
-
         {loading ? (
           <div style={{ textAlign:'center', padding:40, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
         ) : !hasInfo ? (
@@ -224,7 +222,6 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
           </div>
         ) : (
           <div style={{ marginTop:16 }}>
-            {/* 신분증 정보 */}
             {(info.id_name || info.id_number || info.id_address) && (
               <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:8 }}>🪪 신분증 정보</div>
@@ -248,8 +245,6 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
                 )}
               </div>
             )}
-
-            {/* 계좌 정보 */}
             {(info.bank_name || info.bank_account || info.bank_holder) && (
               <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:8 }}>🏦 계좌 정보</div>
@@ -277,7 +272,6 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
                 )}
               </div>
             )}
-
             {info.payslip_email && (
               <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:6 }}>📧 급여명세서 이메일</div>
@@ -303,7 +297,6 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
   )
 }
 
-// ─── 근로계약서 관리 모달 (대표 전용) ───
 function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: string; onClose: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [contracts, setContracts] = useState<any[]>([])
@@ -328,13 +321,15 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
     setUploading(true)
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
-      const path = `${storeId}/${profile.id}/${Date.now()}_${file.name}`
+      // 파일명 한글/특수문자 제거 — 숫자+인덱스로 저장
+      const safeName = `${Date.now()}_${i}.pdf`
+      const path = `${storeId}/${profile.id}/${safeName}`
       const { error } = await supabase.storage.from('staff-contracts').upload(path, file)
       if (error) { alert('업로드 실패: ' + error.message); continue }
       await supabase.from('staff_contracts').insert({
         store_id: storeId,
         profile_id: profile.id,
-        file_name: file.name,
+        file_name: file.name, // 원래 파일명은 DB에 보관
         file_path: path,
         uploaded_by: ownerNm,
       })
@@ -369,7 +364,6 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
           <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
         </div>
 
-        {/* 업로드 버튼 */}
         <div onClick={() => fileRef.current?.click()}
           style={{ padding:'16px 0', borderRadius:12, border:'2px dashed #E0E4E8', textAlign:'center', cursor:'pointer', background:'#F8F9FB', marginBottom:16 }}>
           <div style={{ fontSize:24, marginBottom:4 }}>📎</div>
@@ -383,7 +377,6 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
             }
           }} />
 
-        {/* 계약서 목록 */}
         {loading ? (
           <div style={{ textAlign:'center', padding:24, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
         ) : contracts.length === 0 ? (
@@ -413,9 +406,6 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
   )
 }
 
-// ═══════════════════════════════════════
-// 메인
-// ═══════════════════════════════════════
 export default function StaffPage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
