@@ -249,8 +249,21 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
   const [memo, setMemo] = useState('')
   const [saving, setSaving] = useState(false)
   const [receivedAt, setReceivedAt] = useState(new Date().toISOString().split('T')[0])
+  const [assignedPlaces, setAssignedPlaces] = useState<string[]>([])
 
   const hasInventoryLink = !!order.inventory_item_id
+
+  useEffect(() => {
+    if (hasInventoryLink) {
+      supabase.from('inventory_stock').select('place').eq('item_id', order.inventory_item_id)
+        .then(({ data }) => setAssignedPlaces((data || []).map((r: any) => r.place)))
+    }
+  }, [])
+
+  // 장소 필터: 재고연동 품목이면 배치된 장소만, 아니면 전체
+  const filteredPlaces = hasInventoryLink && assignedPlaces.length > 0
+    ? places.filter(p => assignedPlaces.includes(p.name))
+    : places
 
   async function handleQtyNext() {
     if (!recvQty) return
@@ -321,7 +334,7 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
   }
 
   // 장소 그룹핑
-  const placeGroups = places.reduce((acc: Record<string, any[]>, p) => {
+  const placeGroups = filteredPlaces.reduce((acc: Record<string, any[]>, p) => {
     const g = p.group_name || '기타'
     if (!acc[g]) acc[g] = []
     acc[g].push(p)
@@ -390,10 +403,9 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
               </div>
             ))}
 
-            {places.length === 0 && (
+            {filteredPlaces.length === 0 && (
               <div style={{ textAlign: 'center', padding: 24, color: '#bbb', fontSize: 12 }}>
-                등록된 장소가 없어요<br />
-                <span style={{ fontSize: 11 }}>재고 탭 → 장소 관리에서 추가해주세요</span>
+                {hasInventoryLink ? <>재고에 배치된 장소가 없어요<br /><span style={{ fontSize: 11 }}>재고탭 → 장소별에서 먼저 배치해주세요</span></> : <>등록된 장소가 없어요<br /><span style={{ fontSize: 11 }}>재고 탭 → 장소 관리에서 추가해주세요</span></>}
               </div>
             )}
 
@@ -1177,15 +1189,14 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
               if (r?.inventory_place && order.inventory_item_id) {
                 const { data: existing } = await supabase.from("inventory_stock")
                   .select("quantity").eq("item_id", order.inventory_item_id).eq("place", r.inventory_place).maybeSingle()
-                if (existing) {
-                  await supabase.from("inventory_stock").upsert({
-                    item_id: order.inventory_item_id,
-                    place: r.inventory_place,
-                    quantity: Math.max(0, (existing.quantity ?? 0) - Number(r.received_quantity)),
-                    updated_by: userName,
-                    updated_at: new Date().toISOString(),
-                  }, { onConflict: "item_id,place" })
-                }
+                const currentQty = existing?.quantity ?? 0
+                await supabase.from("inventory_stock").upsert({
+                  item_id: order.inventory_item_id,
+                  place: r.inventory_place,
+                  quantity: Math.max(0, currentQty - Number(r.received_quantity)),
+                  updated_by: userName,
+                  updated_at: new Date().toISOString(),
+                }, { onConflict: "item_id,place" })
               }
               await supabase.from("order_receipts").delete().eq("order_id", order.id)
               await supabase.from("orders").update({ status: "ordered", received_by: null, received_at: null }).eq("id", order.id)

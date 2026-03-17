@@ -77,7 +77,20 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
   const [memo, setMemo] = useState('')
   const [saving, setSaving] = useState(false)
   const [receivedAt, setReceivedAt] = useState(new Date().toISOString().split('T')[0])
+  const [assignedPlaces, setAssignedPlaces] = useState<string[]>([])
   const hasInventoryLink = !!order.inventory_item_id
+
+  useEffect(() => {
+    if (hasInventoryLink) {
+      supabase.from('inventory_stock').select('place').eq('item_id', order.inventory_item_id)
+        .then(({ data }) => setAssignedPlaces((data || []).map((r: any) => r.place)))
+    }
+  }, [])
+
+  // 재고 연동 품목이면 배치된 장소만, 아니면 전체
+  const filteredPlaces = hasInventoryLink && assignedPlaces.length > 0
+    ? places.filter(p => assignedPlaces.includes(p.name))
+    : places
 
   async function handleQtyNext() {
     if (!recvQty) return
@@ -126,7 +139,7 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
     setSaving(false); onDone(); onClose()
   }
 
-  const placeGroups = places.reduce((acc: Record<string, any[]>, p) => {
+  const placeGroups = filteredPlaces.reduce((acc: Record<string, any[]>, p) => {
     const g = p.group_name || '기타'; if (!acc[g]) acc[g] = []; acc[g].push(p); return acc
   }, {})
 
@@ -183,7 +196,11 @@ function ReceiveModal({ order, userName, places, onDone, onClose }: { order: any
                 </div>
               </div>
             ))}
-            {places.length === 0 && <div style={{ textAlign: 'center', padding: 24, color: '#bbb', fontSize: 12 }}>등록된 장소가 없어요</div>}
+            {filteredPlaces.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 24, color: '#bbb', fontSize: 12 }}>
+                {hasInventoryLink ? '재고에 배치된 장소가 없어요\n재고탭 → 장소별에서 먼저 배치해주세요' : '등록된 장소가 없어요'}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <button onClick={() => doSave(selectedPlace)} disabled={saving || !selectedPlace}
                 style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: selectedPlace ? 'linear-gradient(135deg,#00B894,#2DC6D6)' : '#E8ECF0', border: 'none', color: selectedPlace ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, cursor: selectedPlace ? 'pointer' : 'default' }}>
@@ -791,7 +808,7 @@ function DirectIssueModal({ userName, onClose, onSaved }: { userName: string; on
 
 function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { order: any; userName: string; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(order.status === 'issue')
   const [showConfirm, setShowConfirm] = useState(false)
   const [showReceive, setShowReceive] = useState(false)
   const [showIssue, setShowIssue] = useState(false)
@@ -854,15 +871,14 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
               .eq("item_id", order.inventory_item_id)
               .eq("place", r.inventory_place)
               .maybeSingle()
-            if (existing) {
-              await supabase.from("inventory_stock").upsert({
-                item_id: order.inventory_item_id,
-                place: r.inventory_place,
-                quantity: Math.max(0, (existing.quantity ?? 0) - Number(r.received_quantity)),
-                updated_by: userName,
-                updated_at: new Date().toISOString(),
-              }, { onConflict: "item_id,place" })
-            }
+            const currentQty = existing?.quantity ?? 0
+            await supabase.from("inventory_stock").upsert({
+              item_id: order.inventory_item_id,
+              place: r.inventory_place,
+              quantity: Math.max(0, currentQty - Number(r.received_quantity)),
+              updated_by: userName,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: "item_id,place" })
           }
         }
       }
