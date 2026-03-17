@@ -814,6 +814,16 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
     if (order.status === 'received' && !receipt) loadReceipt()
   }, [])
 
+  // 이슈 상태면 마운트 시 바로 issueData 로드
+  useEffect(() => {
+    if (order.status === 'issue') loadIssueData()
+  }, [])
+
+  async function loadIssueData() {
+    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    setIssueData(iss || null)
+  }
+
   async function loadReceipt() {
     const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
     setReceipt(r || null)
