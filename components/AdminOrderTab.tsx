@@ -876,8 +876,6 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
             await supabase.from('inventory_stock')
               .update({
                 quantity: newQty,
-                before_qty: currentQty,
-                after_qty: newQty,
                 updated_by: userName,
                 updated_at: new Date().toISOString(),
               })

@@ -1194,8 +1194,6 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
                 await supabase.from('inventory_stock')
                   .update({
                     quantity: newQty,
-                    before_qty: currentQty,
-                    after_qty: newQty,
                     updated_by: userName,
                     updated_at: new Date().toISOString(),
                   })
