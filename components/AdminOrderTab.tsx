@@ -837,7 +837,7 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
   }, [])
 
   async function loadIssueData() {
-    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('reported_at', { ascending: false }).limit(1).maybeSingle()
     setIssueData(iss || null)
   }
 
@@ -851,7 +851,7 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
     setReceipt(r || null)
     const { data: l } = await supabase.from('order_receipt_logs').select('*').eq('order_id', order.id).order('changed_at', { ascending: false })
     setLogs(l || [])
-    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('reported_at', { ascending: false }).limit(1).maybeSingle()
     setIssueData(iss || null)
   }
 
@@ -992,7 +992,7 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
                          issueData.issue_type === 'wrong_item' ? '품목 오류' :
                          issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'}
                         {issueData.reported_by && <span style={{ color: '#aaa' }}> · {issueData.reported_by}</span>}
-                        {issueData.created_at && <span style={{ color: '#aaa' }}> · {new Date(issueData.created_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(issueData.created_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>}
+                        {issueData.reported_at && <span style={{ color: '#aaa' }}> · {new Date(issueData.reported_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(issueData.reported_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>}
                         {issueData.memo && <div style={{ marginTop: 3, color: '#E84393', fontWeight: 600 }}>📝 {issueData.memo}</div>}
                       </>
                     ) : '이슈 처리 대기 중'}

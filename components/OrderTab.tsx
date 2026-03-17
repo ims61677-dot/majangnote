@@ -1290,7 +1290,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
   }, [])
 
   async function loadIssueData() {
-    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('reported_at', { ascending: false }).limit(1).maybeSingle()
     setIssueData(iss || null)
   }
 
@@ -1304,7 +1304,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
     setReceipt(r || null)
     const { data: l } = await supabase.from('order_receipt_logs').select('*').eq('order_id', order.id).order('changed_at', { ascending: false })
     setLogs(l || [])
-    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('reported_at', { ascending: false }).limit(1).maybeSingle()
     setIssueData(iss || null)
   }
 
@@ -1505,7 +1505,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
                     issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'
                   }` : ''}`}
                   who={issueData?.reported_by || null}
-                  when={issueData?.created_at || null}
+                  when={issueData?.reported_at || null}
                   note={issueData?.memo || '이슈 처리 대기 중'} />
               )}
 
