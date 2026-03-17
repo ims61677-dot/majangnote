@@ -800,6 +800,7 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
   const [showResolve, setShowResolve] = useState(false)
   const [receipt, setReceipt] = useState<any>(null)
   const [logs, setLogs] = useState<any[]>([])
+  const [issueData, setIssueData] = useState<any>(null)
   const now = new Date()
   const diffDays = (now.getTime() - new Date(order.ordered_at).getTime()) / 86400000
   const isOverdue = (order.status === 'requested' || order.status === 'ordered') && diffDays > 2
@@ -823,6 +824,8 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
     setReceipt(r || null)
     const { data: l } = await supabase.from('order_receipt_logs').select('*').eq('order_id', order.id).order('changed_at', { ascending: false })
     setLogs(l || [])
+    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    setIssueData(iss || null)
   }
 
   async function handleCancelReceipt() {
@@ -914,6 +917,24 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
                 {order.confirmed_by && (
                   <div style={{ fontSize: 10, color: '#6C5CE7' }}>
                     ✅ 주문확인: {order.confirmed_by} · {order.confirmed_at ? `${new Date(order.confirmed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} ${new Date(order.confirmed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}` : ''}
+                  </div>
+                )}
+                {order.status === 'issue' && (
+                  <div style={{ fontSize: 10, color: '#E84393', background: 'rgba(232,67,147,0.05)', borderRadius: 8, padding: '6px 10px', border: '1px solid rgba(232,67,147,0.15)' }}>
+                    🚨 이슈: {issueData ? (
+                      <>
+                        {issueData.issue_type === 'quantity_mismatch' ? '수량 불일치' :
+                         issueData.issue_type === 'wrong_delivery' ? '잘못 온 물품' :
+                         issueData.issue_type === 'wrong_store' ? '지점 오배송' :
+                         issueData.issue_type === 'damaged' ? '파손 도착' :
+                         issueData.issue_type === 'wrong_quantity' ? '수량 오류' :
+                         issueData.issue_type === 'wrong_item' ? '품목 오류' :
+                         issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'}
+                        {issueData.reported_by && <span style={{ color: '#aaa' }}> · {issueData.reported_by}</span>}
+                        {issueData.created_at && <span style={{ color: '#aaa' }}> · {new Date(issueData.created_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(issueData.created_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>}
+                        {issueData.memo && <div style={{ marginTop: 3, color: '#E84393', fontWeight: 600 }}>📝 {issueData.memo}</div>}
+                      </>
+                    ) : '이슈 처리 대기 중'}
                   </div>
                 )}
                 {(order.status === 'received' || receipt) && (order.received_by || receipt) && (

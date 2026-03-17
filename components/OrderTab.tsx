@@ -1253,6 +1253,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
   const [expanded, setExpanded] = useState(false)
   const [receipt, setReceipt] = useState<any>(null)
   const [logs, setLogs] = useState<any[]>([])
+  const [issueData, setIssueData] = useState<any>(null)
   const [showReceive, setShowReceive] = useState(false)
   const [showEditReceipt, setShowEditReceipt] = useState(false)
   const [showIssue, setShowIssue] = useState(false)
@@ -1280,6 +1281,8 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
     setReceipt(r || null)
     const { data: l } = await supabase.from('order_receipt_logs').select('*').eq('order_id', order.id).order('changed_at', { ascending: false })
     setLogs(l || [])
+    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    setIssueData(iss || null)
   }
 
   const now = new Date()
@@ -1452,10 +1455,18 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
               {/* 3. 이슈 신고 */}
               {order.status === 'issue' && (
                 <TimelineItem color="#E84393" icon="🚨"
-                  title="이슈 신고"
-                  who={null}
-                  when={null}
-                  note="이슈 처리 대기 중" />
+                  title={`이슈 신고${issueData?.issue_type ? ` · ${
+                    issueData.issue_type === 'quantity_mismatch' ? '수량 불일치' :
+                    issueData.issue_type === 'wrong_delivery' ? '잘못 온 물품' :
+                    issueData.issue_type === 'wrong_store' ? '지점 오배송' :
+                    issueData.issue_type === 'damaged' ? '파손 도착' :
+                    issueData.issue_type === 'wrong_quantity' ? '수량 오류' :
+                    issueData.issue_type === 'wrong_item' ? '품목 오류' :
+                    issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'
+                  }` : ''}`}
+                  who={issueData?.reported_by || null}
+                  when={issueData?.created_at || null}
+                  note={issueData?.memo || '이슈 처리 대기 중'} />
               )}
 
               {/* 4. 수령 */}
