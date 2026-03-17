@@ -839,21 +839,37 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
   }
 
   async function handleCancelReceipt() {
-    if (!confirm('수령을 취소할까요?\n재고에 합산된 수량도 자동으로 차감돼요.')) return
+    if (!confirm("수령을 취소할까요?\n재고에 합산된 수량도 자동으로 차감돼요.")) return
     if (order.inventory_item_id) {
-      const { data: receipts } = await supabase.from('order_receipts').select('received_quantity, inventory_place, inventory_applied').eq('order_id', order.id).eq('inventory_applied', true)
+      const { data: receipts } = await supabase
+        .from("order_receipts")
+        .select("received_quantity, inventory_place")
+        .eq("order_id", order.id)
       if (receipts) {
         for (const r of receipts) {
-          if (r.inventory_place) {
-            const { data: existing } = await supabase.from('inventory_stock').select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).single()
-            await supabase.from('inventory_stock').upsert({ item_id: order.inventory_item_id, place: r.inventory_place, quantity: Math.max(0, (existing?.quantity ?? 0) - Number(r.received_quantity)), updated_by: userName, updated_at: new Date().toISOString() }, { onConflict: 'item_id,place' })
+          if (r.inventory_place && r.received_quantity) {
+            const { data: existing } = await supabase
+              .from("inventory_stock")
+              .select("quantity")
+              .eq("item_id", order.inventory_item_id)
+              .eq("place", r.inventory_place)
+              .maybeSingle()
+            if (existing) {
+              await supabase.from("inventory_stock").upsert({
+                item_id: order.inventory_item_id,
+                place: r.inventory_place,
+                quantity: Math.max(0, (existing.quantity ?? 0) - Number(r.received_quantity)),
+                updated_by: userName,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: "item_id,place" })
+            }
           }
         }
       }
     }
-    await supabase.from('order_receipts').delete().eq('order_id', order.id)
-    await supabase.from('orders').update({ status: 'ordered', received_by: null, received_at: null }).eq('id', order.id)
-    await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '수령취소', before_value: '수령완료', after_value: '주문완료(수령취소)', memo: null })
+    await supabase.from("order_receipts").delete().eq("order_id", order.id)
+    await supabase.from("orders").update({ status: "ordered", received_by: null, received_at: null }).eq("id", order.id)
+    await supabase.from("order_receipt_logs").insert({ order_id: order.id, changed_by: userName, field_name: "수령취소", before_value: "수령완료", after_value: "주문완료(수령취소)", memo: null })
     onRefresh()
   }
 

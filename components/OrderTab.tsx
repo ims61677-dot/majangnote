@@ -1172,27 +1172,27 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
         {order.status === 'received' && (
           <div style={{ marginBottom: 12 }}>
             <button onClick={async () => {
-              if (!confirm('수령 완료를 취소하고 주문완료 상태로 되돌릴까요?\n(수령 정보가 삭제됩니다)')) return
-              // 재고 반영됐으면 차감
-              const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
-              if (r?.inventory_applied && r?.inventory_place && order.inventory_item_id) {
-                const { data: existing } = await supabase.from('inventory_stock')
-                  .select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).single()
-                const currentQty = existing?.quantity ?? 0
-                await supabase.from('inventory_stock').upsert({
-                  item_id: order.inventory_item_id,
-                  place: r.inventory_place,
-                  quantity: Math.max(0, currentQty - r.received_quantity),
-                  updated_by: userName,
-                  updated_at: new Date().toISOString(),
-                }, { onConflict: 'item_id,place' })
+              if (!confirm("수령 완료를 취소하고 주문완료 상태로 되돌릴까요?\n(수령 정보가 삭제됩니다)")) return
+              const { data: r } = await supabase.from("order_receipts").select("*").eq("order_id", order.id).order("created_at", { ascending: false }).limit(1).maybeSingle()
+              if (r?.inventory_place && order.inventory_item_id) {
+                const { data: existing } = await supabase.from("inventory_stock")
+                  .select("quantity").eq("item_id", order.inventory_item_id).eq("place", r.inventory_place).maybeSingle()
+                if (existing) {
+                  await supabase.from("inventory_stock").upsert({
+                    item_id: order.inventory_item_id,
+                    place: r.inventory_place,
+                    quantity: Math.max(0, (existing.quantity ?? 0) - Number(r.received_quantity)),
+                    updated_by: userName,
+                    updated_at: new Date().toISOString(),
+                  }, { onConflict: "item_id,place" })
+                }
               }
-              await supabase.from('order_receipts').delete().eq('order_id', order.id)
-              await supabase.from('orders').update({ status: 'ordered', received_by: null, received_at: null }).eq('id', order.id)
-              await supabase.from('order_receipt_logs').insert({
-                order_id: order.id, changed_by: userName, field_name: '수령 취소',
-                before_value: r?.inventory_applied ? `수령완료 (${r.inventory_place} 재고 반영됨)` : '수령완료',
-                after_value: r?.inventory_applied ? `주문완료로 되돌림 + ${r.inventory_place} 재고 차감` : '주문완료로 되돌림',
+              await supabase.from("order_receipts").delete().eq("order_id", order.id)
+              await supabase.from("orders").update({ status: "ordered", received_by: null, received_at: null }).eq("id", order.id)
+              await supabase.from("order_receipt_logs").insert({
+                order_id: order.id, changed_by: userName, field_name: "수령 취소",
+                before_value: r?.inventory_place ? `수령완료 (${r.inventory_place} 재고 반영됨)` : "수령완료",
+                after_value: r?.inventory_place ? `주문완료로 되돌림 + ${r.inventory_place} 재고 차감` : "주문완료로 되돌림",
                 memo: null,
               })
               onSaved(); onClose()
@@ -1250,7 +1250,7 @@ function TimelineItem({ color, icon, title, who, when, note }: {
 // ─── 발주 카드 상세 ───
 function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places, highlighted, onRefresh }: { order: any; userName: string; isEdit: boolean; suppliers: any[]; inventoryItems: any[]; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(order.status === 'issue')
   const [receipt, setReceipt] = useState<any>(null)
   const [logs, setLogs] = useState<any[]>([])
   const [issueData, setIssueData] = useState<any>(null)
