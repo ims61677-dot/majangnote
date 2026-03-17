@@ -1177,47 +1177,48 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   // 전날 미완료 항목 오늘로 자동 이월
   async function carryOverItems(date: string) {
-    if (date > today) return  // 미래 날짜엔 이월 안 함
-    // 오늘 이전 최대 14일까지 미완료 항목 전부 오늘로 이월
-    const todayItems = [...(checklistMap[date] || [])]
-    const todayTexts = new Set(todayItems.map((i: any) => i.text))
+    if (date > today) return
+
+    // 자동 이월과 동일한 방식: carriedForward 무시, 텍스트 기준으로만 판단
+    // ① 최근 14일에서 완료된 텍스트 수집
+    const doneTexts = new Set<string>()
+    for (let d = 0; d <= 14; d++) {
+      const pd = new Date(date)
+      pd.setDate(pd.getDate() - d)
+      const pdStr = pd.toISOString().slice(0, 10)
+      ;(checklistMap[pdStr] || []).filter((i: any) => i.done).forEach((i: any) => doneTexts.add(i.text))
+    }
+
+    const dateItems = [...(checklistMap[date] || [])]
+    const dateTexts = new Set(dateItems.map((i: any) => i.text))
     let changed = false
 
+    // ② 과거 14일에서 미완료 항목 가져오기
     for (let d = 1; d <= 14; d++) {
       const prev = new Date(date)
       prev.setDate(prev.getDate() - d)
       const prevDate = prev.toISOString().slice(0, 10)
-      if (prevDate >= date) continue  // 미래는 skip
+      const prevItems = checklistMap[prevDate] || []
 
-      const prevItems = checklistMap[prevDate]
-      if (!prevItems || prevItems.length === 0) continue
-
-      const undone = prevItems.filter((i: any) => {
-        if (i.done) return false
-        if (i.carriedForward) return false  // 이미 이월된 원본은 스킵
-        if (todayTexts.has(i.text)) return false
-        if (i.repeat === 'monthly') {
-          return new Date(prevDate).getDate() === new Date(date).getDate()
+      for (const item of prevItems) {
+        if (item.done) continue
+        if (dateTexts.has(item.text)) continue   // 이미 오늘에 있는 텍스트
+        if (doneTexts.has(item.text)) continue   // 언제든 완료된 텍스트
+        if (item.repeat === 'monthly') {
+          if (new Date(prevDate).getDate() !== new Date(date).getDate()) continue
         }
-        return true
-      })
-
-      if (undone.length > 0) {
-        // 원본에 carriedForward 표시
-        const markedPrev = prevItems.map((i: any) =>
-          undone.find((u: any) => u.id === i.id) ? { ...i, carriedForward: true } : i
-        )
-        await saveChecklist(prevDate, markedPrev)
-      }
-
-      for (const item of undone) {
-        todayItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
-        todayTexts.add(item.text)
+        dateItems.unshift({
+          ...item,
+          id: Date.now().toString() + Math.random(),
+          done: false,
+          carriedFrom: item.carriedFrom || prevDate
+        })
+        dateTexts.add(item.text)
         changed = true
       }
     }
 
-    if (changed) await saveChecklist(date, todayItems)
+    if (changed) await saveChecklist(date, dateItems)
   }
 
   // 항목을 다른 날짜로 이동
