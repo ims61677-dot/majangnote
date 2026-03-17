@@ -790,9 +790,9 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       let changed = false
 
       // ③ 전날(어제) 미완료 항목만 오늘로 이월
-      const yesterday = new Date(todayStr)
-      yesterday.setDate(yesterday.getDate() - 1)
-      const yesterdayStr = yesterday.toISOString().slice(0, 10)
+      const prevD = new Date(todayStr)
+      prevD.setDate(prevD.getDate() - 1)
+      const yesterdayStr = prevD.toISOString().slice(0, 10)
       const yesterdayItems = clMap[yesterdayStr] || []
 
       for (const item of yesterdayItems) {
