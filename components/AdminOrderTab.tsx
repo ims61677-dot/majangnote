@@ -808,7 +808,7 @@ function DirectIssueModal({ userName, onClose, onSaved }: { userName: string; on
 
 function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { order: any; userName: string; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
-  const [expanded, setExpanded] = useState(order.status === 'issue')
+  const [expanded, setExpanded] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [showReceive, setShowReceive] = useState(false)
   const [showIssue, setShowIssue] = useState(false)
@@ -872,13 +872,17 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
               .eq("place", r.inventory_place)
               .maybeSingle()
             const currentQty = existing?.quantity ?? 0
-            await supabase.from("inventory_stock").upsert({
-              item_id: order.inventory_item_id,
-              place: r.inventory_place,
-              quantity: Math.max(0, currentQty - Number(r.received_quantity)),
-              updated_by: userName,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: "item_id,place" })
+            const newQty = Math.max(0, currentQty - Number(r.received_quantity))
+            await supabase.from('inventory_stock')
+              .update({
+                quantity: newQty,
+                before_qty: currentQty,
+                after_qty: newQty,
+                updated_by: userName,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('item_id', order.inventory_item_id)
+              .eq('place', r.inventory_place)
           }
         }
       }
@@ -948,6 +952,23 @@ function AdminOrderCard({ order, userName, places, highlighted, onRefresh }: { o
               {expanded ? '▲' : '▼ 상세'}
             </button>
           </div>
+
+          {/* 이슈 메모 배너 — expanded 밖에서 항상 표시 */}
+          {order.status === 'issue' && issueData?.memo && (
+            <div style={{ margin: '8px 0 4px 0', padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.07)', border: '1px solid rgba(232,67,147,0.2)' }}>
+              <div style={{ fontSize: 10, color: '#E84393', fontWeight: 700, marginBottom: 2 }}>
+                🚨 {issueData.issue_type === 'quantity_mismatch' ? '수량 불일치' :
+                    issueData.issue_type === 'wrong_delivery' ? '잘못 온 물품' :
+                    issueData.issue_type === 'wrong_store' ? '지점 오배송' :
+                    issueData.issue_type === 'damaged' ? '파손 도착' :
+                    issueData.issue_type === 'wrong_quantity' ? '수량 오류' :
+                    issueData.issue_type === 'wrong_item' ? '품목 오류' :
+                    issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'}
+                {issueData.reported_by && <span style={{ color: '#aaa', fontWeight: 400 }}> · {issueData.reported_by}</span>}
+              </div>
+              <div style={{ fontSize: 12, color: '#1a1a2e', fontWeight: 600 }}>📝 {issueData.memo}</div>
+            </div>
+          )}
 
           {expanded && (
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #E8ECF0' }}>

@@ -1187,16 +1187,20 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
               if (!confirm("수령 완료를 취소하고 주문완료 상태로 되돌릴까요?\n(수령 정보가 삭제됩니다)")) return
               const { data: r } = await supabase.from("order_receipts").select("*").eq("order_id", order.id).order("created_at", { ascending: false }).limit(1).maybeSingle()
               if (r?.inventory_place && order.inventory_item_id) {
-                const { data: existing } = await supabase.from("inventory_stock")
-                  .select("quantity").eq("item_id", order.inventory_item_id).eq("place", r.inventory_place).maybeSingle()
+                const { data: existing } = await supabase.from('inventory_stock')
+                  .select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).maybeSingle()
                 const currentQty = existing?.quantity ?? 0
-                await supabase.from("inventory_stock").upsert({
-                  item_id: order.inventory_item_id,
-                  place: r.inventory_place,
-                  quantity: Math.max(0, currentQty - Number(r.received_quantity)),
-                  updated_by: userName,
-                  updated_at: new Date().toISOString(),
-                }, { onConflict: "item_id,place" })
+                const newQty = Math.max(0, currentQty - Number(r.received_quantity))
+                await supabase.from('inventory_stock')
+                  .update({
+                    quantity: newQty,
+                    before_qty: currentQty,
+                    after_qty: newQty,
+                    updated_by: userName,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq('item_id', order.inventory_item_id)
+                  .eq('place', r.inventory_place)
               }
               await supabase.from("order_receipts").delete().eq("order_id", order.id)
               await supabase.from("orders").update({ status: "ordered", received_by: null, received_at: null }).eq("id", order.id)
@@ -1261,7 +1265,7 @@ function TimelineItem({ color, icon, title, who, when, note }: {
 // ─── 발주 카드 상세 ───
 function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places, highlighted, onRefresh }: { order: any; userName: string; isEdit: boolean; suppliers: any[]; inventoryItems: any[]; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
-  const [expanded, setExpanded] = useState(order.status === 'issue')
+  const [expanded, setExpanded] = useState(false)
   const [receipt, setReceipt] = useState<any>(null)
   const [logs, setLogs] = useState<any[]>([])
   const [issueData, setIssueData] = useState<any>(null)
@@ -1446,6 +1450,23 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
             }} style={{ padding: '10px 14px', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>
               ↩️ 이슈취소
             </button>
+          </div>
+        )}
+
+        {/* 이슈 메모 배너 — expanded 밖에서 항상 표시 */}
+        {order.status === 'issue' && issueData?.memo && (
+          <div style={{ margin: '0 14px 8px 14px', padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.07)', border: '1px solid rgba(232,67,147,0.2)' }}>
+            <div style={{ fontSize: 10, color: '#E84393', fontWeight: 700, marginBottom: 2 }}>
+              🚨 {issueData.issue_type === 'quantity_mismatch' ? '수량 불일치' :
+                  issueData.issue_type === 'wrong_delivery' ? '잘못 온 물품' :
+                  issueData.issue_type === 'wrong_store' ? '지점 오배송' :
+                  issueData.issue_type === 'damaged' ? '파손 도착' :
+                  issueData.issue_type === 'wrong_quantity' ? '수량 오류' :
+                  issueData.issue_type === 'wrong_item' ? '품목 오류' :
+                  issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'}
+              {issueData.reported_by && <span style={{ color: '#aaa', fontWeight: 400 }}> · {issueData.reported_by}</span>}
+            </div>
+            <div style={{ fontSize: 12, color: '#1a1a2e', fontWeight: 600 }}>📝 {issueData.memo}</div>
           </div>
         )}
 
