@@ -789,29 +789,25 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       const newItems = [...todayItems]
       let changed = false
 
-      // ③ 과거 7일 순서대로 미완료 항목 탐색 → carriedForward 여부 무시, 텍스트 기준으로만 판단
-      for (let d = 1; d <= 7; d++) {
-        const prev = new Date(todayStr)
-        prev.setDate(prev.getDate() - d)
-        const prevDate = prev.toISOString().slice(0, 10)
-        const prevItems = clMap[prevDate] || []
-        for (const item of prevItems) {
-          if (item.done) continue                        // 완료된 항목 제외
-          if (todayTexts.has(item.text)) continue        // 이미 오늘에 있는 텍스트 제외 (중복 방지)
-          if (doneTextsEver.has(item.text)) continue     // 언제든 완료된 적 있으면 제외
-          if (item.repeat === 'monthly') {
-            if (new Date(prevDate).getDate() !== new Date(todayStr).getDate()) continue
-          }
-          // 이월 추가
-          newItems.unshift({
-            ...item,
-            id: Date.now().toString() + Math.random(),
-            done: false,
-            carriedFrom: item.carriedFrom || prevDate   // 원본 날짜 추적
-          })
-          todayTexts.add(item.text)  // 같은 텍스트 중복 이월 방지
-          changed = true
-        }
+      // ③ 전날(어제) 미완료 항목만 오늘로 이월
+      const yesterday = new Date(todayStr)
+      yesterday.setDate(yesterday.getDate() - 1)
+      const yesterdayStr = yesterday.toISOString().slice(0, 10)
+      const yesterdayItems = clMap[yesterdayStr] || []
+
+      for (const item of yesterdayItems) {
+        if (item.done) continue                      // 완료된 항목 제외
+        if (todayTexts.has(item.text)) continue      // 이미 오늘에 있는 텍스트 제외
+        if (doneTextsEver.has(item.text)) continue   // 완료된 적 있으면 제외
+        // 이월 추가
+        newItems.unshift({
+          ...item,
+          id: Date.now().toString() + Math.random(),
+          done: false,
+          carriedFrom: yesterdayStr
+        })
+        todayTexts.add(item.text)
+        changed = true
       }
 
       // ④ 변경 있으면 오늘 날짜에 저장
@@ -1193,29 +1189,24 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     const dateTexts = new Set(dateItems.map((i: any) => i.text))
     let changed = false
 
-    // ② 과거 7일에서 미완료 항목 가져오기
-    for (let d = 1; d <= 7; d++) {
-      const prev = new Date(date)
-      prev.setDate(prev.getDate() - d)
-      const prevDate = prev.toISOString().slice(0, 10)
-      const prevItems = checklistMap[prevDate] || []
+    // ② 전날 미완료 항목만 가져오기
+    const prevDay = new Date(date)
+    prevDay.setDate(prevDay.getDate() - 1)
+    const prevDayStr = prevDay.toISOString().slice(0, 10)
+    const prevDayItems = checklistMap[prevDayStr] || []
 
-      for (const item of prevItems) {
-        if (item.done) continue
-        if (dateTexts.has(item.text)) continue   // 이미 오늘에 있는 텍스트
-        if (doneTexts.has(item.text)) continue   // 언제든 완료된 텍스트
-        if (item.repeat === 'monthly') {
-          if (new Date(prevDate).getDate() !== new Date(date).getDate()) continue
-        }
-        dateItems.unshift({
-          ...item,
-          id: Date.now().toString() + Math.random(),
-          done: false,
-          carriedFrom: item.carriedFrom || prevDate
-        })
-        dateTexts.add(item.text)
-        changed = true
-      }
+    for (const item of prevDayItems) {
+      if (item.done) continue
+      if (dateTexts.has(item.text)) continue
+      if (doneTexts.has(item.text)) continue
+      dateItems.unshift({
+        ...item,
+        id: Date.now().toString() + Math.random(),
+        done: false,
+        carriedFrom: prevDayStr
+      })
+      dateTexts.add(item.text)
+      changed = true
     }
 
     if (changed) await saveChecklist(date, dateItems)
@@ -1538,7 +1529,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
   // ── 전체 할일 목록 ──
   const allTodosList = (
-    <div style={{ display: isPC ? 'grid' : 'block', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, minWidth: 0 }}>
+    <div style={{ display: isPC ? 'grid' : 'block', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
       {allTodosMap.map(({ store, todos, closingTodos }) => {
         // 선택 날짜의 할일 + 반복 할일(매주/매일) 자동 포함
         const selDate = new Date(selectedCalDate)
@@ -2037,13 +2028,13 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         {showCatMgr && <CategoryManager categories={categories} onSave={saveCategories} onClose={() => setShowCatMgr(false)} />}
         {adminSubTabBar}
         {adminSubTab === 'main' && (
-      <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 16, alignItems: 'start', width: '100%', minWidth: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, alignItems: 'start', width: '100%', boxSizing: 'border-box' as const }}>
         {/* 좌: 캘린더 + 메모 (sticky) */}
-        <div style={{ position: 'sticky', top: 72, minWidth: 0, maxHeight: 'calc(100vh - 80px)', overflowY: 'auto' }}>
+        <div style={{ position: 'sticky', top: 72, width: 280, flexShrink: 0 }}>
           {calendarMemoSection}
         </div>
         {/* 우: 현황 그리드 + 빠른 추가 + 전체 할일 */}
-        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ minWidth: 0, width: '100%' }}>
           {statusGrid}
           {adminNoticeSection}
           {quickAddSection}
