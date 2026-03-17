@@ -774,9 +774,9 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       const todayStr = new Date().toISOString().slice(0, 10)
       const clTitle = '__PERSONAL_CHECKLIST__'
 
-      // ① 최근 14일 전체에서 done:true인 텍스트 수집
+      // ① 최근 7일 전체에서 done:true인 텍스트 수집
       const doneTextsEver = new Set<string>()
-      for (let d = 0; d <= 14; d++) {
+      for (let d = 0; d <= 7; d++) {
         const pd = new Date(todayStr)
         pd.setDate(pd.getDate() - d)
         const pdStr = pd.toISOString().slice(0, 10)
@@ -789,8 +789,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       const newItems = [...todayItems]
       let changed = false
 
-      // ③ 과거 14일 순서대로 미완료 항목 탐색 → carriedForward 여부 무시, 텍스트 기준으로만 판단
-      for (let d = 1; d <= 14; d++) {
+      // ③ 과거 7일 순서대로 미완료 항목 탐색 → carriedForward 여부 무시, 텍스트 기준으로만 판단
+      for (let d = 1; d <= 7; d++) {
         const prev = new Date(todayStr)
         prev.setDate(prev.getDate() - d)
         const prevDate = prev.toISOString().slice(0, 10)
@@ -1180,9 +1180,9 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     if (date > today) return
 
     // 자동 이월과 동일한 방식: carriedForward 무시, 텍스트 기준으로만 판단
-    // ① 최근 14일에서 완료된 텍스트 수집
+    // ① 최근 7일에서 완료된 텍스트 수집
     const doneTexts = new Set<string>()
-    for (let d = 0; d <= 14; d++) {
+    for (let d = 0; d <= 7; d++) {
       const pd = new Date(date)
       pd.setDate(pd.getDate() - d)
       const pdStr = pd.toISOString().slice(0, 10)
@@ -1193,8 +1193,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     const dateTexts = new Set(dateItems.map((i: any) => i.text))
     let changed = false
 
-    // ② 과거 14일에서 미완료 항목 가져오기
-    for (let d = 1; d <= 14; d++) {
+    // ② 과거 7일에서 미완료 항목 가져오기
+    for (let d = 1; d <= 7; d++) {
       const prev = new Date(date)
       prev.setDate(prev.getDate() - d)
       const prevDate = prev.toISOString().slice(0, 10)
@@ -2039,7 +2039,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         {adminSubTab === 'main' && (
       <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 16, alignItems: 'start', width: '100%', minWidth: 0 }}>
         {/* 좌: 캘린더 + 메모 (sticky) */}
-        <div style={{ position: 'sticky', top: 72, minWidth: 0 }}>
+        <div style={{ position: 'sticky', top: 72, minWidth: 0, maxHeight: 'calc(100vh - 80px)', overflowY: 'auto' }}>
           {calendarMemoSection}
         </div>
         {/* 우: 현황 그리드 + 빠른 추가 + 전체 할일 */}
