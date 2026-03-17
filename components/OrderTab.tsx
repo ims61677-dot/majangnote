@@ -1174,7 +1174,7 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
             <button onClick={async () => {
               if (!confirm('수령 완료를 취소하고 주문완료 상태로 되돌릴까요?\n(수령 정보가 삭제됩니다)')) return
               // 재고 반영됐으면 차감
-              const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).single()
+              const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
               if (r?.inventory_applied && r?.inventory_place && order.inventory_item_id) {
                 const { data: existing } = await supabase.from('inventory_stock')
                   .select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).single()
