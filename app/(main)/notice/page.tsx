@@ -770,87 +770,63 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       }
       setChecklistMap(clMap)
 
-      // 오늘 날짜 자동 이월
+      // ── 오늘 자동 이월 (완전 재작성: carriedForward 의존 제거) ──
       const todayStr = new Date().toISOString().slice(0, 10)
-      const todayItems = clMap[todayStr] || []
       const clTitle = '__PERSONAL_CHECKLIST__'
 
-      // ① 오늘 완료(done:true)된 carriedFrom 항목 → 원본 날짜도 DB에서 직접 done:true 처리
-      const completedCarried = todayItems.filter((i: any) => i.done && i.carriedFrom)
-      for (const ci of completedCarried) {
-        let srcDate = ci.carriedFrom
-        for (let depth = 0; depth < 30 && srcDate; depth++) {
-          const { data: srcRows } = await supabase.from('notices').select('id, content')
-            .eq('notice_date', srcDate).eq('title', clTitle).eq('created_by', userName).limit(1)
-          if (!srcRows || srcRows.length === 0) break
-          let srcItems: any[]
-          try { srcItems = JSON.parse(srcRows[0].content || '[]') } catch { break }
-          const target = srcItems.find((si: any) => si.text === ci.text && !si.done)
-          if (!target) break
-          const updated = srcItems.map((si: any) =>
-            si.text === ci.text ? { ...si, done: true, carriedForward: true } : si
-          )
-          await supabase.from('notices').update({ content: JSON.stringify(updated) }).eq('id', srcRows[0].id)
-          clMap[srcDate] = updated
-          srcDate = target.carriedFrom || null
-        }
-      }
-
-      // ② 최근 14일 전체에서 완료(done:true)된 텍스트 수집 → 이월 완전 차단
+      // ① 최근 14일 전체에서 done:true인 텍스트 수집
       const doneTextsEver = new Set<string>()
       for (let d = 0; d <= 14; d++) {
         const pd = new Date(todayStr)
         pd.setDate(pd.getDate() - d)
         const pdStr = pd.toISOString().slice(0, 10)
-        const pdItems = clMap[pdStr] || []
-        pdItems.filter((i: any) => i.done).forEach((i: any) => doneTextsEver.add(i.text))
+        ;(clMap[pdStr] || []).filter((i: any) => i.done).forEach((i: any) => doneTextsEver.add(i.text))
       }
 
-      // ③ 이미 오늘에 이월돼 있는 항목 중 완료된 텍스트는 화면에서만 숨김 (DB 건드리지 않음)
-      // → doneTextsEver 체크로 새 이월 차단은 아래 루프에서 처리
-
+      // ② 오늘 이미 있는 텍스트 (중복 방지)
+      const todayItems = clMap[todayStr] || []
       const todayTexts = new Set(todayItems.map((i: any) => i.text))
       const newItems = [...todayItems]
       let changed = false
 
+      // ③ 과거 14일 순서대로 미완료 항목 탐색 → carriedForward 여부 무시, 텍스트 기준으로만 판단
       for (let d = 1; d <= 14; d++) {
         const prev = new Date(todayStr)
         prev.setDate(prev.getDate() - d)
         const prevDate = prev.toISOString().slice(0, 10)
-        const prevItems = clMap[prevDate]
-        if (!prevItems || prevItems.length === 0) continue
-        const undone = prevItems.filter((i: any) => {
-          if (i.done) return false
-          if (i.carriedForward) return false
-          if (todayTexts.has(i.text)) return false
-          if (doneTextsEver.has(i.text)) return false  // 최근 어딘가에서 완료됐으면 절대 이월 안함
-          if (i.repeat === 'monthly') return new Date(prevDate).getDate() === new Date(todayStr).getDate()
-          return true
-        })
-        if (undone.length > 0) {
-          const markedPrev = prevItems.map((i: any) =>
-            undone.find((u: any) => u.id === i.id) ? { ...i, carriedForward: true } : i
-          )
-          clMap[prevDate] = markedPrev
-          const { data: prevRows } = await supabase.from('notices').select('id')
-            .eq('notice_date', prevDate).eq('title', clTitle).eq('created_by', userName)
-          if (prevRows && prevRows.length > 0) {
-            await supabase.from('notices').update({ content: JSON.stringify(markedPrev) }).eq('id', prevRows[0].id)
+        const prevItems = clMap[prevDate] || []
+        for (const item of prevItems) {
+          if (item.done) continue                        // 완료된 항목 제외
+          if (todayTexts.has(item.text)) continue        // 이미 오늘에 있는 텍스트 제외 (중복 방지)
+          if (doneTextsEver.has(item.text)) continue     // 언제든 완료된 적 있으면 제외
+          if (item.repeat === 'monthly') {
+            if (new Date(prevDate).getDate() !== new Date(todayStr).getDate()) continue
           }
-        }
-        for (const item of undone) {
-          newItems.unshift({ ...item, id: Date.now().toString() + Math.random(), done: false, carriedFrom: item.carriedFrom || prevDate })
-          todayTexts.add(item.text)
+          // 이월 추가
+          newItems.unshift({
+            ...item,
+            id: Date.now().toString() + Math.random(),
+            done: false,
+            carriedFrom: item.carriedFrom || prevDate   // 원본 날짜 추적
+          })
+          todayTexts.add(item.text)  // 같은 텍스트 중복 이월 방지
           changed = true
         }
       }
+
+      // ④ 변경 있으면 오늘 날짜에 저장
       if (changed) {
         const jsonContent = JSON.stringify(newItems)
-        const { data: rows } = await supabase.from('notices').select('id').eq('notice_date', todayStr).eq('title', clTitle).eq('created_by', userName)
+        const { data: rows } = await supabase.from('notices').select('id')
+          .eq('notice_date', todayStr).eq('title', clTitle).eq('created_by', userName)
         if (rows && rows.length > 0) {
           await supabase.from('notices').update({ content: jsonContent }).eq('id', rows[0].id)
         } else {
-          await supabase.from('notices').insert({ store_id: storeId, title: clTitle, content: jsonContent, notice_date: todayStr, created_by: userName, is_from_closing: false, is_pinned: false, attachment_url: null, attachment_type: null })
+          await supabase.from('notices').insert({
+            store_id: storeId, title: clTitle, content: jsonContent,
+            notice_date: todayStr, created_by: userName,
+            is_from_closing: false, is_pinned: false, attachment_url: null, attachment_type: null
+          })
         }
         setChecklistMap(p => ({ ...p, [todayStr]: newItems }))
       }
