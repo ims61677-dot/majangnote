@@ -2080,7 +2080,7 @@ export default function NoticePage() {
   const [userId, setUserId] = useState('')
   const [userRole, setUserRole] = useState('')
   const [isPC, setIsPC] = useState(false)
-  const today = toDateStr(new Date())
+  const [today, setToday] = useState('')
 
   type SubTab = 'notice' | 'todo' | 'admin' | 'stats'
   const [myStatsData, setMyStatsData] = useState<any>(null)
@@ -2161,8 +2161,9 @@ export default function NoticePage() {
   const isManager = userRole === 'owner' || userRole === 'manager'
   const isOwner = userRole === 'owner'
 
-  // ── PC 감지 ──
+  // ── PC 감지 + today 초기화 (hydration 방지) ──
   useEffect(() => {
+    setToday(toDateStr(new Date()))
     const check = () => setIsPC(window.innerWidth >= 1024)
     check()
     window.addEventListener('resize', check)
