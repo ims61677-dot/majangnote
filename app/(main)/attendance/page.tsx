@@ -844,19 +844,25 @@ export default function AttendancePage() {
     const result: Record<string, { staff: any[]; att: any[] }> = {}
     await Promise.all(stores.map(async (store: any) => {
       const sid = store.id
-      const { data: members } = await supabase.from('store_members')
+      // ★ active 여부 관계없이 전체 조회 (퇴사자도 당월 포함)
+      const { data: activeMembers } = await supabase.from('store_members')
         .select('profile_id, expected_clock_in, expected_clock_out, inactive_from').eq('store_id', sid).eq('active', true)
-      // ★ inactive_from 필터: 해당 월 1일보다 이후에 inactive 되면 당월은 포함
-      const activeMembers = (members||[]).filter((m: any) =>
-        !m.inactive_from || m.inactive_from > from
-      )
-      const memberPids = activeMembers.map((m: any) => m.profile_id)
+      const { data: inactiveMembers } = await supabase.from('store_members')
+        .select('profile_id, expected_clock_in, expected_clock_out, inactive_from').eq('store_id', sid).eq('active', false)
+      // 해당 월에 재직했던 사람 모두 포함 (inactive_from이 해당월 시작일보다 이후면 당월 포함)
+      const allMembers = [
+        ...(activeMembers||[]),
+        ...(inactiveMembers||[]).filter((m: any) => !m.inactive_from || m.inactive_from > from)
+      ]
+      const memberPids = allMembers.map((m: any) => m.profile_id)
+      if (memberPids.length === 0) { result[sid] = { staff: [], att: [] }; return }
       const { data: profs } = await supabase.from('profiles').select('id, nm').in('id', memberPids)
       const profMap: Record<string, string> = {}
       ;(profs||[]).forEach((p: any) => { profMap[p.id] = p.nm })
-      const staff = activeMembers.map((m: any) => ({
+      const staff = allMembers.map((m: any) => ({
         id: m.profile_id, nm: profMap[m.profile_id] || '',
         expected_in: m.expected_clock_in || '', expected_out: m.expected_clock_out || '',
+        inactive_from: m.inactive_from || null,
       })).filter((s: any) => s.nm)
       const { data: attData } = await supabase.from('attendance')
         .select('*').eq('store_id', sid).gte('work_date', from).lte('work_date', to)
