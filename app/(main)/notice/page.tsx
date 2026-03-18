@@ -154,7 +154,7 @@ function MiniCalendar({ year, month, todoDates, selectedDate, onSelectDate, onCh
   selectedDate: string; onSelectDate: (d: string) => void; onChangeMonth: (y: number, m: number) => void
   memoDates?: Set<string>; storeDotColor?: string
 }) {
-  const today = toDateStr(new Date())
+  const today = toDateStr(new Date()) // 캘린더 내부용
   const firstDay = new Date(year, month, 1).getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const weeks: (number | null)[][] = []
@@ -584,7 +584,7 @@ function SortableChecklistItem({ item, date, movePopup, setMovePopup, toggleChec
 // ══════════════════════════════════════════
 function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: string; isPC: boolean }) {
   const supabase = createSupabaseBrowserClient()
-  const today = toDateStr(new Date())
+  const [today, setToday] = useState(() => toDateStr(new Date()))
 
   // 매장 데이터
   const [stores, setStores] = useState<any[]>([])
@@ -2125,7 +2125,7 @@ export default function NoticePage() {
   const nowD = new Date()
   const [calYear, setCalYear] = useState(nowD.getFullYear())
   const [calMonth, setCalMonth] = useState(nowD.getMonth())
-  const [selectedDate, setSelectedDate] = useState(today)
+  const [selectedDate, setSelectedDate] = useState(() => toDateStr(new Date()))
   const [todoDates, setTodoDates] = useState<Set<string>>(new Set())
   const [dayNotices, setDayNotices] = useState<any[]>([])
   const [noticeTodoChecks, setNoticeTodoChecks] = useState<Record<string, any[]>>({})
