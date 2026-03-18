@@ -489,16 +489,20 @@ export default function StaffPage() {
     if (mode === 'soft') {
       // store_members만 삭제 (기록 보존)
       await supabase.from('store_members').delete().eq('store_id', selectedStoreId).eq('profile_id', profileId)
-      // 다른 지점에도 없으면 profiles도 삭제
       const { data: otherStores } = await supabase.from('store_members').select('id').eq('profile_id', profileId)
       if (!otherStores || otherStores.length === 0) {
         await supabase.from('profiles').delete().eq('id', profileId)
       }
     } else {
-      // 모든 기록 완전 삭제
+      // ★ 직원 이름 먼저 조회 후 schedules 삭제 (staff_name 조건 필수)
+      const { data: prof } = await supabase.from('profiles').select('nm').eq('id', profileId).maybeSingle()
+      const staffNm = prof?.nm
       await supabase.from('attendance').delete().eq('profile_id', profileId).eq('store_id', selectedStoreId)
-      await supabase.from('schedules').delete().eq('store_id', selectedStoreId)  // staff_name 기준이라 별도처리
       await supabase.from('attendance_requests').delete().eq('profile_id', profileId).eq('store_id', selectedStoreId)
+      // schedules는 staff_name 기준 — 반드시 이름 조건 포함
+      if (staffNm) {
+        await supabase.from('schedules').delete().eq('store_id', selectedStoreId).eq('staff_name', staffNm)
+      }
       await supabase.from('store_members').delete().eq('store_id', selectedStoreId).eq('profile_id', profileId)
       const { data: otherStores } = await supabase.from('store_members').select('id').eq('profile_id', profileId)
       if (!otherStores || otherStores.length === 0) {
