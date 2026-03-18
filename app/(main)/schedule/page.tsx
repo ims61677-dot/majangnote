@@ -804,18 +804,26 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
     await Promise.all(myStores.map(async (member: any) => {
       const sid = member.stores?.id
       if (!sid) return
-      const [schedsRes, reqsRes, staffRes, settingsRes, offReqsRes] = await Promise.all([
+      const [schedsRes, reqsRes, staffRes, inactiveStaffRes, settingsRes, offReqsRes] = await Promise.all([
         supabase.from('schedules').select('*').eq('store_id', sid).gte('schedule_date', startDate).lte('schedule_date', endDate),
         supabase.from('schedule_requests').select('*').eq('store_id', sid).eq('status', 'pending').order('created_at', { ascending: false }),
         supabase.from('store_members').select('profile_id, sort_order, profiles(nm)').eq('store_id', sid).eq('active', true),
+        supabase.from('store_members').select('profile_id, sort_order, profiles(nm)').eq('store_id', sid).eq('active', false),
         supabase.from('schedule_settings').select('*').eq('store_id', sid).maybeSingle(),
         supabase.from('off_requests').select('*').eq('store_id', sid).eq('target_month', `${year}-${pad(month+1)}`),
       ])
-      const staffNames = (staffRes.data || [])
+      // 활성 직원
+      const activeNames = (staffRes.data || [])
         .map((m: any) => ({ nm: m.profiles?.nm || '', order: m.sort_order ?? 9999 }))
         .filter((m: any) => m.nm)
         .sort((a: any, b: any) => a.order - b.order)
         .map((m: any) => m.nm)
+      // 비활성 직원 중 당월 스케줄 있는 경우만 추가 (맨 뒤에)
+      const schedNamesInMonth = new Set((schedsRes.data || []).map((s: any) => s.staff_name))
+      const inactiveWithSched = (inactiveStaffRes.data || [])
+        .map((m: any) => m.profiles?.nm || '')
+        .filter((nm: string) => nm && !activeNames.includes(nm) && schedNamesInMonth.has(nm))
+      const staffNames = [...activeNames, ...inactiveWithSched]
       newData[sid] = { schedules: schedsRes.data || [], requests: reqsRes.data || [], staff: staffNames, settings: settingsRes.data || null, offRequests: offReqsRes.data || [] }
     }))
 
@@ -2388,7 +2396,7 @@ export default function SchedulePage() {
     const user = JSON.parse(localStorage.getItem('mj_user')||'{}')
     if (!store.id) return
     setStoreId(store.id); setMyName(user.nm||''); setRole(user.role||'staff'); setProfileId(user.id||'')
-    loadStaff(store.id)
+    loadStaff(store.id, nowD.getFullYear(), nowD.getMonth())
     loadData(store.id, nowD.getFullYear(), nowD.getMonth())
     loadSettings(store.id)
     loadOffRequests(store.id, nowD.getFullYear(), nowD.getMonth())
@@ -2413,22 +2421,43 @@ export default function SchedulePage() {
     setSchedules(data||[])
   }
 
-  async function loadStaff(sid: string) {
-    const { data } = await supabase.from('store_members').select('profile_id, sort_order, profiles(nm)').eq('store_id', sid).eq('active', true)
-    const members = (data||[]).map((m: any) => ({ nm: m.profiles?.nm||'', sort_order: m.sort_order ?? 9999 })).filter(m => m.nm)
+  async function loadStaff(sid: string, y?: number, m?: number) {
+    const targetYear = y ?? calYear
+    const targetMonth = m ?? calMonth
+    const pad = (n: number) => String(n).padStart(2,'0')
+    const startDate = `${targetYear}-${pad(targetMonth+1)}-01`
+    const endDate = `${targetYear}-${pad(targetMonth+1)}-${pad(getDaysInMonth(targetYear, targetMonth))}`
+
+    const [activeRes, inactiveRes, schedRes] = await Promise.all([
+      supabase.from('store_members').select('profile_id, sort_order, profiles(nm)').eq('store_id', sid).eq('active', true),
+      supabase.from('store_members').select('profile_id, profiles(nm)').eq('store_id', sid).eq('active', false),
+      supabase.from('schedules').select('staff_name').eq('store_id', sid).gte('schedule_date', startDate).lte('schedule_date', endDate),
+    ])
+
+    const members = (activeRes.data||[]).map((m: any) => ({ nm: m.profiles?.nm||'', sort_order: m.sort_order ?? 9999 })).filter(m => m.nm)
     const hasDbOrder = members.some(m => m.sort_order !== 9999)
+
+    let activeNames: string[]
     if (hasDbOrder) {
       members.sort((a, b) => a.sort_order - b.sort_order)
-      setStaffList(members.map(m => m.nm))
+      activeNames = members.map(m => m.nm)
     } else {
       const names = members.map(m => m.nm)
       const savedOrder: string[] = JSON.parse(localStorage.getItem(`staff_order_${sid}`)||'[]')
       if (savedOrder.length > 0) {
-        setStaffList([...savedOrder.filter((n:string)=>names.includes(n)), ...names.filter((n:string)=>!savedOrder.includes(n)).sort()])
+        activeNames = [...savedOrder.filter((n:string)=>names.includes(n)), ...names.filter((n:string)=>!savedOrder.includes(n)).sort()]
       } else {
-        setStaffList(names.sort())
+        activeNames = names.sort()
       }
     }
+
+    // 비활성 직원 중 당월 스케줄 있는 경우 맨 뒤에 추가
+    const schedNames = new Set((schedRes.data||[]).map((s: any) => s.staff_name))
+    const inactiveWithSched = (inactiveRes.data||[])
+      .map((m: any) => m.profiles?.nm||'')
+      .filter((nm: string) => nm && !activeNames.includes(nm) && schedNames.has(nm))
+
+    setStaffList([...activeNames, ...inactiveWithSched])
   }
 
   async function loadPendingCount(sid: string) {
@@ -2436,7 +2465,7 @@ export default function SchedulePage() {
     setPendingCount(count||0)
   }
 
-  function handleChangeMonth(y: number, m: number) { setCalYear(y); setCalMonth(m); loadData(storeId,y,m); loadOffRequests(storeId,y,m) }
+  function handleChangeMonth(y: number, m: number) { setCalYear(y); setCalMonth(m); loadData(storeId,y,m); loadOffRequests(storeId,y,m); loadStaff(storeId,y,m) }
 
   const tabBtn = (active: boolean) => ({
     flex:1, padding:'9px 0', borderRadius:10, border:'none', cursor:'pointer' as const,
