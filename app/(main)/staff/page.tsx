@@ -369,13 +369,16 @@ export default function StaffPage() {
   const [myRole, setMyRole] = useState('')
   const [members, setMembers] = useState<any[]>([])
   const [resignedMembers, setResignedMembers] = useState<any[]>([])
+  const [inactiveMembers, setInactiveMembers] = useState<any[]>([])   // ★ 비활성화 목록
   const [showForm, setShowForm] = useState(false)
   const [showResigned, setShowResigned] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)             // ★ 비활성화 펼치기
   const [showPinModal, setShowPinModal] = useState(false)
   const [editingProfile, setEditingProfile] = useState<any>(null)
   const [resigningProfile, setResigningProfile] = useState<any>(null)
   const [personalProfile, setPersonalProfile] = useState<any>(null)
   const [contractProfile, setContractProfile] = useState<any>(null)
+  const [deleteTarget, setDeleteTarget] = useState<any>(null)         // ★ 삭제 모달용
   const [nm, setNm] = useState('')
   const [role, setRole] = useState('staff')
   const [phone, setPhone] = useState('')
@@ -405,12 +408,21 @@ export default function StaffPage() {
   }
 
   async function loadMembers(sid: string) {
-    // ★ inactive_from 포함해서 조회
+    // 재직 중 (active=true, resigned=false)
     const { data } = await supabase.from('store_members')
       .select('*, profiles(id, nm, role, phone, pin, resigned, joined_at)')
       .eq('store_id', sid).eq('active', true).order('created_at')
     const active = (data || []).filter(m => !m.profiles?.resigned)
     setMembers(active)
+
+    // ★ 비활성화 (active=false, resigned=false)
+    const { data: inact } = await supabase.from('store_members')
+      .select('*, profiles(id, nm, role, phone, resigned), inactive_from')
+      .eq('store_id', sid).eq('active', false).eq('resigned', false)
+      .order('created_at', { ascending: false })
+    setInactiveMembers(inact || [])
+
+    // 퇴사 (resigned=true)
     const { data: res } = await supabase.from('store_members')
       .select('*, profiles(id, nm, role, phone, resigned), resigned_at, resign_reason, inactive_from')
       .eq('store_id', sid).eq('resigned', true).order('resigned_at', { ascending: false })
@@ -460,6 +472,44 @@ export default function StaffPage() {
     alert('복직 처리되었습니다!')
   }
 
+  // ★ 비활성화 → 퇴사로 전환
+  async function deactivatedToResign(profileId: string, profileNm: string) {
+    if (!confirm(`"${profileNm}"을 퇴사 처리로 변경할까요?`)) return
+    const inactiveFrom = nextMonthFirst()
+    await supabase.from('store_members')
+      .update({ resigned: true, resigned_at: new Date().toISOString(), inactive_from: inactiveFrom })
+      .eq('store_id', selectedStoreId).eq('profile_id', profileId)
+    await supabase.from('profiles').update({ resigned: true }).eq('id', profileId)
+    await loadMembers(selectedStoreId)
+    alert('퇴사 처리되었습니다!')
+  }
+
+  // ★ 완전 삭제 (deleteTarget에서 mode 선택)
+  async function deleteStaff(profileId: string, mode: 'soft' | 'hard') {
+    if (mode === 'soft') {
+      // store_members만 삭제 (기록 보존)
+      await supabase.from('store_members').delete().eq('store_id', selectedStoreId).eq('profile_id', profileId)
+      // 다른 지점에도 없으면 profiles도 삭제
+      const { data: otherStores } = await supabase.from('store_members').select('id').eq('profile_id', profileId)
+      if (!otherStores || otherStores.length === 0) {
+        await supabase.from('profiles').delete().eq('id', profileId)
+      }
+    } else {
+      // 모든 기록 완전 삭제
+      await supabase.from('attendance').delete().eq('profile_id', profileId).eq('store_id', selectedStoreId)
+      await supabase.from('schedules').delete().eq('store_id', selectedStoreId)  // staff_name 기준이라 별도처리
+      await supabase.from('attendance_requests').delete().eq('profile_id', profileId).eq('store_id', selectedStoreId)
+      await supabase.from('store_members').delete().eq('store_id', selectedStoreId).eq('profile_id', profileId)
+      const { data: otherStores } = await supabase.from('store_members').select('id').eq('profile_id', profileId)
+      if (!otherStores || otherStores.length === 0) {
+        await supabase.from('profiles').delete().eq('id', profileId)
+      }
+    }
+    setDeleteTarget(null)
+    await loadMembers(selectedStoreId)
+    alert('삭제 완료되었습니다.')
+  }
+
   return (
     <div>
       {editingProfile && <EditInfoModal profile={editingProfile} member={members.find(m => m.profiles?.id === editingProfile?.id)} storeId={selectedStoreId} onClose={() => setEditingProfile(null)} onSaved={() => loadMembers(selectedStoreId)} />}
@@ -467,6 +517,38 @@ export default function StaffPage() {
       {showPinModal && <PinViewModal members={members} onClose={() => setShowPinModal(false)} />}
       {personalProfile && <PersonalInfoModal profile={personalProfile} onClose={() => setPersonalProfile(null)} />}
       {contractProfile && <ContractModal profile={contractProfile} storeId={selectedStoreId} onClose={() => setContractProfile(null)} />}
+
+      {/* ★ 삭제 모달 */}
+      {deleteTarget && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+          onClick={() => setDeleteTarget(null)}>
+          <div style={{ background:'#fff', borderRadius:20, padding:24, width:'100%', maxWidth:320 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize:15, fontWeight:700, color:'#E84393', marginBottom:4 }}>🗑️ 직원 삭제</div>
+            <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', background:'rgba(232,67,147,0.06)', borderRadius:10, padding:'10px 14px', marginBottom:16 }}>
+              {deleteTarget.nm}
+            </div>
+            <div style={{ fontSize:11, color:'#888', marginBottom:14, lineHeight:1.7 }}>
+              삭제 방식을 선택해주세요.<br/>삭제 후 로그인이 불가능합니다.
+            </div>
+            {/* 기록 보존 삭제 */}
+            <button onClick={() => { if(confirm(`"${deleteTarget.nm}"을 삭제할까요?\n출퇴근·스케줄 기록은 보존됩니다.`)) deleteStaff(deleteTarget.id, 'soft') }}
+              style={{ width:'100%', padding:'12px 0', borderRadius:10, border:'1px solid rgba(232,67,147,0.3)', background:'rgba(232,67,147,0.06)', color:'#E84393', fontSize:13, fontWeight:700, cursor:'pointer', marginBottom:8 }}>
+              📋 삭제 (기록 보존)
+              <div style={{ fontSize:10, color:'#E84393', opacity:0.7, fontWeight:400, marginTop:2 }}>출퇴근·스케줄 기록은 남김</div>
+            </button>
+            {/* 완전 삭제 */}
+            <button onClick={() => { if(confirm(`"${deleteTarget.nm}"을 완전 삭제할까요?\n⚠️ 출퇴근·스케줄 기록도 모두 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.`)) deleteStaff(deleteTarget.id, 'hard') }}
+              style={{ width:'100%', padding:'12px 0', borderRadius:10, border:'none', background:'linear-gradient(135deg,#E84393,#FF6B35)', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', marginBottom:12 }}>
+              ⚠️ 완전 삭제 (모든 기록 삭제)
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.8)', fontWeight:400, marginTop:2 }}>출퇴근·스케줄 기록도 모두 삭제</div>
+            </button>
+            <button onClick={() => setDeleteTarget(null)}
+              style={{ width:'100%', padding:'10px 0', borderRadius:10, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:13, cursor:'pointer' }}>
+              취소
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
         <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>👥 직원관리</span>
@@ -557,6 +639,53 @@ export default function StaffPage() {
 
       {isOwner && (
         <div style={{ marginTop:8 }}>
+
+          {/* ★ 비활성화 목록 */}
+          <button onClick={() => setShowInactive(p => !p)}
+            style={{ width:'100%', padding:'12px 0', borderRadius:12, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:13, fontWeight:600, cursor:'pointer', marginBottom:8 }}>
+            ⏸️ 비활성화 목록 {inactiveMembers.length > 0 ? `(${inactiveMembers.length}명)` : ''} {showInactive ? '▲' : '▼'}
+          </button>
+          {showInactive && (
+            <div style={{ marginBottom:8 }}>
+              {/* 안내 문구 */}
+              <div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(255,107,53,0.06)', border:'1px solid rgba(255,107,53,0.15)', marginBottom:10, fontSize:11, color:'#FF6B35', lineHeight:1.6 }}>
+                ⚠️ 비활성화는 로그인이 <b>차단되지 않습니다.</b><br/>
+                완전 차단이 필요하면 퇴사 처리로 변경해주세요.
+              </div>
+              {inactiveMembers.length === 0 ? (
+                <div style={{ ...bx, textAlign:'center', padding:24, color:'#bbb' }}><div style={{ fontSize:13 }}>비활성화된 직원이 없습니다</div></div>
+              ) : inactiveMembers.map(m => {
+                const p = m.profiles
+                if (!p) return null
+                return (
+                  <div key={p.id} style={{ ...bx, background:'#FAFBFC', border:'1px solid #F0F0F0' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                      <div style={{ width:40, height:40, borderRadius:10, background:'#E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700, color:'#aaa', flexShrink:0 }}>{p.nm?.charAt(0)}</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:2 }}>
+                          <span style={{ fontSize:14, fontWeight:700, color:'#888' }}>{p.nm}</span>
+                          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:6, background:'rgba(255,107,53,0.1)', color:'#FF6B35', fontWeight:700 }}>⏸️ 비활성</span>
+                          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:6, fontWeight:700, background:`${ROLE_COLORS[p.role]}15`, color:ROLE_COLORS[p.role]||'#888' }}>{ROLES[p.role]||p.role}</span>
+                        </div>
+                        <div style={{ fontSize:11, color:'#FF6B35', fontWeight:600 }}>⚠️ 로그인 가능 상태</div>
+                        {m.inactive_from && <div style={{ fontSize:11, color:'#bbb', marginTop:1 }}>📅 {m.inactive_from} 부터 출퇴근 제외</div>}
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:4, flexShrink:0 }}>
+                        <button onClick={() => reactivate(p.id)}
+                          style={{ padding:'4px 8px', borderRadius:7, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>복직</button>
+                        <button onClick={() => deactivatedToResign(p.id, p.nm)}
+                          style={{ padding:'4px 8px', borderRadius:7, background:'rgba(255,107,53,0.08)', border:'1px solid rgba(255,107,53,0.2)', color:'#FF6B35', fontSize:10, cursor:'pointer', fontWeight:600 }}>🚪 퇴사전환</button>
+                        <button onClick={() => setDeleteTarget(p)}
+                          style={{ padding:'4px 8px', borderRadius:7, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:10, cursor:'pointer', fontWeight:600 }}>🗑️ 삭제</button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* 퇴사자 목록 */}
           <button onClick={() => setShowResigned(p => !p)}
             style={{ width:'100%', padding:'12px 0', borderRadius:12, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:13, fontWeight:600, cursor:'pointer' }}>
             🚪 퇴사자 목록 {resignedMembers.length > 0 ? `(${resignedMembers.length}명)` : ''} {showResigned ? '▲' : '▼'}
@@ -584,17 +713,13 @@ export default function StaffPage() {
                             {m.resign_reason && ` · ${m.resign_reason}`}
                           </div>
                         )}
-                        {/* ★ inactive_from 표시 */}
-                        {m.inactive_from && (
-                          <div style={{ fontSize:11, color:'#FF6B35', marginTop:2 }}>
-                            📅 {m.inactive_from} 부터 출퇴근 목록에서 제외
-                          </div>
-                        )}
+                        {m.inactive_from && <div style={{ fontSize:11, color:'#FF6B35', marginTop:2 }}>📅 {m.inactive_from} 부터 출퇴근 제외</div>}
                       </div>
                       <div style={{ display:'flex', flexDirection:'column', gap:4, flexShrink:0 }}>
                         <button onClick={() => setPersonalProfile(p)} style={{ padding:'4px 8px', borderRadius:7, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>💼 급여</button>
                         <button onClick={() => setContractProfile(p)} style={{ padding:'4px 8px', borderRadius:7, background:'rgba(45,198,214,0.08)', border:'1px solid rgba(45,198,214,0.2)', color:'#2DC6D6', fontSize:10, cursor:'pointer', fontWeight:600 }}>📄 계약서</button>
                         <button onClick={() => reactivate(p.id)} style={{ padding:'5px 10px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>복직</button>
+                        <button onClick={() => setDeleteTarget(p)} style={{ padding:'5px 10px', borderRadius:8, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:10, cursor:'pointer', fontWeight:600 }}>🗑️ 삭제</button>
                       </div>
                     </div>
                   </div>
