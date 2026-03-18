@@ -844,28 +844,39 @@ export default function AttendancePage() {
     const result: Record<string, { staff: any[]; att: any[] }> = {}
     await Promise.all(stores.map(async (store: any) => {
       const sid = store.id
-      // ★ active 여부 관계없이 전체 조회 (퇴사자도 당월 포함)
+
+      // 재직 중 직원
       const { data: activeMembers } = await supabase.from('store_members')
-        .select('profile_id, expected_clock_in, expected_clock_out, inactive_from').eq('store_id', sid).eq('active', true)
+        .select('profile_id, expected_clock_in, expected_clock_out, inactive_from')
+        .eq('store_id', sid).eq('active', true)
+
+      // 비활성/퇴사자
       const { data: inactiveMembers } = await supabase.from('store_members')
-        .select('profile_id, expected_clock_in, expected_clock_out, inactive_from').eq('store_id', sid).eq('active', false)
-      // 해당 월에 재직했던 사람 모두 포함 (inactive_from이 해당월 시작일보다 이후면 당월 포함)
-      const allMembers = [
-        ...(activeMembers||[]),
-        ...(inactiveMembers||[]).filter((m: any) => !m.inactive_from || m.inactive_from > from)
-      ]
+        .select('profile_id, expected_clock_in, expected_clock_out, inactive_from')
+        .eq('store_id', sid).eq('active', false)
+
+      // 해당 월 출퇴근 기록
+      const { data: attData } = await supabase.from('attendance')
+        .select('*').eq('store_id', sid).gte('work_date', from).lte('work_date', to)
+      const attPids = new Set((attData || []).map((a: any) => a.profile_id))
+
+      // 비활성/퇴사자 중 해당 월 출퇴근 기록 있는 사람만 포함
+      const inactiveWithAtt = (inactiveMembers || []).filter((m: any) => attPids.has(m.profile_id))
+
+      const allMembers = [...(activeMembers || []), ...inactiveWithAtt]
       const memberPids = allMembers.map((m: any) => m.profile_id)
-      if (memberPids.length === 0) { result[sid] = { staff: [], att: [] }; return }
+      if (memberPids.length === 0) { result[sid] = { staff: [], att: attData || [] }; return }
+
       const { data: profs } = await supabase.from('profiles').select('id, nm').in('id', memberPids)
       const profMap: Record<string, string> = {}
       ;(profs||[]).forEach((p: any) => { profMap[p.id] = p.nm })
+
       const staff = allMembers.map((m: any) => ({
         id: m.profile_id, nm: profMap[m.profile_id] || '',
         expected_in: m.expected_clock_in || '', expected_out: m.expected_clock_out || '',
         inactive_from: m.inactive_from || null,
       })).filter((s: any) => s.nm)
-      const { data: attData } = await supabase.from('attendance')
-        .select('*').eq('store_id', sid).gte('work_date', from).lte('work_date', to)
+
       result[sid] = { staff, att: attData || [] }
     }))
     setAllMonthData(result)
@@ -879,17 +890,29 @@ export default function AttendancePage() {
   }
 
   async function loadStaffList(sid: string) {
-    // 재직 중
+    const histFrom = `${histYear}-${pad(histMonth+1)}-01`
+    const histTo   = `${histYear}-${pad(histMonth+1)}-${pad(new Date(histYear, histMonth+1, 0).getDate())}`
+
+    // 재직 중 직원
     const { data: activeData } = await supabase.from('store_members')
       .select('profile_id, expected_clock_in, expected_clock_out, inactive_from')
       .eq('store_id', sid).eq('active', true)
 
-    // ★ 퇴사자 + 비활성화 — 기록조회에서 당월 포함 표시를 위해 모두 포함
+    // 비활성/퇴사자 전체
     const { data: inactiveData } = await supabase.from('store_members')
       .select('profile_id, expected_clock_in, expected_clock_out, inactive_from')
       .eq('store_id', sid).eq('active', false)
 
-    const allMembers = [...(activeData||[]), ...(inactiveData||[])]
+    // 해당 월에 출퇴근 기록이 있는 profile_id 목록
+    const { data: attInMonth } = await supabase.from('attendance')
+      .select('profile_id').eq('store_id', sid)
+      .gte('work_date', histFrom).lte('work_date', histTo)
+    const attPids = new Set((attInMonth || []).map((a: any) => a.profile_id))
+
+    // 비활성/퇴사자 중 해당 월에 출퇴근 기록 있는 사람만 포함
+    const inactiveWithAtt = (inactiveData || []).filter((m: any) => attPids.has(m.profile_id))
+
+    const allMembers = [...(activeData || []), ...inactiveWithAtt]
     if (allMembers.length === 0) { setStaffList([]); return }
 
     const pids = allMembers.map((m: any) => m.profile_id)
