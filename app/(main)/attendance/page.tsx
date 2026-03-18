@@ -864,21 +864,18 @@ export default function AttendancePage() {
       .eq('store_id', sid).eq('active', true)
     if (!members || members.length === 0) { setStaffList([]); return }
 
-    // ★ inactive_from 필터
-    const activeMembers = members.filter((m: any) =>
-      !m.inactive_from || m.inactive_from > today
-    )
-
-    const pids = activeMembers.map((m: any) => m.profile_id)
+    const pids = members.map((m: any) => m.profile_id)
     const { data: profs } = await supabase.from('profiles').select('id, nm').in('id', pids)
     const profMap: Record<string, string> = {}
     ;(profs||[]).forEach((p: any) => { profMap[p.id] = p.nm })
 
-    setStaffList(activeMembers.map((m: any) => ({
+    // ★ 기록 조회용: inactive_from 필터 없이 전원 포함 (당월 퇴사자 월급 확인용)
+    setStaffList(members.map((m: any) => ({
       id:           m.profile_id,
       nm:           profMap[m.profile_id] || '',
       expected_in:  m.expected_clock_in  || '',
       expected_out: m.expected_clock_out || '',
+      inactive_from: m.inactive_from || null,
     })))
   }
 
@@ -1538,6 +1535,13 @@ export default function AttendancePage() {
                       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
                         <div style={{ width:8, height:8, borderRadius:'50%', background:color, flexShrink:0 }} />
                         <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{s.nm}</span>
+                        {/* ★ 당월 퇴사자 뱃지 */}
+                        {s.inactive_from && s.inactive_from <= `${histYear}-${pad(histMonth+2)}-01` && (
+                          <span style={{ fontSize:10, padding:'1px 7px', borderRadius:6,
+                            background:'rgba(232,67,147,0.1)', color:'#E84393', fontWeight:700 }}>
+                            🚪 퇴사
+                          </span>
+                        )}
                         <span style={{ fontSize:11, color:'#aaa', marginLeft:'auto' }}>{histYear}.{pad(histMonth+1)} 근태</span>
                       </div>
                       {/* 1행: 정상 / 지각 / 조기퇴근 / 결근 */}
