@@ -687,17 +687,22 @@ export default function AttendancePage() {
       .eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half','absent'])
 
     const { data: members } = await supabase.from('store_members')
-      .select('profile_id, expected_clock_in, expected_clock_out')
+      .select('profile_id, expected_clock_in, expected_clock_out, inactive_from')
       .eq('store_id', sid).eq('active', true)
 
+    // ★ inactive_from 필터: 당월까지 표시, 다음달 1일부터 제외
+    const activeMembers = (members||[]).filter((m: any) =>
+      !m.inactive_from || m.inactive_from > today
+    )
+
     // profiles 이름 별도 조회
-    const memberPids = (members||[]).map((m: any) => m.profile_id)
+    const memberPids = activeMembers.map((m: any) => m.profile_id)
     const { data: memberProfs } = await supabase.from('profiles').select('id, nm').in('id', memberPids)
     const profNameMap: Record<string, string> = {}
     ;(memberProfs||[]).forEach((p: any) => { profNameMap[p.id] = p.nm })
 
     const nameToInfo: Record<string, { id:string; expected_in?:string; expected_out?:string }> = {}
-    ;(members||[]).forEach((m: any) => {
+    ;(activeMembers||[]).forEach((m: any) => {
       const nm = profNameMap[m.profile_id]
       if (nm) nameToInfo[nm] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out }
     })
@@ -826,12 +831,16 @@ export default function AttendancePage() {
     await Promise.all(stores.map(async (store: any) => {
       const sid = store.id
       const { data: members } = await supabase.from('store_members')
-        .select('profile_id, expected_clock_in, expected_clock_out').eq('store_id', sid).eq('active', true)
-      const memberPids = (members||[]).map((m: any) => m.profile_id)
+        .select('profile_id, expected_clock_in, expected_clock_out, inactive_from').eq('store_id', sid).eq('active', true)
+      // ★ inactive_from 필터: 해당 월 1일보다 이후에 inactive 되면 당월은 포함
+      const activeMembers = (members||[]).filter((m: any) =>
+        !m.inactive_from || m.inactive_from > from
+      )
+      const memberPids = activeMembers.map((m: any) => m.profile_id)
       const { data: profs } = await supabase.from('profiles').select('id, nm').in('id', memberPids)
       const profMap: Record<string, string> = {}
       ;(profs||[]).forEach((p: any) => { profMap[p.id] = p.nm })
-      const staff = (members||[]).map((m: any) => ({
+      const staff = activeMembers.map((m: any) => ({
         id: m.profile_id, nm: profMap[m.profile_id] || '',
         expected_in: m.expected_clock_in || '', expected_out: m.expected_clock_out || '',
       })).filter((s: any) => s.nm)
@@ -851,16 +860,21 @@ export default function AttendancePage() {
 
   async function loadStaffList(sid: string) {
     const { data: members } = await supabase.from('store_members')
-      .select('profile_id, expected_clock_in, expected_clock_out')
+      .select('profile_id, expected_clock_in, expected_clock_out, inactive_from')
       .eq('store_id', sid).eq('active', true)
     if (!members || members.length === 0) { setStaffList([]); return }
 
-    const pids = members.map((m: any) => m.profile_id)
+    // ★ inactive_from 필터
+    const activeMembers = members.filter((m: any) =>
+      !m.inactive_from || m.inactive_from > today
+    )
+
+    const pids = activeMembers.map((m: any) => m.profile_id)
     const { data: profs } = await supabase.from('profiles').select('id, nm').in('id', pids)
     const profMap: Record<string, string> = {}
     ;(profs||[]).forEach((p: any) => { profMap[p.id] = p.nm })
 
-    setStaffList(members.map((m: any) => ({
+    setStaffList(activeMembers.map((m: any) => ({
       id:           m.profile_id,
       nm:           profMap[m.profile_id] || '',
       expected_in:  m.expected_clock_in  || '',

@@ -7,6 +7,12 @@ const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '
 const ROLES: Record<string,string> = { owner:'대표', manager:'관리자', staff:'사원', pt:'PT' }
 const ROLE_COLORS: Record<string,string> = { owner:'#FF6B35', manager:'#6C5CE7', staff:'#2DC6D6', pt:'#00B894' }
 
+// inactive_from: 비활성/퇴사 처리된 달의 말일 다음날 = 다음달 1일
+function nextMonthFirst(dateStr?: string) {
+  const base = dateStr ? new Date(dateStr) : new Date()
+  return `${base.getFullYear()}-${String(base.getMonth() + 2).padStart(2,'0')}-01`
+}
+
 function EditInfoModal({ profile, member, storeId, onClose, onSaved }: {
   profile: any; member: any; storeId: string; onClose: () => void; onSaved: () => void
 }) {
@@ -140,11 +146,20 @@ function ResignModal({ profile, storeId, onClose, onSaved }: {
     if (!confirm(`"${profile.nm}"을 퇴사 처리할까요?\n\n로그인이 불가능해지지만 모든 기록은 보존됩니다.`)) return
     setSaving(true)
     try {
+      // ★ inactive_from: 퇴사일 기준 다음달 1일 (당월까지는 출퇴근에서 보임)
+      const inactiveFrom = nextMonthFirst(resignDate)
       await supabase.from('store_members')
-        .update({ active: false, resigned: true, resigned_at: resignDate ? new Date(resignDate).toISOString() : new Date().toISOString(), resigned_at_date: resignDate || null, resign_reason: reason || null })
+        .update({
+          active: false,
+          resigned: true,
+          resigned_at: resignDate ? new Date(resignDate).toISOString() : new Date().toISOString(),
+          resigned_at_date: resignDate || null,
+          resign_reason: reason || null,
+          inactive_from: inactiveFrom,
+        })
         .eq('store_id', storeId).eq('profile_id', profile.id)
       await supabase.from('profiles').update({ resigned: true }).eq('id', profile.id)
-      alert(`✅ "${profile.nm}" 퇴사 처리 완료\n모든 기록은 보존됩니다.`)
+      alert(`✅ "${profile.nm}" 퇴사 처리 완료\n${inactiveFrom} 부터 출퇴근 목록에서 제외됩니다.`)
       onSaved(); onClose()
     } catch (e: any) { alert('처리 실패: ' + e?.message) }
     finally { setSaving(false) }
@@ -157,6 +172,11 @@ function ResignModal({ profile, storeId, onClose, onSaved }: {
         <div style={{ fontSize:11, color:'#aaa', marginBottom:16 }}>퇴사 처리 시 로그인이 불가능해집니다. 모든 기록(스케줄, 마감일지 등)은 보존됩니다.</div>
         <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', background:'rgba(232,67,147,0.06)', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
           {profile.nm} · <span style={{ color:ROLE_COLORS[profile.role]||'#888', fontSize:11 }}>{ROLES[profile.role]||profile.role}</span>
+        </div>
+        {/* ★ 안내 문구 추가 */}
+        <div style={{ fontSize:11, color:'#FF6B35', background:'rgba(255,107,53,0.06)', borderRadius:8, padding:'8px 12px', marginBottom:12, lineHeight:1.6 }}>
+          📅 퇴사일 기준 <b>당월까지</b>는 출퇴근 기록에서 확인 가능하며,<br/>
+          <b>다음달 1일부터</b> 목록에서 제외됩니다.
         </div>
         <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>퇴사일</div>
         <input type="date" value={resignDate} onChange={e => setResignDate(e.target.value)} style={{ ...inp, marginBottom:10 }} />
@@ -225,41 +245,16 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
             {(info.id_name || info.id_number || info.id_address) && (
               <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:8 }}>🪪 신분증 정보</div>
-                {info.id_name && (
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                    <span style={{ fontSize:12, color:'#aaa' }}>이름</span>
-                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.id_name}</span>
-                  </div>
-                )}
-                {info.id_number && (
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                    <span style={{ fontSize:12, color:'#aaa' }}>주민등록번호</span>
-                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.id_number}</span>
-                  </div>
-                )}
-                {info.id_address && (
-                  <div style={{ display:'flex', justifyContent:'space-between' }}>
-                    <span style={{ fontSize:12, color:'#aaa' }}>주소</span>
-                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e', textAlign:'right', maxWidth:'60%' }}>{info.id_address}</span>
-                  </div>
-                )}
+                {info.id_name && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#aaa' }}>이름</span><span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.id_name}</span></div>}
+                {info.id_number && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#aaa' }}>주민등록번호</span><span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.id_number}</span></div>}
+                {info.id_address && <div style={{ display:'flex', justifyContent:'space-between' }}><span style={{ fontSize:12, color:'#aaa' }}>주소</span><span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e', textAlign:'right', maxWidth:'60%' }}>{info.id_address}</span></div>}
               </div>
             )}
             {(info.bank_name || info.bank_account || info.bank_holder) && (
               <div style={{ background:'#F8F9FB', borderRadius:12, padding:'12px 14px', marginBottom:12, border:'1px solid #E8ECF0' }}>
                 <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:8 }}>🏦 계좌 정보</div>
-                {info.bank_name && (
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                    <span style={{ fontSize:12, color:'#aaa' }}>은행</span>
-                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.bank_name}</span>
-                  </div>
-                )}
-                {info.bank_holder && (
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                    <span style={{ fontSize:12, color:'#aaa' }}>예금주</span>
-                    <span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.bank_holder}</span>
-                  </div>
-                )}
+                {info.bank_name && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#aaa' }}>은행</span><span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.bank_name}</span></div>}
+                {info.bank_holder && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#aaa' }}>예금주</span><span style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.bank_holder}</span></div>}
                 {info.bank_account && (
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                     <span style={{ fontSize:12, color:'#aaa' }}>계좌번호</span>
@@ -278,18 +273,8 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
                 <div style={{ fontSize:13, fontWeight:600, color:'#1a1a2e' }}>{info.payslip_email}</div>
               </div>
             )}
-            {idCardUrl && (
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:6 }}>🪪 신분증 사본</div>
-                <img src={idCardUrl} alt="신분증" style={{ width:'100%', borderRadius:10, border:'1px solid #E8ECF0' }} />
-              </div>
-            )}
-            {bankbookUrl && (
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:6 }}>📄 통장 사본</div>
-                <img src={bankbookUrl} alt="통장사본" style={{ width:'100%', borderRadius:10, border:'1px solid #E8ECF0' }} />
-              </div>
-            )}
+            {idCardUrl && <div style={{ marginBottom:12 }}><div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:6 }}>🪪 신분증 사본</div><img src={idCardUrl} alt="신분증" style={{ width:'100%', borderRadius:10, border:'1px solid #E8ECF0' }} /></div>}
+            {bankbookUrl && <div style={{ marginBottom:12 }}><div style={{ fontSize:11, fontWeight:700, color:'#888', marginBottom:6 }}>📄 통장 사본</div><img src={bankbookUrl} alt="통장사본" style={{ width:'100%', borderRadius:10, border:'1px solid #E8ECF0' }} /></div>}
           </div>
         )}
       </div>
@@ -308,11 +293,7 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
   useEffect(() => { loadContracts() }, [])
 
   async function loadContracts() {
-    const { data } = await supabase.from('staff_contracts')
-      .select('*')
-      .eq('profile_id', profile.id)
-      .eq('store_id', storeId)
-      .order('created_at', { ascending: false })
+    const { data } = await supabase.from('staff_contracts').select('*').eq('profile_id', profile.id).eq('store_id', storeId).order('created_at', { ascending: false })
     setContracts(data || [])
     setLoading(false)
   }
@@ -321,18 +302,11 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
     setUploading(true)
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
-      // 파일명 한글/특수문자 제거 — 숫자+인덱스로 저장
       const safeName = `${Date.now()}_${i}.pdf`
       const path = `${storeId}/${profile.id}/${safeName}`
       const { error } = await supabase.storage.from('staff-contracts').upload(path, file)
       if (error) { alert('업로드 실패: ' + error.message); continue }
-      await supabase.from('staff_contracts').insert({
-        store_id: storeId,
-        profile_id: profile.id,
-        file_name: file.name, // 원래 파일명은 DB에 보관
-        file_path: path,
-        uploaded_by: ownerNm,
-      })
+      await supabase.from('staff_contracts').insert({ store_id: storeId, profile_id: profile.id, file_name: file.name, file_path: path, uploaded_by: ownerNm })
     }
     await loadContracts()
     setUploading(false)
@@ -363,41 +337,24 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
         </div>
-
         <div onClick={() => fileRef.current?.click()}
           style={{ padding:'16px 0', borderRadius:12, border:'2px dashed #E0E4E8', textAlign:'center', cursor:'pointer', background:'#F8F9FB', marginBottom:16 }}>
           <div style={{ fontSize:24, marginBottom:4 }}>📎</div>
           <div style={{ fontSize:13, color:'#aaa', fontWeight:600 }}>{uploading ? '업로드 중...' : 'PDF 파일 선택 (여러 개 가능)'}</div>
         </div>
         <input ref={fileRef} type="file" accept=".pdf" multiple style={{ display:'none' }}
-          onChange={async e => {
-            if (e.target.files && e.target.files.length > 0) {
-              await uploadFiles(e.target.files)
-              e.target.value = ''
-            }
-          }} />
-
-        {loading ? (
-          <div style={{ textAlign:'center', padding:24, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
-        ) : contracts.length === 0 ? (
-          <div style={{ textAlign:'center', padding:24, color:'#bbb' }}>
-            <div style={{ fontSize:13 }}>업로드된 계약서가 없습니다</div>
-          </div>
-        ) : contracts.map((c: any) => (
+          onChange={async e => { if (e.target.files && e.target.files.length > 0) { await uploadFiles(e.target.files); e.target.value = '' } }} />
+        {loading ? <div style={{ textAlign:'center', padding:24, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
+        : contracts.length === 0 ? <div style={{ textAlign:'center', padding:24, color:'#bbb' }}><div style={{ fontSize:13 }}>업로드된 계약서가 없습니다</div></div>
+        : contracts.map((c: any) => (
           <div key={c.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', borderRadius:10, background:'#F8F9FB', border:'1px solid #E8ECF0', marginBottom:8 }}>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:13, fontWeight:600, color:'#1a1a2e', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📎 {c.file_name}</div>
               <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>{new Date(c.created_at).toLocaleDateString('ko')} · {c.uploaded_by}</div>
             </div>
             <div style={{ display:'flex', gap:6, flexShrink:0, marginLeft:8 }}>
-              <button onClick={() => downloadContract(c.file_path, c.file_name)}
-                style={{ padding:'5px 10px', borderRadius:8, background:'linear-gradient(135deg,#6C5CE7,#2DC6D6)', border:'none', color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer' }}>
-                ⬇️
-              </button>
-              <button onClick={() => deleteContract(c.id, c.file_path)}
-                style={{ padding:'5px 10px', borderRadius:8, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:11, cursor:'pointer', fontWeight:600 }}>
-                🗑️
-              </button>
+              <button onClick={() => downloadContract(c.file_path, c.file_name)} style={{ padding:'5px 10px', borderRadius:8, background:'linear-gradient(135deg,#6C5CE7,#2DC6D6)', border:'none', color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer' }}>⬇️</button>
+              <button onClick={() => deleteContract(c.id, c.file_path)} style={{ padding:'5px 10px', borderRadius:8, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:11, cursor:'pointer', fontWeight:600 }}>🗑️</button>
             </div>
           </div>
         ))}
@@ -433,40 +390,30 @@ export default function StaffPage() {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
     const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
     if (!store.id) return
-    setStoreId(store.id)
-    setSelectedStoreId(store.id)
-    setSelectedStoreName(store.name || '')
-    setMyRole(user.role)
+    setStoreId(store.id); setSelectedStoreId(store.id); setSelectedStoreName(store.name || ''); setMyRole(user.role)
     loadMembers(store.id)
     if (user.role === 'owner') loadAllStores(user.id)
   }, [])
 
   async function loadAllStores(uid: string) {
-    const { data } = await supabase.from('store_members')
-      .select('*, stores(*)')
-      .eq('profile_id', uid)
-      .eq('role', 'owner')
-      .eq('active', true)
+    const { data } = await supabase.from('store_members').select('*, stores(*)').eq('profile_id', uid).eq('role', 'owner').eq('active', true)
     if (data && data.length > 1) setAllStores(data)
   }
 
   async function switchViewStore(sid: string, sname: string) {
-    setSelectedStoreId(sid)
-    setSelectedStoreName(sname)
-    await loadMembers(sid)
+    setSelectedStoreId(sid); setSelectedStoreName(sname); await loadMembers(sid)
   }
 
   async function loadMembers(sid: string) {
+    // ★ inactive_from 포함해서 조회
     const { data } = await supabase.from('store_members')
       .select('*, profiles(id, nm, role, phone, pin, resigned, joined_at)')
-      .eq('store_id', sid).eq('active', true)
-      .order('created_at')
+      .eq('store_id', sid).eq('active', true).order('created_at')
     const active = (data || []).filter(m => !m.profiles?.resigned)
     setMembers(active)
     const { data: res } = await supabase.from('store_members')
-      .select('*, profiles(id, nm, role, phone, resigned), resigned_at, resign_reason')
-      .eq('store_id', sid).eq('resigned', true)
-      .order('resigned_at', { ascending: false })
+      .select('*, profiles(id, nm, role, phone, resigned), resigned_at, resign_reason, inactive_from')
+      .eq('store_id', sid).eq('resigned', true).order('resigned_at', { ascending: false })
     setResignedMembers(res || [])
   }
 
@@ -481,17 +428,19 @@ export default function StaffPage() {
     }
     if (profile) {
       const { data: already } = await supabase.from('store_members').select('*').eq('store_id', selectedStoreId).eq('profile_id', profile.id).limit(1)
-      if (!already?.length) {
-        await supabase.from('store_members').insert({ store_id: selectedStoreId, profile_id: profile.id, role, active: true, joined_at: joinedAt || null })
-      }
+      if (!already?.length) await supabase.from('store_members').insert({ store_id: selectedStoreId, profile_id: profile.id, role, active: true, joined_at: joinedAt || null })
       await loadMembers(selectedStoreId)
     }
     setNm(''); setRole('staff'); setPhone(''); setJoinedAt(''); setShowForm(false); setSaving(false)
   }
 
+  // ★ 비활성화: inactive_from = 다음달 1일
   async function deactivate(profileId: string) {
-    if (!confirm('직원을 비활성화할까요?\n(퇴사와 다르게 임시로 숨깁니다)')) return
-    await supabase.from('store_members').update({ active: false }).eq('store_id', selectedStoreId).eq('profile_id', profileId)
+    if (!confirm('직원을 비활성화할까요?\n(퇴사와 다르게 임시로 숨깁니다)\n\n당월까지는 출퇴근 기록에서 확인 가능합니다.')) return
+    const inactiveFrom = nextMonthFirst()
+    await supabase.from('store_members')
+      .update({ active: false, inactive_from: inactiveFrom })
+      .eq('store_id', selectedStoreId).eq('profile_id', profileId)
     setMembers(p => p.filter(m => m.profiles?.id !== profileId))
   }
 
@@ -503,7 +452,9 @@ export default function StaffPage() {
 
   async function reactivate(profileId: string) {
     if (!confirm('이 직원을 복직 처리할까요?')) return
-    await supabase.from('store_members').update({ active: true, resigned: false, resigned_at: null, resign_reason: null }).eq('store_id', selectedStoreId).eq('profile_id', profileId)
+    await supabase.from('store_members')
+      .update({ active: true, resigned: false, resigned_at: null, resign_reason: null, inactive_from: null })
+      .eq('store_id', selectedStoreId).eq('profile_id', profileId)
     await supabase.from('profiles').update({ resigned: false }).eq('id', profileId)
     await loadMembers(selectedStoreId)
     alert('복직 처리되었습니다!')
@@ -520,18 +471,8 @@ export default function StaffPage() {
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
         <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>👥 직원관리</span>
         <div style={{ display:'flex', gap:8 }}>
-          {isOwner && (
-            <button onClick={() => setShowPinModal(true)}
-              style={{ padding:'6px 12px', borderRadius:8, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-              🔐 PIN
-            </button>
-          )}
-          {isOwner && (
-            <button onClick={() => setShowForm(p => !p)}
-              style={{ padding:'6px 14px', borderRadius:8, background:'rgba(255,107,53,0.1)', border:'1px solid rgba(255,107,53,0.3)', color:'#FF6B35', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-              + 추가
-            </button>
-          )}
+          {isOwner && <button onClick={() => setShowPinModal(true)} style={{ padding:'6px 12px', borderRadius:8, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, fontWeight:700, cursor:'pointer' }}>🔐 PIN</button>}
+          {isOwner && <button onClick={() => setShowForm(p => !p)} style={{ padding:'6px 14px', borderRadius:8, background:'rgba(255,107,53,0.1)', border:'1px solid rgba(255,107,53,0.3)', color:'#FF6B35', fontSize:12, fontWeight:700, cursor:'pointer' }}>+ 추가</button>}
         </div>
       </div>
 
@@ -543,9 +484,7 @@ export default function StaffPage() {
               const isSel = m.stores?.id === selectedStoreId
               return (
                 <button key={m.id} onClick={() => switchViewStore(m.stores?.id, m.stores?.name)}
-                  style={{ padding:'6px 14px', borderRadius:8, border:`1px solid ${isSel ? '#FF6B35' : '#E8ECF0'}`,
-                    background: isSel ? 'rgba(255,107,53,0.1)' : '#F8F9FB',
-                    color: isSel ? '#FF6B35' : '#888', fontSize:12, fontWeight: isSel ? 700 : 500, cursor:'pointer' }}>
+                  style={{ padding:'6px 14px', borderRadius:8, border:`1px solid ${isSel ? '#FF6B35' : '#E8ECF0'}`, background: isSel ? 'rgba(255,107,53,0.1)' : '#F8F9FB', color: isSel ? '#FF6B35' : '#888', fontSize:12, fontWeight: isSel ? 700 : 500, cursor:'pointer' }}>
                   {isSel ? '✓ ' : ''}{m.stores?.name}
                 </button>
               )
@@ -569,10 +508,7 @@ export default function StaffPage() {
           <div style={{ fontSize:11, color:'#999', marginBottom:4 }}>입사일 (선택)</div>
           <div style={{ fontSize:11, color:'#999', marginBottom:12 }}>초기 PIN: 1234 (직원이 직접 변경 가능)</div>
           <div style={{ display:'flex', gap:8 }}>
-            <button onClick={addStaff} disabled={saving}
-              style={{ flex:1, padding:'10px 0', borderRadius:8, background:saving?'#ccc':'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontWeight:700, cursor:'pointer' }}>
-              {saving ? '등록 중...' : '등록'}
-            </button>
+            <button onClick={addStaff} disabled={saving} style={{ flex:1, padding:'10px 0', borderRadius:8, background:saving?'#ccc':'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontWeight:700, cursor:'pointer' }}>{saving ? '등록 중...' : '등록'}</button>
             <button onClick={() => setShowForm(false)} style={{ padding:'10px 16px', borderRadius:8, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', cursor:'pointer' }}>취소</button>
           </div>
         </div>
@@ -588,45 +524,23 @@ export default function StaffPage() {
         return (
           <div key={p.id} style={bx}>
             <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-              <div style={{ width:44, height:44, borderRadius:12, background:'linear-gradient(135deg,#FF6B35,#E84393)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#fff', flexShrink:0 }}>
-                {p.nm?.charAt(0)}
-              </div>
+              <div style={{ width:44, height:44, borderRadius:12, background:'linear-gradient(135deg,#FF6B35,#E84393)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#fff', flexShrink:0 }}>{p.nm?.charAt(0)}</div>
               <div style={{ flex:1 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:2 }}>
                   <span style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{p.nm}</span>
-                  <span style={{ fontSize:10, padding:'2px 7px', borderRadius:6, fontWeight:700, background:`${ROLE_COLORS[p.role]}20`, color:ROLE_COLORS[p.role]||'#888' }}>
-                    {ROLES[p.role]||p.role}
-                  </span>
+                  <span style={{ fontSize:10, padding:'2px 7px', borderRadius:6, fontWeight:700, background:`${ROLE_COLORS[p.role]}20`, color:ROLE_COLORS[p.role]||'#888' }}>{ROLES[p.role]||p.role}</span>
                 </div>
                 {p.phone && <div style={{ fontSize:12, color:'#999' }}>{p.phone}</div>}
                 {(p.joined_at || m.joined_at) && <div style={{ fontSize:11, color:'#bbb' }}>입사일: {new Date(p.joined_at || m.joined_at).toLocaleDateString('ko', {year:'numeric',month:'long',day:'numeric'})}</div>}
               </div>
               {isOwner && (
                 <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                  <button onClick={() => setEditingProfile(p)}
-                    style={{ padding:'4px 10px', borderRadius:6, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:10, cursor:'pointer', fontWeight:600 }}>
-                    ✏️ 정보수정
-                  </button>
-                  <button onClick={() => setPersonalProfile(p)}
-                    style={{ padding:'4px 10px', borderRadius:6, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>
-                    💼 급여정보
-                  </button>
-                  <button onClick={() => setContractProfile(p)}
-                    style={{ padding:'4px 10px', borderRadius:6, background:'rgba(45,198,214,0.08)', border:'1px solid rgba(45,198,214,0.2)', color:'#2DC6D6', fontSize:10, cursor:'pointer', fontWeight:600 }}>
-                    📄 계약서
-                  </button>
-                  <button onClick={() => resetPin(p.id)}
-                    style={{ padding:'4px 10px', borderRadius:6, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:10, cursor:'pointer' }}>
-                    PIN 초기화
-                  </button>
-                  <button onClick={() => setResigningProfile(p)}
-                    style={{ padding:'4px 10px', borderRadius:6, background:'rgba(255,107,53,0.08)', border:'1px solid rgba(255,107,53,0.2)', color:'#FF6B35', fontSize:10, cursor:'pointer', fontWeight:600 }}>
-                    🚪 퇴사
-                  </button>
-                  <button onClick={() => deactivate(p.id)}
-                    style={{ padding:'4px 10px', borderRadius:6, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:10, cursor:'pointer' }}>
-                    비활성화
-                  </button>
+                  <button onClick={() => setEditingProfile(p)} style={{ padding:'4px 10px', borderRadius:6, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:10, cursor:'pointer', fontWeight:600 }}>✏️ 정보수정</button>
+                  <button onClick={() => setPersonalProfile(p)} style={{ padding:'4px 10px', borderRadius:6, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>💼 급여정보</button>
+                  <button onClick={() => setContractProfile(p)} style={{ padding:'4px 10px', borderRadius:6, background:'rgba(45,198,214,0.08)', border:'1px solid rgba(45,198,214,0.2)', color:'#2DC6D6', fontSize:10, cursor:'pointer', fontWeight:600 }}>📄 계약서</button>
+                  <button onClick={() => resetPin(p.id)} style={{ padding:'4px 10px', borderRadius:6, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:10, cursor:'pointer' }}>PIN 초기화</button>
+                  <button onClick={() => setResigningProfile(p)} style={{ padding:'4px 10px', borderRadius:6, background:'rgba(255,107,53,0.08)', border:'1px solid rgba(255,107,53,0.2)', color:'#FF6B35', fontSize:10, cursor:'pointer', fontWeight:600 }}>🚪 퇴사</button>
+                  <button onClick={() => deactivate(p.id)} style={{ padding:'4px 10px', borderRadius:6, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:10, cursor:'pointer' }}>비활성화</button>
                 </div>
               )}
             </div>
@@ -650,25 +564,19 @@ export default function StaffPage() {
           {showResigned && (
             <div style={{ marginTop:8 }}>
               {resignedMembers.length === 0 ? (
-                <div style={{ ...bx, textAlign:'center', padding:24, color:'#bbb' }}>
-                  <div style={{ fontSize:13 }}>퇴사자가 없습니다</div>
-                </div>
+                <div style={{ ...bx, textAlign:'center', padding:24, color:'#bbb' }}><div style={{ fontSize:13 }}>퇴사자가 없습니다</div></div>
               ) : resignedMembers.map(m => {
                 const p = m.profiles
                 if (!p) return null
                 return (
                   <div key={p.id} style={{ ...bx, background:'#FAFBFC', border:'1px solid #F0F0F0' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                      <div style={{ width:40, height:40, borderRadius:10, background:'#E0E0E0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700, color:'#aaa', flexShrink:0 }}>
-                        {p.nm?.charAt(0)}
-                      </div>
+                      <div style={{ width:40, height:40, borderRadius:10, background:'#E0E0E0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700, color:'#aaa', flexShrink:0 }}>{p.nm?.charAt(0)}</div>
                       <div style={{ flex:1 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:2 }}>
                           <span style={{ fontSize:14, fontWeight:700, color:'#aaa' }}>{p.nm}</span>
                           <span style={{ fontSize:10, padding:'2px 7px', borderRadius:6, background:'#F0F0F0', color:'#bbb', fontWeight:700 }}>퇴사</span>
-                          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:6, fontWeight:700, background:`${ROLE_COLORS[p.role]}15`, color:ROLE_COLORS[p.role]||'#888' }}>
-                            {ROLES[p.role]||p.role}
-                          </span>
+                          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:6, fontWeight:700, background:`${ROLE_COLORS[p.role]}15`, color:ROLE_COLORS[p.role]||'#888' }}>{ROLES[p.role]||p.role}</span>
                         </div>
                         {m.resigned_at && (
                           <div style={{ fontSize:11, color:'#bbb' }}>
@@ -676,20 +584,17 @@ export default function StaffPage() {
                             {m.resign_reason && ` · ${m.resign_reason}`}
                           </div>
                         )}
+                        {/* ★ inactive_from 표시 */}
+                        {m.inactive_from && (
+                          <div style={{ fontSize:11, color:'#FF6B35', marginTop:2 }}>
+                            📅 {m.inactive_from} 부터 출퇴근 목록에서 제외
+                          </div>
+                        )}
                       </div>
                       <div style={{ display:'flex', flexDirection:'column', gap:4, flexShrink:0 }}>
-                        <button onClick={() => setPersonalProfile(p)}
-                          style={{ padding:'4px 8px', borderRadius:7, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>
-                          💼 급여
-                        </button>
-                        <button onClick={() => setContractProfile(p)}
-                          style={{ padding:'4px 8px', borderRadius:7, background:'rgba(45,198,214,0.08)', border:'1px solid rgba(45,198,214,0.2)', color:'#2DC6D6', fontSize:10, cursor:'pointer', fontWeight:600 }}>
-                          📄 계약서
-                        </button>
-                        <button onClick={() => reactivate(p.id)}
-                          style={{ padding:'5px 10px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>
-                          복직
-                        </button>
+                        <button onClick={() => setPersonalProfile(p)} style={{ padding:'4px 8px', borderRadius:7, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.2)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>💼 급여</button>
+                        <button onClick={() => setContractProfile(p)} style={{ padding:'4px 8px', borderRadius:7, background:'rgba(45,198,214,0.08)', border:'1px solid rgba(45,198,214,0.2)', color:'#2DC6D6', fontSize:10, cursor:'pointer', fontWeight:600 }}>📄 계약서</button>
+                        <button onClick={() => reactivate(p.id)} style={{ padding:'5px 10px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:10, cursor:'pointer', fontWeight:600 }}>복직</button>
                       </div>
                     </div>
                   </div>
