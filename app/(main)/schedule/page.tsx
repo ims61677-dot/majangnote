@@ -748,6 +748,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   const [manageBulkTarget, setManageBulkTarget] = useState<{ sid: string; staff: string; dates: string[] } | null>(null)
   // 월간 그리드: 펼친 지점
   const [gridExpanded, setGridExpanded] = useState<Record<string, boolean>>({})
+  const [backingUp, setBackingUp] = useState(false)
 
   const today = toDateStr(new Date())
   const tomorrow = toDateStr(new Date(Date.now() + 86400000))
@@ -924,8 +925,6 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
     boxShadow: active ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
     whiteSpace: 'nowrap' as const,
   })
-
-  const [backingUp, setBackingUp] = useState(false)
 
   async function handleFullBackup() {
     setBackingUp(true)
