@@ -175,7 +175,7 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
 function CellPopup({ staffName, dateStr, current, role, myName, onSave, onRequest, onDelete, onClose, offRequest, onOffRequest, onOffRequestCancel, onOffRequestApprove, onOffRequestReject, canRequestOff, isBlocked }: {
   staffName: string; dateStr: string; current: any | null
   role: string; myName: string
-  onSave: (status: string, position: string, note: string) => void
+  onSave: (status: string, position: string, note: string, confirmed?: boolean) => void
   onRequest: (status: string, note: string) => void
   onDelete: () => void; onClose: () => void
   offRequest?: any; onOffRequest?: (reason: string) => void
@@ -204,6 +204,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
     return 'edit'
   })
   const [offReason, setOffReason] = useState('')
+  const [isConfirmed, setIsConfirmed] = useState(current?.is_confirmed || false)
   const parts = dateStr.split('-')
   const dow = DOW_LABEL[new Date(dateStr).getDay()]
   const isOwner = role === 'owner'
@@ -264,9 +265,22 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
             </div>
             <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>메모</div>
             <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="병원, 생일, 야채샐러드..." style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'#F8F9FB', border:'1px solid #E0E4E8', fontSize:13, outline:'none', boxSizing:'border-box' as const, marginBottom:16 }} />
+            {isOwner && (
+              <div onClick={() => setIsConfirmed((v: boolean) => !v)}
+                style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:10, background: isConfirmed ? 'rgba(232,67,147,0.08)' : '#F8F9FB', border: isConfirmed ? '1.5px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0', marginBottom:12, cursor:'pointer', userSelect:'none' as const }}>
+                <span style={{ fontSize:16 }}>{isConfirmed ? '🔒' : '🔓'}</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color: isConfirmed ? '#E84393' : '#aaa' }}>{isConfirmed ? '확정 잠금 ON' : '확정 잠금 OFF'}</div>
+                  <div style={{ fontSize:10, color:'#bbb' }}>{isConfirmed ? '매니저가 이 날 수정 불가' : '누르면 매니저 수정 차단'}</div>
+                </div>
+                <div style={{ width:36, height:20, borderRadius:10, background: isConfirmed ? '#E84393' : '#ddd', position:'relative', transition:'background 0.2s' }}>
+                  <div style={{ width:16, height:16, borderRadius:'50%', background:'#fff', position:'absolute', top:2, left: isConfirmed ? 18 : 2, transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+                </div>
+              </div>
+            )}
             <div style={{ display:'flex', gap:8 }}>
               {current && isOwner && <button onClick={onDelete} style={{ padding:'10px 14px', borderRadius:10, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.25)', color:'#E84393', fontSize:12, cursor:'pointer', fontWeight:600 }}>삭제</button>}
-              <button onClick={() => onSave(isOwner ? status : (current?.status || 'work'), position, buildNote())} style={{ flex:1, padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
+              <button onClick={() => onSave(isOwner ? status : (current?.status || 'work'), position, buildNote(), isConfirmed)} style={{ flex:1, padding:'10px 0', borderRadius:10, background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>저장</button>
             </div>
           </>
         )}
@@ -750,6 +764,72 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   const [gridExpanded, setGridExpanded] = useState<Record<string, boolean>>({})
   const [backingUp, setBackingUp] = useState(false)
 
+  function exportManageExcel() {
+    const pad = (n: number) => String(n).padStart(2,'0')
+    const DOW_KR = ['일','월','화','수','목','금','토']
+    const STATUS_KR: Record<string,string> = { work:'근무', off:'휴일', half:'반차', absent:'결근', early:'조퇴' }
+    const holidays = getHolidays(year)
+    const daysInMonthE = getDaysInMonth(year, month)
+    const monthStrE = `${year}-${pad(month+1)}`
+
+    // 지점별 시트 데이터를 하나의 CSV로 합치기
+    const bom = '\uFEFF'
+    const allRows: string[][] = []
+
+    storeItems.forEach((member: any) => {
+      const sid = member.stores?.id
+      const storeName = member.stores?.name || ''
+      const d = storeData[sid]
+      if (!d) return
+      const { schedules: scheds, staff } = d
+      const schedMap: Record<string,any> = {}
+      scheds.forEach((s: any) => { schedMap[`${s.staff_name}-${s.schedule_date}`] = s })
+      const sOffReqMap: Record<string,any> = {}
+      ;(d.offRequests || []).forEach((r: any) => { sOffReqMap[`${r.staff_name}-${r.request_date}`] = r })
+
+      // 지점 구분 헤더
+      allRows.push([`[${storeName}] ${year}년 ${month+1}월`])
+      allRows.push(['날짜', '요일', ...staff, '출근수'])
+
+      for (let day = 1; day <= daysInMonthE; day++) {
+        const dateStr = `${monthStrE}-${pad(day)}`
+        const dow = new Date(dateStr).getDay()
+        const holiday = holidays[dateStr] ? ` (${holidays[dateStr]})` : ''
+        const row: string[] = [`${month+1}/${day}${holiday}`, DOW_KR[dow]]
+        let workCnt = 0
+        staff.forEach((name: string) => {
+          const sc = schedMap[`${name}-${dateStr}`]
+          const offR = sOffReqMap[`${name}-${dateStr}`]
+          if (sc) {
+            const label = STATUS_KR[sc.status] || sc.status
+            const pos = sc.position ? ` [${sc.position}]` : ''
+            const confirmed = sc.is_confirmed ? ' 🔒' : ''
+            row.push(`${label}${pos}${confirmed}`)
+            if (sc.status==='work'||sc.status==='half'||sc.status==='early') workCnt++
+          } else if (offR?.status === 'approved') {
+            row.push(`🔒확정 (${offR.reason})`)
+          } else if (offR?.status === 'pending') {
+            row.push(`🙏요청 (${offR.reason})`)
+          } else {
+            row.push('')
+          }
+        })
+        row.push(String(workCnt))
+        allRows.push(row)
+      }
+      allRows.push([]) // 지점 간 빈 줄
+    })
+
+    const csv = bom + allRows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `전지점_스케줄_${year}년${month+1}월.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const today = toDateStr(new Date())
   const tomorrow = toDateStr(new Date(Date.now() + 86400000))
   const nowD = new Date()
@@ -999,9 +1079,10 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
         </button>
       </div>
 
-      {/* 섹션 탭 */}
-      <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:16, gap:2 }}>
-        <button style={secBtn(section==='today')} onClick={() => setSection('today')}>👥 오늘/내일</button>
+      {/* 섹션 탭 + 엑셀 버튼 */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16 }}>
+        <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, gap:2, flex:1 }}>
+          <button style={secBtn(section==='today')} onClick={() => setSection('today')}>👥 오늘/내일</button>
         <button style={secBtn(section==='grid')} onClick={() => setSection('grid')}>📊 월간그리드</button>
         <button style={secBtn(section==='summary')} onClick={() => setSection('summary')}>📈 근무요약</button>
         <button style={{ ...secBtn(section==='requests'), position:'relative' }} onClick={() => setSection('requests')}>
@@ -1009,6 +1090,8 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
           {totalPending > 0 && <span style={{ position:'absolute', top:2, right:2, background:'#E84393', color:'#fff', borderRadius:6, padding:'0 4px', fontSize:8, fontWeight:700 }}>{totalPending}</span>}
         </button>
         <button style={secBtn(section==='logs')} onClick={() => { setSection('logs'); loadLogs() }}>🕐 이력</button>
+        </div>
+        <button onClick={exportManageExcel} style={{ padding:'7px 14px', borderRadius:10, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0, whiteSpace:'nowrap' as const }}>📥 엑셀</button>
       </div>
 
       {/* ── 섹션 1: 오늘 / 내일 출근자 ── */}
@@ -1213,7 +1296,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                                   ? (sOffReqs||[]).find((r:any) => r.request_date===dateStr && r.staff_name!==name && (r.status==='pending'||r.status==='approved'))
                                   : null
 
-                                let cellBg = inDrag ? 'rgba(108,92,231,0.22)' : sc ? STATUS_BG[sc.status]
+                                let cellBg = inDrag ? 'rgba(108,92,231,0.22)' : sc ? (sc.is_confirmed ? 'rgba(232,67,147,0.13)' : STATUS_BG[sc.status])
                                   : offR?.status==='approved' ? 'rgba(232,67,147,0.22)'
                                   : offR?.status==='pending' ? 'rgba(255,200,0,0.15)'
                                   : isDayBlocked ? 'rgba(200,200,200,0.15)'
@@ -1240,9 +1323,11 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                                     {(() => {
                                       if (inDrag) return <span style={{ fontSize:10, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                                       if (sc) return (
-                                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
-                                          <span style={{ fontSize:8, fontWeight:700, color:STATUS_COLOR[sc.status], lineHeight:1.3 }}>{STATUS_LABEL[sc.status]}</span>
-                                          {sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
+                                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0, width:'100%', height:'100%', position:'relative' }}>
+                                          {sc.is_confirmed && <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:'#E84393' }} />}
+                                          <span style={{ fontSize:8, fontWeight:700, color: sc.is_confirmed ? '#E84393' : STATUS_COLOR[sc.status], lineHeight:1.3, marginTop: sc.is_confirmed ? 2 : 0 }}>{sc.is_confirmed ? '🔒' : STATUS_LABEL[sc.status]}</span>
+                                          {sc.is_confirmed && <span style={{ fontSize:6, color:'#E84393', fontWeight:700 }}>{STATUS_LABEL[sc.status]}</span>}
+                                          {!sc.is_confirmed && sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
                                           {offR?.status==='pending' && <span style={{ fontSize:8 }}>🙏</span>}
                                           {offR?.status==='approved' && <span style={{ fontSize:8 }}>✅</span>}
                                         </div>
@@ -1488,9 +1573,9 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
           current={editPopup.current}
           role="owner"
           myName={myName}
-          onSave={async (status, position, note) => {
+          onSave={async (status, position, note, confirmedVal) => {
             await supabase.from('schedules').upsert(
-              { store_id: editPopup.sid, staff_name: editPopup.staff, schedule_date: editPopup.date, status, position: position||null, note: note||null },
+              { store_id: editPopup.sid, staff_name: editPopup.staff, schedule_date: editPopup.date, status, position: position||null, note: note||null, is_confirmed: confirmedVal ?? editPopup.current?.is_confirmed ?? false },
               { onConflict: 'store_id,staff_name,schedule_date' }
             )
             const earlyMatch = note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
@@ -1740,11 +1825,13 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   const popupData = popup ? (scheduleMap[`${popup.staff}-${popup.date}`] || null) : null
   function canClick(staff: string, hasSchedule: boolean) { if (isOwner) return true; if (isManager) return hasSchedule; return false }
 
-  async function handleSave(status: string, position: string, note: string) {
+  async function handleSave(status: string, position: string, note: string, confirmed?: boolean) {
     if (!popup) return
     const prev = scheduleMap[`${popup.staff}-${popup.date}`]
+    // 매니저는 확정된 셀 수정 불가
+    if (isManager && prev?.is_confirmed) { alert('🔒 대표가 확정한 날은 수정할 수 없어요'); return }
     await supabase.from('schedules').upsert(
-      { store_id: storeId, staff_name: popup.staff, schedule_date: popup.date, status, position: position || null, note: note || null },
+      { store_id: storeId, staff_name: popup.staff, schedule_date: popup.date, status, position: position || null, note: note || null, ...(isOwner ? { is_confirmed: confirmed ?? false } : {}) },
       { onConflict: 'store_id,staff_name,schedule_date' }
     )
     const earlyMatch = note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
@@ -1756,12 +1843,16 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   async function handleRequest(status: string, note: string) {
     if (!popup) return
     const current = scheduleMap[`${popup.staff}-${popup.date}`]
+    // 매니저는 확정된 셀 요청 불가
+    if (isManager && current?.is_confirmed) { alert('🔒 대표가 확정한 날은 변경 요청할 수 없어요'); return }
     await supabase.from('schedule_requests').insert({ store_id: storeId, requester_nm: myName, staff_name: popup.staff, schedule_date: popup.date, requested_status: status, current_status: current?.status || null, note: note || null })
     setPopup(null); alert('변경 요청이 전송되었습니다!')
   }
 
   async function handleDelete() {
     if (!popup || !popupData) return
+    // 매니저는 확정된 셀 삭제 불가
+    if (isManager && popupData?.is_confirmed) { alert('🔒 대표가 확정한 날은 삭제할 수 없어요'); return }
     const prev = scheduleMap[`${popup.staff}-${popup.date}`]
     await supabase.from('schedules').delete().eq('id', popupData.id)
     await syncAttendance(supabase, storeId, popup.staff, popup.date, 'work')
@@ -2013,7 +2104,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                     }
 
                     // 셀 배경
-                    let cellBg: string | undefined = sc ? STATUS_BG[sc.status] : undefined
+                    let cellBg: string | undefined = sc ? (sc.is_confirmed ? 'rgba(232,67,147,0.13)' : STATUS_BG[sc.status]) : undefined
                     if (inDrag) cellBg = 'rgba(108,92,231,0.18)'
                     else if (!sc && offReq?.status === 'approved') cellBg = 'rgba(232,67,147,0.22)'
                     else if (!sc && offReq?.status === 'pending' && isMine) cellBg = 'rgba(255,200,0,0.12)'
@@ -2037,11 +2128,13 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                         {inDrag ? (
                           <span style={{ fontSize:14, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                         ) : sc ? (
-                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, height:'100%', padding:'2px 3px' }}>
-                            <span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR[sc.status] }}>{STATUS_LABEL[sc.status]}</span>
-                            {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
-                            {sc.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[sc.position] }}>{sc.position}</span>}
-                            {sc.note && !earlyTimeDisplay && <span title={sc.note} style={{ fontSize:8, color:'#FF6B35', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{sc.note}</span>}
+                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, height:'100%', padding:'2px 3px', position:'relative' }}>
+                            {sc.is_confirmed && <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:'#E84393', borderRadius:'0 0 2px 2px' }} />}
+                            <span style={{ fontSize:10, fontWeight:700, color: sc.is_confirmed ? '#E84393' : STATUS_COLOR[sc.status] }}>{sc.is_confirmed ? '🔒' : STATUS_LABEL[sc.status]}</span>
+                            {!sc.is_confirmed && earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
+                            {!sc.is_confirmed && sc.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[sc.position] }}>{sc.position}</span>}
+                            {sc.is_confirmed && <span style={{ fontSize:8, fontWeight:700, color:'#E84393' }}>{STATUS_LABEL[sc.status]}</span>}
+                            {!sc.is_confirmed && sc.note && !earlyTimeDisplay && <span title={sc.note} style={{ fontSize:8, color:'#FF6B35', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{sc.note}</span>}
                             {offReq?.status === 'pending' && <span style={{ fontSize:8 }}>🙏</span>}
                           </div>
                         ) : offReq?.status === 'approved' ? (
@@ -2199,11 +2292,12 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
     setSelected(new Set()); setMultiMode(false); onSaved()
   }
 
-  async function handleSave(status: string, position: string, note: string) {
+  async function handleSave(status: string, position: string, note: string, confirmed?: boolean) {
     if (!popup) return
     const prev = scheduleMap[`${popup.staff}-${popup.date}`]
+    if (isManager && prev?.is_confirmed) { alert('🔒 대표가 확정한 날은 수정할 수 없어요'); return }
     await supabase.from('schedules').upsert(
-      { store_id: storeId, staff_name: popup.staff, schedule_date: popup.date, status, position: position||null, note: note||null },
+      { store_id: storeId, staff_name: popup.staff, schedule_date: popup.date, status, position: position||null, note: note||null, ...(isOwner ? { is_confirmed: confirmed ?? false } : {}) },
       { onConflict: 'store_id,staff_name,schedule_date' }
     )
     const earlyMatch = note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
@@ -2339,7 +2433,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                   if (m) earlyTimeDisplay = m[1]
                 }
                 // 모바일 셀 배경
-                let mobileBg = isSelected ? 'rgba(108,92,231,0.2)' : s ? STATUS_BG[s.status] : isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff'
+                let mobileBg = isSelected ? 'rgba(108,92,231,0.2)' : s ? (s.is_confirmed ? 'rgba(232,67,147,0.13)' : STATUS_BG[s.status]) : isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff'
                 if (!s && offReqM?.status === 'approved') mobileBg = 'rgba(232,67,147,0.22)'
                 else if (!s && offReqM?.status === 'pending' && isMineM) mobileBg = 'rgba(255,200,0,0.12)'
                 else if (!s && offReqM?.status === 'pending' && !isMineM) mobileBg = 'rgba(108,92,231,0.05)'
@@ -2364,10 +2458,12 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                       <span style={{ fontSize:16, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                     ) : s ? (
                       <>
-                        <span style={{ fontSize:9, fontWeight:700, color:STATUS_COLOR[s.status] }}>{STATUS_LABEL[s.status]}</span>
-                        {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
-                        {s.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[s.position]||'#888' }}>{s.position}</span>}
-                        {s.note && !earlyTimeDisplay && <span style={{ fontSize:7, color:'#999', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>{s.note}</span>}
+                        {s.is_confirmed && <div style={{ height:2, background:'#E84393', width:'100%', borderRadius:'0 0 2px 2px', marginBottom:1 }} />}
+                        <span style={{ fontSize:9, fontWeight:700, color: s.is_confirmed ? '#E84393' : STATUS_COLOR[s.status] }}>{s.is_confirmed ? '🔒' : STATUS_LABEL[s.status]}</span>
+                        {s.is_confirmed && <span style={{ fontSize:7, fontWeight:700, color:'#E84393' }}>{STATUS_LABEL[s.status]}</span>}
+                        {!s.is_confirmed && earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
+                        {!s.is_confirmed && s.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[s.position]||'#888' }}>{s.position}</span>}
+                        {!s.is_confirmed && s.note && !earlyTimeDisplay && <span style={{ fontSize:7, color:'#999', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>{s.note}</span>}
                       </>
                     ) : offReqM?.status === 'approved' ? (
                       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0, width:'100%' }}>
