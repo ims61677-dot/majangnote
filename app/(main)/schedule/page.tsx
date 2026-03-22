@@ -925,6 +925,49 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
     whiteSpace: 'nowrap' as const,
   })
 
+  const [backingUp, setBackingUp] = useState(false)
+
+  async function handleFullBackup() {
+    setBackingUp(true)
+    try {
+      const sids = storeItems.map((m: any) => m.stores?.id).filter(Boolean)
+      const storeNames: Record<string, string> = {}
+      storeItems.forEach((m: any) => { if (m.stores?.id) storeNames[m.stores.id] = m.stores.name || '' })
+
+      // 전체 스케줄 데이터 가져오기
+      const { data: allSchedules } = await supabase
+        .from('schedules').select('*').in('store_id', sids).order('store_id').order('schedule_date')
+
+      const bom = '\uFEFF'
+      const headers = ['지점명', '직원명', '날짜', '상태', '포지션', '메모']
+      const rows = [headers]
+      ;(allSchedules || []).forEach((s: any) => {
+        const STATUS: Record<string,string> = { work:'근무', off:'휴일', half:'반차', absent:'결근', early:'조퇴' }
+        rows.push([
+          storeNames[s.store_id] || s.store_id,
+          s.staff_name || '',
+          s.schedule_date || '',
+          STATUS[s.status] || s.status || '',
+          s.position || '',
+          (s.note || '').replace(/^\[조퇴:\d{2}:\d{2}\]\s*/, ''),
+        ])
+      })
+
+      const csv = bom + rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const today = new Date()
+      a.download = `매장노트_전체백업_${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch(e) {
+      alert('백업 실패: ' + e)
+    }
+    setBackingUp(false)
+  }
+
   return (
     <div>
       {/* 상단 요약 카드 */}
@@ -942,6 +985,19 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
           <div style={{ fontSize:22, fontWeight:800, color:'#FF6B35' }}>{totalStaff}</div>
           <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>전체 직원</div>
         </div>
+      </div>
+
+      {/* 전체 백업 버튼 */}
+      <div style={{ marginBottom:12, padding:'10px 14px', background:'rgba(255,200,0,0.06)', borderRadius:12, border:'1px solid rgba(255,200,0,0.25)', display:'flex', alignItems:'center', gap:10 }}>
+        <span style={{ fontSize:13 }}>💾</span>
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#CC9900' }}>전체 데이터 백업</div>
+          <div style={{ fontSize:10, color:'#aaa' }}>전 지점 스케줄을 CSV로 저장 — 매달 1일에 한 번 눌러두세요</div>
+        </div>
+        <button onClick={handleFullBackup} disabled={backingUp}
+          style={{ padding:'7px 16px', borderRadius:9, background: backingUp ? '#F4F6F9' : 'linear-gradient(135deg,#FFD700,#FF6B35)', border:'none', color: backingUp ? '#aaa' : '#fff', fontSize:12, fontWeight:700, cursor: backingUp ? 'not-allowed' : 'pointer', flexShrink:0 }}>
+          {backingUp ? '⏳ 백업 중...' : '📥 백업 다운로드'}
+        </button>
       </div>
 
       {/* 섹션 탭 */}
@@ -1159,7 +1215,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                                   : null
 
                                 let cellBg = inDrag ? 'rgba(108,92,231,0.22)' : sc ? STATUS_BG[sc.status]
-                                  : offR?.status==='approved' ? STATUS_BG['off']
+                                  : offR?.status==='approved' ? 'rgba(232,67,147,0.22)'
                                   : offR?.status==='pending' ? 'rgba(255,200,0,0.15)'
                                   : isDayBlocked ? 'rgba(200,200,200,0.15)'
                                   : takenByOtherM ? 'rgba(220,220,220,0.2)'
@@ -1193,9 +1249,12 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                                         </div>
                                       )
                                       if (offR?.status==='approved') return (
-                                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
-                                          <span style={{ fontSize:8, fontWeight:700, color:STATUS_COLOR['off'] }}>휴일</span>
-                                          <span style={{ fontSize:7, color:'#aaa' }}>확정</span>
+                                        <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%' }}>
+                                          <div style={{ height:2, background:'#E84393', width:'100%' }} />
+                                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:1, gap:0 }}>
+                                            <span style={{ fontSize:9 }}>🔒</span>
+                                            <span style={{ fontSize:7, fontWeight:700, color:'#E84393' }}>확정</span>
+                                          </div>
                                         </div>
                                       )
                                       if (offR?.status==='pending') return (
@@ -1601,6 +1660,51 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
   function openOrderModal() { setDragOrder([...visibleStaff]); setShowOrderModal(true) }
 
+  function exportToExcel() {
+    const pad = (n: number) => String(n).padStart(2,'0')
+    const DOW_KR = ['일','월','화','수','목','금','토']
+    const holidays = getHolidays(year)
+    // 헤더
+    const headers = ['날짜', '요일', ...visibleStaff, '출근수']
+    const rows = [headers]
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${monthStr}-${pad(d)}`
+      const dow = new Date(dateStr).getDay()
+      const holiday = holidays[dateStr] ? ` (${holidays[dateStr]})` : ''
+      const row: string[] = [`${month+1}/${d}${holiday}`, DOW_KR[dow]]
+      let workCnt = 0
+      visibleStaff.forEach(staff => {
+        const sc = scheduleMap[`${staff}-${dateStr}`]
+        const offReq = offRequestMap[`${staff}-${dateStr}`]
+        if (sc) {
+          const label = STATUS_LABEL[sc.status] || sc.status
+          const pos = sc.position ? ` [${sc.position}]` : ''
+          const note = sc.note ? ` (${sc.note.replace(/^\[조퇴:\d{2}:\d{2}\]\s*/,'')})` : ''
+          row.push(`${label}${pos}${note}`)
+          if (sc.status==='work'||sc.status==='half'||sc.status==='early') workCnt++
+        } else if (offReq?.status === 'approved') {
+          row.push(`🔒휴일확정 (${offReq.reason})`)
+        } else if (offReq?.status === 'pending') {
+          row.push(`🙏휴무요청 (${offReq.reason})`)
+        } else {
+          row.push('')
+        }
+      })
+      row.push(String(workCnt))
+      rows.push(row)
+    }
+    // CSV 생성 (엑셀에서 열림)
+    const bom = '﻿' // 한글 깨짐 방지
+    const csv = bom + rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `스케줄_${year}년${month+1}월.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function saveOrder() {
     setSaving(true)
     try {
@@ -1757,6 +1861,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
             {['K','H','KH'].map(p => <span key={p} style={{ fontSize:10, color:POS_COLOR[p], fontWeight:700 }}>{p}</span>)}
           </div>
           {isOwner && <button onClick={openOrderModal} style={{ padding:'6px 12px', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#6B7684', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>↕ 순서</button>}
+          {(isOwner || isManager) && <button onClick={exportToExcel} style={{ padding:'6px 12px', borderRadius:9, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>📥 엑셀</button>}
           {isOwner && <button onClick={() => setShowRequests(true)} style={{ padding:'6px 12px', borderRadius:9, background: pendingCount>0?'rgba(232,67,147,0.1)':'#F4F6F9', border: pendingCount>0?'1px solid rgba(232,67,147,0.3)':'1px solid #E8ECF0', color: pendingCount>0?'#E84393':'#aaa', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>📋 요청{pendingCount > 0 && <span style={{ background:'#E84393', color:'#fff', borderRadius:10, padding:'1px 6px', fontSize:10, marginLeft:4 }}>{pendingCount}</span>}</button>}
         </div>
       </div>
@@ -1911,7 +2016,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                     // 셀 배경
                     let cellBg: string | undefined = sc ? STATUS_BG[sc.status] : undefined
                     if (inDrag) cellBg = 'rgba(108,92,231,0.18)'
-                    else if (!sc && offReq?.status === 'approved') cellBg = STATUS_BG['off']
+                    else if (!sc && offReq?.status === 'approved') cellBg = 'rgba(232,67,147,0.22)'
                     else if (!sc && offReq?.status === 'pending' && isMine) cellBg = 'rgba(255,200,0,0.12)'
                     else if (!sc && offReq?.status === 'pending' && !isMine) cellBg = 'rgba(108,92,231,0.05)'
                     else if (!sc && takenByOther) cellBg = 'rgba(220,220,220,0.25)'
@@ -1941,9 +2046,14 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                             {offReq?.status === 'pending' && <span style={{ fontSize:8 }}>🙏</span>}
                           </div>
                         ) : offReq?.status === 'approved' ? (
-                          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
-                            <span style={{ fontSize:10, fontWeight:700, color:STATUS_COLOR['off'] }}>휴일</span>
-                            <span style={{ fontSize:7, color:'#aaa' }}>확정</span>
+                          <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', overflow:'hidden' }}>
+                            {/* 상단 컬러 바 */}
+                            <div style={{ height:3, background:'#E84393', borderRadius:'0 0 2px 2px', flexShrink:0 }} />
+                            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:1, padding:'1px 2px', gap:1 }}>
+                              <span style={{ fontSize:10 }}>🔒</span>
+                              <span style={{ fontSize:9, fontWeight:700, color:'#E84393' }}>확정</span>
+                              {offReq.reason && <span style={{ fontSize:7, color:'#E84393', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', opacity:0.8 }} title={offReq.reason}>{offReq.reason}</span>}
+                            </div>
                           </div>
                         ) : offReq?.status === 'pending' ? (
                           isMine ? (
@@ -2231,7 +2341,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                 }
                 // 모바일 셀 배경
                 let mobileBg = isSelected ? 'rgba(108,92,231,0.2)' : s ? STATUS_BG[s.status] : isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff'
-                if (!s && offReqM?.status === 'approved') mobileBg = STATUS_BG['off']
+                if (!s && offReqM?.status === 'approved') mobileBg = 'rgba(232,67,147,0.22)'
                 else if (!s && offReqM?.status === 'pending' && isMineM) mobileBg = 'rgba(255,200,0,0.12)'
                 else if (!s && offReqM?.status === 'pending' && !isMineM) mobileBg = 'rgba(108,92,231,0.05)'
                 else if (!s && takenByOtherM) mobileBg = 'rgba(220,220,220,0.25)'
@@ -2261,7 +2371,12 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                         {s.note && !earlyTimeDisplay && <span style={{ fontSize:7, color:'#999', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>{s.note}</span>}
                       </>
                     ) : offReqM?.status === 'approved' ? (
-                      <span style={{ fontSize:9, fontWeight:700, color:STATUS_COLOR['off'] }}>휴일</span>
+                      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0, width:'100%' }}>
+                        <div style={{ height:3, background:'#E84393', width:'100%', borderRadius:'0 0 2px 2px', marginBottom:2 }} />
+                        <span style={{ fontSize:10 }}>🔒</span>
+                        <span style={{ fontSize:8, fontWeight:700, color:'#E84393' }}>확정</span>
+                        {offReqM.reason && <span style={{ fontSize:7, color:'#E84393', maxWidth:38, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const, opacity:0.8 }} title={offReqM.reason}>{offReqM.reason}</span>}
+                      </div>
                     ) : offReqM?.status === 'pending' ? (
                       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0 }}>
                         <span style={{ fontSize:12 }}>🙏</span>
