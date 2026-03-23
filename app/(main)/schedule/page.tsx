@@ -10,9 +10,9 @@ function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate()
 }
 
-const STATUS_LABEL: Record<string, string> = { work: '근무', off: '휴일', half: '반차', absent: '결근', early: '조퇴' }
-const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35', absent: '#E67E22', early: '#00B894' }
-const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)', absent: 'rgba(230,126,34,0.13)', early: 'rgba(0,184,148,0.13)' }
+const STATUS_LABEL: Record<string, string> = { work: '근무', off: '휴일', half: '반차', absent: '결근', early: '조퇴', etc: '기타' }
+const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35', absent: '#E67E22', early: '#00B894', etc: '#1A73E8' }
+const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)', absent: 'rgba(230,126,34,0.13)', early: 'rgba(0,184,148,0.13)', etc: 'rgba(26,115,232,0.15)' }
 const POS_COLOR: Record<string, string> = { K: '#FF6B35', H: '#2DC6D6', KH: '#6C5CE7' }
 const DOW_LABEL = ['일','월','화','수','목','금','토']
 
@@ -91,7 +91,7 @@ async function syncAttendance(
     const { data: existing } = await supabase.from('attendance')
       .select('id').eq('profile_id', pid).eq('store_id', storeId).eq('work_date', scheduleDate).maybeSingle()
     if (existing?.id) await supabase.from('attendance').update({ clock_out: `${scheduleDate}T${earlyTime}:00+09:00`, status: 'early' }).eq('id', existing.id)
-  } else if (['work', 'half', 'off'].includes(scheduleStatus)) {
+  } else if (['work', 'half', 'off', 'etc'].includes(scheduleStatus)) {
     const { data: existing } = await supabase.from('attendance')
       .select('id, status').eq('profile_id', pid).eq('store_id', storeId).eq('work_date', scheduleDate).maybeSingle()
     if (existing?.status === 'absent') await supabase.from('attendance').delete().eq('id', existing.id)
@@ -151,12 +151,14 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
           ))}
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8 }}>
-          {(['absent','early'] as const).map(s => (
+          {(['absent','early','etc'] as const).map(s => (
             <button key={s} onClick={() => onApply(s)}
               style={{ padding:'14px 0', borderRadius:12, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:13, fontWeight:700, cursor:'pointer' }}>
               {STATUS_LABEL[s]}
             </button>
           ))}
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:8, marginBottom:8 }}>
           <button onClick={onClose}
             style={{ padding:'14px 0', borderRadius:12, border:'1px solid #E8ECF0', background:'#F4F6F9', color:'#999', fontSize:13, cursor:'pointer' }}>
             취소
@@ -240,7 +242,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
                   ))}
                 </div>
                 <div style={{ display:'flex', gap:5, marginBottom:14 }}>
-                  {(['absent','early'] as const).map(s => (
+                  {(['absent','early','etc'] as const).map(s => (
                     <button key={s} onClick={() => setStatus(s)} style={{ flex:1, padding:'9px 0', borderRadius:10, border: status===s ? `1.5px solid ${STATUS_COLOR[s]}` : '1px solid #E8ECF0', background: status===s ? STATUS_BG[s] : '#F4F6F9', color: status===s ? STATUS_COLOR[s] : '#aaa', fontSize:12, fontWeight:status===s?700:400, cursor:'pointer' }}>{STATUS_LABEL[s]}</button>
                   ))}
                 </div>
@@ -1387,6 +1389,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                 half: ss.filter(s => s.status === 'half').length,
                 absent: ss.filter(s => s.status === 'absent').length,
                 early: ss.filter(s => s.status === 'early').length,
+                etc: ss.filter(s => s.status === 'etc').length,
               }
             })
             return (
@@ -1405,7 +1408,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                     <thead>
                       <tr style={{ background:'#FAFBFC' }}>
                         <th style={{ padding:'7px 12px', textAlign:'left', color:'#888', fontWeight:700, borderBottom:'1px solid #F0F2F5', fontSize:10 }}>직원</th>
-                        {(['work','off','half','absent','early'] as const).map(s => (
+                        {(['work','off','half','absent','early','etc'] as const).map(s => (
                           <th key={s} style={{ padding:'7px 6px', textAlign:'center', color:STATUS_COLOR[s], fontWeight:700, borderBottom:'1px solid #F0F2F5', fontSize:9 }}>{STATUS_LABEL[s]}</th>
                         ))}
                       </tr>
@@ -1419,6 +1422,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                           <td style={{ padding:'8px 6px', textAlign:'center', color: s.half > 0 ? STATUS_COLOR.half : '#ddd' }}>{s.half || '-'}</td>
                           <td style={{ padding:'8px 6px', textAlign:'center', color: s.absent > 0 ? STATUS_COLOR.absent : '#ddd', fontWeight: s.absent > 0 ? 700 : 400 }}>{s.absent || '-'}</td>
                           <td style={{ padding:'8px 6px', textAlign:'center', color: s.early > 0 ? STATUS_COLOR.early : '#ddd' }}>{s.early || '-'}</td>
+                          <td style={{ padding:'8px 6px', textAlign:'center', color: s.etc > 0 ? STATUS_COLOR.etc : '#ddd' }}>{s.etc || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1861,8 +1865,8 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
   }
 
   const staffTotals = useMemo(() => {
-    const t: Record<string, { work:number; off:number; half:number; absent:number; early:number; K:number; H:number; KH:number }> = {}
-    visibleStaff.forEach(s => { t[s] = { work:0, off:0, half:0, absent:0, early:0, K:0, H:0, KH:0 } })
+    const t: Record<string, { work:number; off:number; half:number; absent:number; early:number; etc:number; K:number; H:number; KH:number }> = {}
+    visibleStaff.forEach(s => { t[s] = { work:0, off:0, half:0, absent:0, early:0, etc:0, K:0, H:0, KH:0 } })
     schedules.forEach(s => {
       if (!t[s.staff_name]) return
       const st = s.status as string
@@ -1871,6 +1875,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
       else if (st === 'half') t[s.staff_name].half++
       else if (st === 'absent') t[s.staff_name].absent++
       else if (st === 'early') t[s.staff_name].early++
+      else if (st === 'etc') t[s.staff_name].etc++
       if (s.position === 'K') t[s.staff_name].K++
       else if (s.position === 'H') t[s.staff_name].H++
       else if (s.position === 'KH') t[s.staff_name].KH++
@@ -2194,6 +2199,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                       {t.half > 0 && <span style={{ fontSize:9, color:'#FF6B35' }}>반{t.half}</span>}
                       {t.early > 0 && <span style={{ fontSize:9, color:'#00B894' }}>조{t.early}</span>}
                       {t.absent > 0 && <span style={{ fontSize:9, color:'#E67E22' }}>결{t.absent}</span>}
+                      {t.etc > 0 && <span style={{ fontSize:9, color:'#3498DB' }}>기{t.etc}</span>}
                       <span style={{ fontSize:9, color:'#E84393' }}>휴{t.off}</span>
                       {(t.K > 0 || t.H > 0 || t.KH > 0) && (
                         <div style={{ display:'flex', gap:3, marginTop:1 }}>
@@ -2330,6 +2336,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
         work: ss.filter(s=>s.status==='work').length, off: ss.filter(s=>s.status==='off').length,
         half: ss.filter(s=>s.status==='half').length, absent: ss.filter(s=>s.status==='absent').length,
         early: ss.filter(s=>s.status==='early').length,
+        etc: ss.filter(s=>s.status==='etc').length,
         K: ss.filter(s=>s.position==='K').length, H: ss.filter(s=>s.position==='H').length, KH: ss.filter(s=>s.position==='KH').length,
       }
     })
@@ -2505,7 +2512,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
             {selected.size}개 선택됨 — 적용할 상태를 선택하세요
           </div>
           <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:8 }}>
-            {(['work','off','half','absent','early'] as const).map(s => (
+            {(['work','off','half','absent','early','etc'] as const).map(s => (
               <button key={s} onClick={() => applyBulk(s)}
                 style={{ flex:1, minWidth:56, padding:'10px 0', borderRadius:10, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:12, fontWeight:700, cursor:'pointer' }}>
                 {STATUS_LABEL[s]}
@@ -2533,6 +2540,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                     {s.half > 0 && <span style={{ fontSize:11, color:'#FF6B35', fontWeight:700 }}>반차 {s.half}</span>}
                     {s.early > 0 && <span style={{ fontSize:11, color:'#00B894', fontWeight:700 }}>조퇴 {s.early}</span>}
                     {s.absent > 0 && <span style={{ fontSize:11, color:'#E67E22', fontWeight:700 }}>결근 {s.absent}</span>}
+                    {s.etc > 0 && <span style={{ fontSize:11, color:'#3498DB', fontWeight:700 }}>기타 {s.etc}</span>}
                     <span style={{ fontSize:11, color:'#E84393', fontWeight:700 }}>휴일 {s.off}</span>
                   </div>
                 </div>
