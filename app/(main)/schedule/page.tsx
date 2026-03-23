@@ -781,68 +781,120 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
     loadAll()
   }
 
-  function exportManageExcel() {
+  async function exportManageExcel() {
+    const ExcelJS = (await import('exceljs')).default
+    const wb = new ExcelJS.Workbook()
     const pad = (n: number) => String(n).padStart(2,'0')
     const DOW_KR = ['일','월','화','수','목','금','토']
-    const STATUS_KR: Record<string,string> = { work:'근무', off:'휴일', half:'반차', absent:'결근', early:'조퇴' }
     const holidays = getHolidays(year)
     const daysInMonthE = getDaysInMonth(year, month)
     const monthStrE = `${year}-${pad(month+1)}`
 
-    // 지점별 시트 데이터를 하나의 CSV로 합치기
-    const bom = '\uFEFF'
-    const allRows: string[][] = []
+    const CELL_COLOR: Record<string, string> = {
+      work: 'FFE8E4FF', off: 'FFFCE4F0', half: 'FFFFEEE6', absent: 'FFFFF3E0',
+      early: 'FFE0FAF4', etc: 'FFF3E0FF', confirmed: 'FFFFD6EC',
+    }
+    const TEXT_COLOR: Record<string, string> = {
+      work: 'FF6C5CE7', off: 'FFE84393', half: 'FFFF6B35', absent: 'FFE67E22',
+      early: 'FF00B894', etc: 'FF8E44AD', confirmed: 'FFE84393',
+    }
 
-    storeItems.forEach((member: any) => {
+    for (const member of storeItems) {
       const sid = member.stores?.id
       const storeName = member.stores?.name || ''
       const d = storeData[sid]
-      if (!d) return
+      if (!d) continue
       const { schedules: scheds, staff } = d
       const schedMap: Record<string,any> = {}
       scheds.forEach((s: any) => { schedMap[`${s.staff_name}-${s.schedule_date}`] = s })
       const sOffReqMap: Record<string,any> = {}
       ;(d.offRequests || []).forEach((r: any) => { sOffReqMap[`${r.staff_name}-${r.request_date}`] = r })
 
-      // 지점 구분 헤더
-      allRows.push([`[${storeName}] ${year}년 ${month+1}월`])
-      allRows.push(['날짜', '요일', ...staff, '출근수'])
+      const ws = wb.addWorksheet(storeName.slice(0, 31))
+
+      // 헤더
+      const headerRow = ws.addRow(['날짜', '요일', ...staff, '출근수'])
+      headerRow.eachCell(cell => {
+        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF2C3E50' } }
+        cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 }
+        cell.alignment = { horizontal:'center', vertical:'middle' }
+      })
+      ws.getRow(1).height = 22
+      ws.getColumn(1).width = 14
+      ws.getColumn(2).width = 6
+      staff.forEach((_: any, i: number) => { ws.getColumn(i + 3).width = 11 })
+      ws.getColumn(staff.length + 3).width = 7
 
       for (let day = 1; day <= daysInMonthE; day++) {
         const dateStr = `${monthStrE}-${pad(day)}`
         const dow = new Date(dateStr).getDay()
-        const holiday = holidays[dateStr] ? ` (${holidays[dateStr]})` : ''
-        const row: string[] = [`${month+1}/${day}${holiday}`, DOW_KR[dow]]
+        const isHoliday = !!holidays[dateStr]
+        const isSun = dow === 0; const isSat = dow === 6
+        const holiday = isHoliday ? ` ${holidays[dateStr]}` : ''
+        const rowData: any[] = [`${month+1}/${day}${holiday}`, DOW_KR[dow]]
         let workCnt = 0
+        const cellInfos: any[] = []
+
         staff.forEach((name: string) => {
           const sc = schedMap[`${name}-${dateStr}`]
           const offR = sOffReqMap[`${name}-${dateStr}`]
           if (sc) {
-            const label = STATUS_KR[sc.status] || sc.status
+            const label = STATUS_LABEL[sc.status] || sc.status
             const pos = sc.position ? ` [${sc.position}]` : ''
-            const confirmed = sc.is_confirmed ? ' 🔒' : ''
-            row.push(`${label}${pos}${confirmed}`)
+            const note = sc.note ? ` (${sc.note.replace(/^\[조퇴:\d{2}:\d{2}\]\s*/,'')})` : ''
+            rowData.push(`${label}${pos}${note}${sc.is_confirmed?' 🔒':''}`)
+            cellInfos.push({ status: sc.status, isConfirmed: sc.is_confirmed })
             if (sc.status==='work'||sc.status==='half'||sc.status==='early') workCnt++
           } else if (offR?.status === 'approved') {
-            row.push(`🔒확정 (${offR.reason})`)
+            rowData.push(`🔒 휴일확정 (${offR.reason})`)
+            cellInfos.push({ status: 'off', isOffApproved: true })
           } else if (offR?.status === 'pending') {
-            row.push(`🙏요청 (${offR.reason})`)
+            rowData.push(`🙏 요청중 (${offR.reason})`)
+            cellInfos.push({ status: 'pending' })
           } else {
-            row.push('')
+            rowData.push('')
+            cellInfos.push({ status: '' })
           }
         })
-        row.push(String(workCnt))
-        allRows.push(row)
-      }
-      allRows.push([]) // 지점 간 빈 줄
-    })
+        rowData.push(workCnt || '')
+        const row = ws.addRow(rowData)
+        row.height = 18
 
-    const csv = bom + allRows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+        const dateBg = isSun || isHoliday ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFF8F9FB'
+        const dateColor = isSun || isHoliday ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF555555'
+        row.getCell(1).fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
+        row.getCell(1).font = { color:{ argb:dateColor }, size:10 }
+        row.getCell(1).alignment = { horizontal:'left', vertical:'middle' }
+        row.getCell(2).fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
+        row.getCell(2).font = { bold:true, color:{ argb:dateColor }, size:10 }
+        row.getCell(2).alignment = { horizontal:'center', vertical:'middle' }
+
+        cellInfos.forEach((info: any, i: number) => {
+          const cell = row.getCell(i + 3)
+          cell.alignment = { horizontal:'center', vertical:'middle' }
+          if (!info.status) return
+          const bgColor = info.isConfirmed ? CELL_COLOR.confirmed : info.isOffApproved ? CELL_COLOR.off : info.status === 'pending' ? 'FFFFF9E0' : CELL_COLOR[info.status] || 'FFFFFFFF'
+          const textColor = info.isConfirmed ? TEXT_COLOR.confirmed : info.isOffApproved ? TEXT_COLOR.off : info.status === 'pending' ? 'FFCC9900' : TEXT_COLOR[info.status] || 'FF333333'
+          cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:bgColor } }
+          cell.font = { color:{ argb:textColor }, bold:!!info.status, size:10 }
+        })
+
+        const cntCell = row.getCell(staff.length + 3)
+        cntCell.font = { bold:true, color:{ argb: workCnt < 3 ? 'FFE84393' : 'FF6C5CE7' }, size:10 }
+        cntCell.alignment = { horizontal:'center', vertical:'middle' }
+
+        if (dow === 1 && day !== 1) {
+          row.eachCell(cell => { cell.border = { ...cell.border, top:{ style:'medium', color:{ argb:'FFD0D4E8' } } } })
+        }
+      }
+    }
+
+    const buf = await wb.xlsx.writeBuffer()
+    const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `전지점_스케줄_${year}년${month+1}월.csv`
+    a.download = `전지점_스케줄_${year}년${month+1}월.xlsx`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -1776,19 +1828,54 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
 
   function openOrderModal() { setDragOrder([...visibleStaff]); setShowOrderModal(true) }
 
-  function exportToExcel() {
+  async function exportToExcel() {
+    const ExcelJS = (await import('exceljs')).default
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet(`${year}년 ${month+1}월`)
+
     const pad = (n: number) => String(n).padStart(2,'0')
     const DOW_KR = ['일','월','화','수','목','금','토']
     const holidays = getHolidays(year)
-    // 헤더
-    const headers = ['날짜', '요일', ...visibleStaff, '출근수']
-    const rows = [headers]
+
+    // 상태별 색상 (ARGB)
+    const CELL_COLOR: Record<string, string> = {
+      work: 'FFE8E4FF', off: 'FFFCE4F0', half: 'FFFFEEE6', absent: 'FFFFF3E0',
+      early: 'FFE0FAF4', etc: 'FFF3E0FF', confirmed: 'FFFFD6EC',
+    }
+    const TEXT_COLOR: Record<string, string> = {
+      work: 'FF6C5CE7', off: 'FFE84393', half: 'FFFF6B35', absent: 'FFE67E22',
+      early: 'FF00B894', etc: 'FF8E44AD', confirmed: 'FFE84393',
+    }
+    const POS_TEXT: Record<string, string> = { K: 'FFFF6B35', H: 'FF2DC6D6', KH: 'FF6C5CE7' }
+
+    // 헤더 행
+    const headerRow = ws.addRow(['날짜', '요일', ...visibleStaff, '출근수'])
+    headerRow.eachCell(cell => {
+      cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF2C3E50' } }
+      cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 }
+      cell.alignment = { horizontal:'center', vertical:'middle' }
+      cell.border = { bottom:{ style:'medium', color:{ argb:'FF1a1a2e' } } }
+    })
+    ws.getRow(1).height = 22
+
+    // 열 너비
+    ws.getColumn(1).width = 14
+    ws.getColumn(2).width = 6
+    visibleStaff.forEach((_, i) => { ws.getColumn(i + 3).width = 12 })
+    ws.getColumn(visibleStaff.length + 3).width = 8
+
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${monthStr}-${pad(d)}`
       const dow = new Date(dateStr).getDay()
-      const holiday = holidays[dateStr] ? ` (${holidays[dateStr]})` : ''
-      const row: string[] = [`${month+1}/${d}${holiday}`, DOW_KR[dow]]
+      const isHoliday = !!holidays[dateStr]
+      const isSun = dow === 0; const isSat = dow === 6
+      const holiday = isHoliday ? ` ${holidays[dateStr]}` : ''
+
+      const rowData: any[] = [`${month+1}/${d}${holiday}`, DOW_KR[dow]]
       let workCnt = 0
+
+      const cellInfos: { status: string; position?: string; note?: string; isConfirmed?: boolean; isOffApproved?: boolean; isOffPending?: boolean; reason?: string }[] = []
+
       visibleStaff.forEach(staff => {
         const sc = scheduleMap[`${staff}-${dateStr}`]
         const offReq = offRequestMap[`${staff}-${dateStr}`]
@@ -1796,27 +1883,82 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
           const label = STATUS_LABEL[sc.status] || sc.status
           const pos = sc.position ? ` [${sc.position}]` : ''
           const note = sc.note ? ` (${sc.note.replace(/^\[조퇴:\d{2}:\d{2}\]\s*/,'')})` : ''
-          row.push(`${label}${pos}${note}`)
+          const confirmed = sc.is_confirmed ? ' 🔒' : ''
+          rowData.push(`${label}${pos}${note}${confirmed}`)
+          cellInfos.push({ status: sc.status, position: sc.position, note: sc.note, isConfirmed: sc.is_confirmed })
           if (sc.status==='work'||sc.status==='half'||sc.status==='early') workCnt++
         } else if (offReq?.status === 'approved') {
-          row.push(`🔒휴일확정 (${offReq.reason})`)
+          rowData.push(`🔒 휴일확정 (${offReq.reason})`)
+          cellInfos.push({ status: 'off', isOffApproved: true, reason: offReq.reason })
         } else if (offReq?.status === 'pending') {
-          row.push(`🙏휴무요청 (${offReq.reason})`)
+          rowData.push(`🙏 요청중 (${offReq.reason})`)
+          cellInfos.push({ status: 'pending', reason: offReq.reason })
         } else {
-          row.push('')
+          rowData.push('')
+          cellInfos.push({ status: '' })
         }
       })
-      row.push(String(workCnt))
-      rows.push(row)
+      rowData.push(workCnt || '')
+
+      const row = ws.addRow(rowData)
+      row.height = 18
+
+      // 날짜 셀 스타일
+      const dateCell = row.getCell(1)
+      const dowCell = row.getCell(2)
+      const dateBg = isSun || isHoliday ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFF8F9FB'
+      const dateColor = isSun || isHoliday ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF555555'
+      dateCell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
+      dateCell.font = { color:{ argb:dateColor }, size:10 }
+      dateCell.alignment = { horizontal:'left', vertical:'middle' }
+      dowCell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
+      dowCell.font = { color:{ argb:dateColor }, bold:true, size:10 }
+      dowCell.alignment = { horizontal:'center', vertical:'middle' }
+
+      // 직원 셀 스타일
+      cellInfos.forEach((info, i) => {
+        const cell = row.getCell(i + 3)
+        cell.alignment = { horizontal:'center', vertical:'middle' }
+        if (!info.status) return
+        const bgColor = info.isConfirmed ? CELL_COLOR.confirmed
+          : info.isOffApproved ? CELL_COLOR.off
+          : info.status === 'pending' ? 'FFFFF9E0'
+          : CELL_COLOR[info.status] || 'FFFFFFFF'
+        const textColor = info.isConfirmed ? TEXT_COLOR.confirmed
+          : info.isOffApproved ? TEXT_COLOR.off
+          : info.status === 'pending' ? 'FFCC9900'
+          : TEXT_COLOR[info.status] || 'FF333333'
+        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:bgColor } }
+        cell.font = { color:{ argb:textColor }, bold: !!info.status, size:10 }
+      })
+
+      // 출근수 셀
+      const cntCell = row.getCell(visibleStaff.length + 3)
+      cntCell.font = { bold:true, color:{ argb: workCnt < 3 ? 'FFE84393' : 'FF6C5CE7' }, size:10 }
+      cntCell.alignment = { horizontal:'center', vertical:'middle' }
+
+      // 월 경계선 (월요일)
+      if (dow === 1 && d !== 1) {
+        row.eachCell(cell => { cell.border = { top:{ style:'medium', color:{ argb:'FFD0D4E8' } } } })
+      }
     }
-    // CSV 생성 (엑셀에서 열림)
-    const bom = '﻿' // 한글 깨짐 방지
-    const csv = bom + rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+
+    // 전체 테두리
+    ws.eachRow(row => {
+      row.eachCell(cell => {
+        if (!cell.border?.top?.style) {
+          cell.border = { ...cell.border, top:{ style:'thin', color:{ argb:'FFECEEF2' } }, bottom:{ style:'thin', color:{ argb:'FFECEEF2' } }, left:{ style:'thin', color:{ argb:'FFECEEF2' } }, right:{ style:'thin', color:{ argb:'FFECEEF2' } } }
+        }
+      })
+    })
+
+    // 파일 다운로드
+    const buf = await wb.xlsx.writeBuffer()
+    const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `스케줄_${year}년${month+1}월.csv`
+    a.download = `스케줄_${year}년${month+1}월.xlsx`
     a.click()
     URL.revokeObjectURL(url)
   }
