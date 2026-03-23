@@ -1357,6 +1357,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                                           <span style={{ fontSize:8, fontWeight:700, color: sc.is_confirmed ? '#E84393' : STATUS_COLOR[sc.status], lineHeight:1.3, marginTop: sc.is_confirmed ? 2 : 0 }}>{sc.is_confirmed ? '🔒' : STATUS_LABEL[sc.status]}</span>
                                           {sc.is_confirmed && <span style={{ fontSize:6, color:'#E84393', fontWeight:700 }}>{STATUS_LABEL[sc.status]}</span>}
                                           {!sc.is_confirmed && sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
+                                          {sc.note && !sc.is_confirmed && <span title={sc.note} style={{ fontSize:6, color:'#FF6B35', maxWidth:32, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sc.note.replace(/^\[조퇴:\d{2}:\d{2}\]\s*/,'')}</span>}
                                           {offR?.status==='pending' && <span style={{ fontSize:8 }}>🙏</span>}
                                           {offR?.status==='approved' && <span style={{ fontSize:8 }}>✅</span>}
                                         </div>
