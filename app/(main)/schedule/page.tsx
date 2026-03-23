@@ -764,7 +764,22 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   const [manageBulkTarget, setManageBulkTarget] = useState<{ sid: string; staff: string; dates: string[] } | null>(null)
   // 월간 그리드: 펼친 지점
   const [gridExpanded, setGridExpanded] = useState<Record<string, boolean>>({})
+  // 복사·붙여넣기 (지점별 + 직원별)
+  const [manageCopied, setManageCopied] = useState<{ sid: string; staff: string } | null>(null)
   const [backingUp, setBackingUp] = useState(false)
+
+  async function handleManagePaste(targetSid: string, targetStaff: string) {
+    if (!manageCopied) return
+    const src = storeData[manageCopied.sid]?.schedules.filter((s: any) => s.staff_name === manageCopied.staff) || []
+    if (src.length === 0) { alert(`${manageCopied.staff}의 스케줄이 없습니다`); setManageCopied(null); return }
+    if (!window.confirm(`${manageCopied.staff}의 스케줄(${src.length}건)을 ${targetStaff}에 붙여넣을까요?\n기존 스케줄은 덮어씌워집니다.`)) return
+    await supabase.from('schedules').upsert(
+      src.map((s: any) => ({ store_id: targetSid, staff_name: targetStaff, schedule_date: s.schedule_date, status: s.status, position: s.position, note: s.note })),
+      { onConflict: 'store_id,staff_name,schedule_date' }
+    )
+    setManageCopied(null)
+    loadAll()
+  }
 
   function exportManageExcel() {
     const pad = (n: number) => String(n).padStart(2,'0')
@@ -1257,14 +1272,26 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                           {staff.map(name => {
                             const pendingCnt = sIsFuture && sRequestOpen ? (sOffReqs||[]).filter((r:any) => r.staff_name===name && r.status==='pending').length : 0
                             const approvedCnt = sIsFuture ? (sOffReqs||[]).filter((r:any) => r.staff_name===name && r.status==='approved').length : 0
+                            const isCopied = manageCopied?.sid === sid && manageCopied?.staff === name
+                            const canPaste = manageCopied && !(manageCopied.sid === sid && manageCopied.staff === name)
                             return (
                               <th key={name} style={{ padding:'5px 2px', borderBottom:'1px solid #E8ECF0', borderRight:'1px solid #ECEEF2', color:'#1a1a2e', fontWeight:700, textAlign:'center', fontSize:10 }}>
                                 <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
                                   <span>{name.length > 3 ? name.slice(0,3) + '.' : name}</span>
-                                  <div style={{ display:'flex', gap:2 }}>
+                                  <div style={{ display:'flex', gap:2, flexWrap:'wrap', justifyContent:'center' }}>
                                     {pendingCnt > 0 && <span style={{ fontSize:8, background:'rgba(255,200,0,0.2)', color:'#CC9900', borderRadius:4, padding:'0 4px', fontWeight:700 }}>🙏{pendingCnt}</span>}
                                     {approvedCnt > 0 && <span style={{ fontSize:8, background:STATUS_BG['off'], color:STATUS_COLOR['off'], borderRadius:4, padding:'0 4px', fontWeight:700 }}>휴{approvedCnt}</span>}
                                   </div>
+                                  {isCopied ? (
+                                    <button onClick={e => { e.stopPropagation(); setManageCopied(null) }}
+                                      style={{ fontSize:8, background:'rgba(108,92,231,0.12)', border:'1px solid #6C5CE7', color:'#6C5CE7', borderRadius:4, padding:'1px 5px', cursor:'pointer', fontWeight:700 }}>취소</button>
+                                  ) : canPaste ? (
+                                    <button onClick={e => { e.stopPropagation(); handleManagePaste(sid, name) }}
+                                      style={{ fontSize:8, background:'rgba(232,67,147,0.1)', border:'1px solid #E84393', color:'#E84393', borderRadius:4, padding:'1px 5px', cursor:'pointer', fontWeight:700 }}>붙여넣기</button>
+                                  ) : (
+                                    <button onClick={e => { e.stopPropagation(); setManageCopied({ sid, staff: name }) }}
+                                      style={{ fontSize:8, background:'#F4F6F9', border:'1px solid #E0E4E8', color:'#aaa', borderRadius:4, padding:'1px 5px', cursor:'pointer' }}>복사</button>
+                                  )}
                                 </div>
                               </th>
                             )
