@@ -11,8 +11,8 @@ function getDaysInMonth(year: number, month: number) {
 }
 
 const STATUS_LABEL: Record<string, string> = { work: '근무', off: '휴일', half: '반차', absent: '결근', early: '조퇴', etc: '기타' }
-const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35', absent: '#E67E22', early: '#00B894', etc: '#1A73E8' }
-const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)', absent: 'rgba(230,126,34,0.13)', early: 'rgba(0,184,148,0.13)', etc: 'rgba(26,115,232,0.15)' }
+const STATUS_COLOR: Record<string, string> = { work: '#6C5CE7', off: '#E84393', half: '#FF6B35', absent: '#E67E22', early: '#00B894', etc: '#8E44AD' }
+const STATUS_BG: Record<string, string> = { work: 'rgba(108,92,231,0.15)', off: 'rgba(232,67,147,0.13)', half: 'rgba(255,107,53,0.13)', absent: 'rgba(230,126,34,0.13)', early: 'rgba(0,184,148,0.13)', etc: 'rgba(142,68,173,0.15)' }
 const POS_COLOR: Record<string, string> = { K: '#FF6B35', H: '#2DC6D6', KH: '#6C5CE7' }
 const DOW_LABEL = ['일','월','화','수','목','금','토']
 
@@ -2199,7 +2199,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                       {t.half > 0 && <span style={{ fontSize:9, color:'#FF6B35' }}>반{t.half}</span>}
                       {t.early > 0 && <span style={{ fontSize:9, color:'#00B894' }}>조{t.early}</span>}
                       {t.absent > 0 && <span style={{ fontSize:9, color:'#E67E22' }}>결{t.absent}</span>}
-                      {t.etc > 0 && <span style={{ fontSize:9, color:'#3498DB' }}>기{t.etc}</span>}
+                      {t.etc > 0 && <span style={{ fontSize:9, color:'#8E44AD' }}>기{t.etc}</span>}
                       <span style={{ fontSize:9, color:'#E84393' }}>휴{t.off}</span>
                       {(t.K > 0 || t.H > 0 || t.KH > 0) && (
                         <div style={{ display:'flex', gap:3, marginTop:1 }}>
@@ -2540,7 +2540,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                     {s.half > 0 && <span style={{ fontSize:11, color:'#FF6B35', fontWeight:700 }}>반차 {s.half}</span>}
                     {s.early > 0 && <span style={{ fontSize:11, color:'#00B894', fontWeight:700 }}>조퇴 {s.early}</span>}
                     {s.absent > 0 && <span style={{ fontSize:11, color:'#E67E22', fontWeight:700 }}>결근 {s.absent}</span>}
-                    {s.etc > 0 && <span style={{ fontSize:11, color:'#3498DB', fontWeight:700 }}>기타 {s.etc}</span>}
+                    {s.etc > 0 && <span style={{ fontSize:11, color:'#8E44AD', fontWeight:700 }}>기타 {s.etc}</span>}
                     <span style={{ fontSize:11, color:'#E84393', fontWeight:700 }}>휴일 {s.off}</span>
                   </div>
                 </div>
