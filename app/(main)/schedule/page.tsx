@@ -2591,7 +2591,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
             <div ref={el => { bodyScrollRefs.current[si] = el }} style={{ flex:1, overflowX:'auto', display:'flex' }} onScroll={e => syncScroll(e.currentTarget.scrollLeft)}>
               {days.map(day => {
                 const dateStr=`${monthStr}-${String(day).padStart(2,'0')}`
-                const s=scheduleMap[`${staff}-${dateStr}`]
+                const s = visible ? scheduleMap[`${staff}-${dateStr}`] : null
                 const offReqM = offRequestMap[`${staff}-${dateStr}`]
                 const isMineM = staff === myName
                 const isBlockedM = isFuture && blockedDates.has(dateStr)
@@ -2670,7 +2670,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
         <div style={{ display:'flex', borderTop:'2px solid #E8ECF0', background:'#F8F9FB' }}>
           <div style={{ minWidth:68, flexShrink:0, borderRight:'2px solid #E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px 0' }}><span style={{ fontSize:9, color:'#6C5CE7', fontWeight:700 }}>출근</span></div>
           <div ref={footerScrollRef} style={{ flex:1, overflowX:'auto', display:'flex' }} onScroll={e => syncScroll(e.currentTarget.scrollLeft)}>
-            {days.map(day => { const dateStr=`${monthStr}-${String(day).padStart(2,'0')}`; const cnt=visibleStaff.filter(staff=>{const s=scheduleMap[`${staff}-${dateStr}`];return s&&(s.status==='work'||s.status==='half'||s.status==='early')}).length; return (<div key={day} style={{ minWidth:44, flexShrink:0, borderRight:'1px solid #F0F2F5', minHeight:28, display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt>0&&<span style={{ fontSize:10, fontWeight:700, color:'#6C5CE7' }}>{cnt}</span>}</div>) })}
+            {days.map(day => { const dateStr=`${monthStr}-${String(day).padStart(2,'0')}`; const cnt=visible ? visibleStaff.filter(staff=>{const s=scheduleMap[`${staff}-${dateStr}`];return s&&(s.status==='work'||s.status==='half'||s.status==='early')}).length : 0; return (<div key={day} style={{ minWidth:44, flexShrink:0, borderRight:'1px solid #F0F2F5', minHeight:28, display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt>0&&<span style={{ fontSize:10, fontWeight:700, color:'#6C5CE7' }}>{cnt}</span>}</div>) })}
           </div>
         </div>
       </div>
@@ -2731,13 +2731,17 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
 }
 
 // ─── 월간 캘린더 ─────────────────────────────────────────────
-function MonthlyView({ year, month, schedules, onChangeMonth, selectedDate, onDayClick }: { year: number; month: number; schedules: any[]; onChangeMonth: (y:number,m:number)=>void; selectedDate: string; onDayClick: (d:string)=>void }) {
+function MonthlyView({ year, month, schedules, onChangeMonth, selectedDate, onDayClick, role, scheduleSettings, nowYear, nowMonth }: { year: number; month: number; schedules: any[]; onChangeMonth: (y:number,m:number)=>void; selectedDate: string; onDayClick: (d:string)=>void; role?: string; scheduleSettings?: any; nowYear?: number; nowMonth?: number }) {
   const today = toDateStr(new Date()); const daysInMonth = getDaysInMonth(year,month); const firstDay = new Date(year,month,1).getDay(); const monthStr = `${year}-${String(month+1).padStart(2,'0')}`
-  const dayMap = useMemo(() => { const m: Record<string,{work:number;off:number}>={};schedules.forEach(s=>{if(!m[s.schedule_date])m[s.schedule_date]={work:0,off:0};if(s.status==='work'||s.status==='half'||s.status==='early')m[s.schedule_date].work++;else m[s.schedule_date].off++});return m },[schedules])
+  const _nowYear = nowYear ?? new Date().getFullYear(); const _nowMonth = nowMonth ?? new Date().getMonth()
+  const isPublished = scheduleSettings?.is_published || false
+  const visible = isScheduleVisible(year, month, _nowYear, _nowMonth, isPublished, role || 'owner')
+  const visibleSchedules = visible ? schedules : []
+  const dayMap = useMemo(() => { const m: Record<string,{work:number;off:number}>={};visibleSchedules.forEach(s=>{if(!m[s.schedule_date])m[s.schedule_date]={work:0,off:0};if(s.status==='work'||s.status==='half'||s.status==='early')m[s.schedule_date].work++;else m[s.schedule_date].off++});return m },[visibleSchedules])
   const weeks:(number|null)[][]=[];let week:(number|null)[]=Array(firstDay).fill(null)
   for(let d=1;d<=daysInMonth;d++){week.push(d);if(week.length===7){weeks.push(week);week=[]}}
   if(week.length>0){while(week.length<7)week.push(null);weeks.push(week)}
-  const selSchedules = schedules.filter(s=>s.schedule_date===selectedDate).sort((a,b)=>a.staff_name.localeCompare(b.staff_name))
+  const selSchedules = visibleSchedules.filter(s=>s.schedule_date===selectedDate).sort((a,b)=>a.staff_name.localeCompare(b.staff_name))
   return (
     <div>
       <div style={{ marginBottom:14 }}><YearMonthPicker year={year} month={month} onChange={onChangeMonth} color="#6C5CE7" /></div>
@@ -2889,7 +2893,7 @@ export default function SchedulePage() {
         )}
       </div>
       {viewTab==='grid' && <PCGridEditor {...sharedProps} />}
-      {viewTab==='month' && <MonthlyView year={calYear} month={calMonth} schedules={schedules} onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} />}
+      {viewTab==='month' && <MonthlyView year={calYear} month={calMonth} schedules={schedules} onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} role={role} scheduleSettings={scheduleSettings} nowYear={nowYear} nowMonth={nowMonth} />}
       {viewTab==='manage' && isOwner && <ManageView profileId={profileId} myName={myName} year={calYear} month={calMonth} />}
     </div>
   )
@@ -2915,7 +2919,7 @@ export default function SchedulePage() {
         )}
       </div>
       {viewTab==='grid' && <MobileGridEditor {...sharedProps} />}
-      {viewTab==='month' && <MonthlyView year={calYear} month={calMonth} schedules={schedules} onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} />}
+      {viewTab==='month' && <MonthlyView year={calYear} month={calMonth} schedules={schedules} onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} role={role} scheduleSettings={scheduleSettings} nowYear={nowYear} nowMonth={nowMonth} />}
       {viewTab==='manage' && isOwner && <ManageView profileId={profileId} myName={myName} year={calYear} month={calMonth} />}
     </div>
   )
