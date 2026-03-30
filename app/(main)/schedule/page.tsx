@@ -767,6 +767,14 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   // 복사·붙여넣기 (지점별 + 직원별)
   const [manageCopied, setManageCopied] = useState<{ sid: string; staff: string } | null>(null)
   const [backingUp, setBackingUp] = useState(false)
+  // 엑셀 내보내기 모달
+  const [showExportModal, setShowExportModal] = useState(false)
+  const nowDExport = new Date()
+  const [exportStartYear, setExportStartYear] = useState(nowDExport.getFullYear())
+  const [exportStartMonth, setExportStartMonth] = useState(nowDExport.getMonth() + 1)
+  const [exportEndYear, setExportEndYear] = useState(nowDExport.getFullYear())
+  const [exportEndMonth, setExportEndMonth] = useState(nowDExport.getMonth() + 1)
+  const [exporting, setExporting] = useState(false)
 
   async function handleManagePaste(targetSid: string, targetStaff: string) {
     if (!manageCopied) return
@@ -782,121 +790,245 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   }
 
   async function exportManageExcel() {
-    const ExcelJS = (await import('exceljs')).default
-    const wb = new ExcelJS.Workbook()
-    const pad = (n: number) => String(n).padStart(2,'0')
-    const DOW_KR = ['일','월','화','수','목','금','토']
-    const holidays = getHolidays(year)
-    const daysInMonthE = getDaysInMonth(year, month)
-    const monthStrE = `${year}-${pad(month+1)}`
-
-    const CELL_COLOR: Record<string, string> = {
-      work: 'FFE8E4FF', off: 'FFFCE4F0', half: 'FFFFEEE6', absent: 'FFFFF3E0',
-      early: 'FFE0FAF4', etc: 'FFF3E0FF', confirmed: 'FFFFD6EC',
-    }
-    const TEXT_COLOR: Record<string, string> = {
-      work: 'FF6C5CE7', off: 'FFE84393', half: 'FFFF6B35', absent: 'FFE67E22',
-      early: 'FF00B894', etc: 'FF8E44AD', confirmed: 'FFE84393',
-    }
-
-    for (const member of storeItems) {
-      const sid = member.stores?.id
-      const storeName = member.stores?.name || ''
-      const d = storeData[sid]
-      if (!d) continue
-      const { schedules: scheds, staff } = d
-      const schedMap: Record<string,any> = {}
-      scheds.forEach((s: any) => { schedMap[`${s.staff_name}-${s.schedule_date}`] = s })
-      const sOffReqMap: Record<string,any> = {}
-      ;(d.offRequests || []).forEach((r: any) => { sOffReqMap[`${r.staff_name}-${r.request_date}`] = r })
-
-      const ws = wb.addWorksheet(storeName.slice(0, 31))
-
-      // 헤더
-      const headerRow = ws.addRow(['날짜', '요일', ...staff, '출근수'])
-      headerRow.eachCell(cell => {
-        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF2C3E50' } }
-        cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 }
-        cell.alignment = { horizontal:'center', vertical:'middle' }
-      })
-      ws.getRow(1).height = 22
-      ws.getColumn(1).width = 14
-      ws.getColumn(2).width = 6
-      staff.forEach((_: any, i: number) => { ws.getColumn(i + 3).width = 11 })
-      ws.getColumn(staff.length + 3).width = 7
-
-      for (let day = 1; day <= daysInMonthE; day++) {
-        const dateStr = `${monthStrE}-${pad(day)}`
-        const dow = new Date(dateStr).getDay()
-        const isHoliday = !!holidays[dateStr]
-        const isSun = dow === 0; const isSat = dow === 6
-        const holiday = isHoliday ? ` ${holidays[dateStr]}` : ''
-        const rowData: any[] = [`${month+1}/${day}${holiday}`, DOW_KR[dow]]
-        let workCnt = 0
-        const cellInfos: any[] = []
-
-        staff.forEach((name: string) => {
-          const sc = schedMap[`${name}-${dateStr}`]
-          const offR = sOffReqMap[`${name}-${dateStr}`]
-          if (sc) {
-            const label = STATUS_LABEL[sc.status] || sc.status
-            const pos = sc.position ? ` [${sc.position}]` : ''
-            const note = sc.note ? ` (${sc.note.replace(/^\[조퇴:\d{2}:\d{2}\]\s*/,'')})` : ''
-            rowData.push(`${label}${pos}${note}${sc.is_confirmed?' 🔒':''}`)
-            cellInfos.push({ status: sc.status, isConfirmed: sc.is_confirmed })
-            if (sc.status==='work'||sc.status==='half'||sc.status==='early') workCnt++
-          } else if (offR?.status === 'approved') {
-            rowData.push(`🔒 휴일확정 (${offR.reason})`)
-            cellInfos.push({ status: 'off', isOffApproved: true })
-          } else if (offR?.status === 'pending') {
-            rowData.push(`🙏 요청중 (${offR.reason})`)
-            cellInfos.push({ status: 'pending' })
-          } else {
-            rowData.push('')
-            cellInfos.push({ status: '' })
-          }
-        })
-        rowData.push(workCnt || '')
-        const row = ws.addRow(rowData)
-        row.height = 18
-
-        const dateBg = isSun || isHoliday ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFF8F9FB'
-        const dateColor = isSun || isHoliday ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF555555'
-        row.getCell(1).fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
-        row.getCell(1).font = { color:{ argb:dateColor }, size:10 }
-        row.getCell(1).alignment = { horizontal:'left', vertical:'middle' }
-        row.getCell(2).fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
-        row.getCell(2).font = { bold:true, color:{ argb:dateColor }, size:10 }
-        row.getCell(2).alignment = { horizontal:'center', vertical:'middle' }
-
-        cellInfos.forEach((info: any, i: number) => {
-          const cell = row.getCell(i + 3)
-          cell.alignment = { horizontal:'center', vertical:'middle' }
-          if (!info.status) return
-          const bgColor = info.isConfirmed ? CELL_COLOR.confirmed : info.isOffApproved ? CELL_COLOR.off : info.status === 'pending' ? 'FFFFF9E0' : CELL_COLOR[info.status] || 'FFFFFFFF'
-          const textColor = info.isConfirmed ? TEXT_COLOR.confirmed : info.isOffApproved ? TEXT_COLOR.off : info.status === 'pending' ? 'FFCC9900' : TEXT_COLOR[info.status] || 'FF333333'
-          cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:bgColor } }
-          cell.font = { color:{ argb:textColor }, bold:!!info.status, size:10 }
-        })
-
-        const cntCell = row.getCell(staff.length + 3)
-        cntCell.font = { bold:true, color:{ argb: workCnt < 3 ? 'FFE84393' : 'FF6C5CE7' }, size:10 }
-        cntCell.alignment = { horizontal:'center', vertical:'middle' }
-
-        if (dow === 1 && day !== 1) {
-          row.eachCell(cell => { cell.border = { ...cell.border, top:{ style:'medium', color:{ argb:'FFD0D4E8' } } } })
-        }
+    if (storeItems.length === 0) { alert('지점 데이터가 없습니다.'); return }
+    setExporting(true)
+    try {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      const pad = (n: number) => String(n).padStart(2,'0')
+      const DOW_KR = ['일','월','화','수','목','금','토']
+      const CELL_COLOR: Record<string, string> = {
+        work:'FFE8E4FF', off:'FFFCE4F0', half:'FFFFEEE6', absent:'FFFFF3E0',
+        early:'FFE0FAF4', etc:'FFF3E0FF', confirmed:'FFFFD6EC', pending:'FFFFF9E0',
       }
-    }
+      const TEXT_COLOR: Record<string, string> = {
+        work:'FF6C5CE7', off:'FFE84393', half:'FFFF6B35', absent:'FFE67E22',
+        early:'FF00B894', etc:'FF8E44AD', confirmed:'FFE84393', pending:'FFCC9900',
+      }
+      const thin = (argb = 'FFD8D8D8') => ({ style: 'thin' as const, color: { argb } })
+      const med  = (argb = 'FF999999') => ({ style: 'medium' as const, color: { argb } })
+      const STORE_COLORS = ['FF1D3557','FF4A148C','FF1B5E20','FF7B2D00','FF37474F']
 
-    const buf = await wb.xlsx.writeBuffer()
-    const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `전지점_스케줄_${year}년${month+1}월.xlsx`
-    a.click()
-    URL.revokeObjectURL(url)
+      // 기간 내 모든 월 목록
+      const months: { y: number; m: number }[] = []
+      let cy = exportStartYear, cm = exportStartMonth
+      while (cy < exportEndYear || (cy === exportEndYear && cm <= exportEndMonth)) {
+        months.push({ y: cy, m: cm })
+        cm++; if (cm > 12) { cm = 1; cy++ }
+      }
+
+      for (const { y: mY, m: mM } of months) {
+        const monthStr = `${mY}-${pad(mM)}`
+        const daysInMonthE = getDaysInMonth(mY, mM - 1)
+        const holidays = getHolidays(mY)
+        const ws = wb.addWorksheet(`${mY}년${mM}월`.slice(0, 31))
+
+        // 지점별 스케줄 로드
+        const storeMonthData: { name: string; staff: string[]; schedMap: Record<string,any>; offReqMap: Record<string,any> }[] = []
+        const startDate = `${monthStr}-01`
+        const endDate = `${monthStr}-${pad(daysInMonthE)}`
+        await Promise.all(storeItems.map(async (member: any) => {
+          const sid = member.stores?.id
+          const [schedsRes, staffRes, offReqsRes] = await Promise.all([
+            supabase.from('schedules').select('*').eq('store_id', sid).gte('schedule_date', startDate).lte('schedule_date', endDate),
+            supabase.from('store_members').select('profile_id, sort_order, profiles(nm)').eq('store_id', sid).eq('active', true),
+            supabase.from('off_requests').select('*').eq('store_id', sid).eq('target_month', monthStr),
+          ])
+          const staffNames = (staffRes.data || [])
+            .map((m: any) => ({ nm: m.profiles?.nm || '', order: m.sort_order ?? 9999 }))
+            .filter((m: any) => m.nm).sort((a: any, b: any) => a.order - b.order).map((m: any) => m.nm)
+          const schedMap: Record<string,any> = {}
+          ;(schedsRes.data || []).forEach((s: any) => { schedMap[`${s.staff_name}-${s.schedule_date}`] = s })
+          const offReqMap: Record<string,any> = {}
+          ;(offReqsRes.data || []).forEach((r: any) => { offReqMap[`${r.staff_name}-${r.request_date}`] = r })
+          storeMonthData.push({ name: member.stores?.name || '', staff: staffNames, schedMap, offReqMap })
+        }))
+
+        // 열 구조: [날짜(1), 요일(1)] + 지점별[직원...출근수]
+        let colOffset = 3
+        const storeRanges: { name: string; staff: string[]; start: number; end: number; schedMap: Record<string,any>; offReqMap: Record<string,any> }[] = []
+        storeMonthData.forEach(sd => {
+          storeRanges.push({ ...sd, start: colOffset, end: colOffset + sd.staff.length })
+          colOffset += sd.staff.length + 1
+        })
+        const totalCols = colOffset - 1
+
+        // 행1: 월 제목
+        const titleRow = ws.addRow(new Array(totalCols).fill(''))
+        ws.mergeCells(1, 1, 1, totalCols)
+        const tc = titleRow.getCell(1)
+        tc.value = `📅 ${mY}년 ${mM}월  전 지점 스케줄`
+        tc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1A1A2E' } }
+        tc.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:14 }
+        tc.alignment = { horizontal:'center', vertical:'middle' }
+        titleRow.height = 30
+
+        // 행2: 지점명 헤더 (병합)
+        const storeRow = ws.addRow(new Array(totalCols).fill(''))
+        ws.mergeCells(2, 1, 2, 2)
+        const dhc = storeRow.getCell(1)
+        dhc.value = '날짜 / 요일';
+        dhc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF2C3E50' } }
+        dhc.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:10 }
+        dhc.alignment = { horizontal:'center', vertical:'middle' }
+        dhc.border = { top:thin(), bottom:thin(), left:thin(), right:med() }
+        storeRanges.forEach(({ name, start, end }, si) => {
+          ws.mergeCells(2, start, 2, end)
+          const c = storeRow.getCell(start)
+          c.value = `🏪 ${name}`
+          c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: STORE_COLORS[si % STORE_COLORS.length] } }
+          c.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:12 }
+          c.alignment = { horizontal:'center', vertical:'middle' }
+          c.border = { top:thin(), bottom:thin(), left:med('FFFFFFFF'), right:med('FFFFFFFF') }
+        })
+        storeRow.height = 24
+
+        // 행3: 직원명 헤더
+        const staffRow = ws.addRow(new Array(totalCols).fill(''))
+        ;[1,2].forEach((ci, i) => {
+          const c = staffRow.getCell(ci)
+          c.value = i===0 ? '날짜' : '요일'
+          c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF2C3E50' } }
+          c.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:10 }
+          c.alignment = { horizontal:'center', vertical:'middle' }
+          c.border = { top:thin(), bottom:med(), left:thin(), right:i===0?thin():med() }
+        })
+        storeRanges.forEach(({ staff, start, end }, si) => {
+          const color = STORE_COLORS[si % STORE_COLORS.length]
+          staff.forEach((nm, i) => {
+            const c = staffRow.getCell(start + i)
+            c.value = nm; c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:color } }
+            c.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:10 }
+            c.alignment = { horizontal:'center', vertical:'middle' }
+            c.border = { top:thin(), bottom:med(), left:i===0?med('FFFFFFFF'):thin(), right:thin() }
+          })
+          const cc = staffRow.getCell(end)
+          cc.value = '출근↑'; cc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:color } }
+          cc.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:9 }
+          cc.alignment = { horizontal:'center', vertical:'middle' }
+          cc.border = { top:thin(), bottom:med(), left:thin(), right:med('FFFFFFFF') }
+        })
+        staffRow.height = 20
+
+        // 열 너비
+        ws.getColumn(1).width = 13; ws.getColumn(2).width = 5
+        storeRanges.forEach(({ staff, start, end }) => {
+          staff.forEach((_, i) => { ws.getColumn(start + i).width = 10 })
+          ws.getColumn(end).width = 6
+        })
+
+        // 데이터 행
+        for (let day = 1; day <= daysInMonthE; day++) {
+          const dateStr = `${monthStr}-${pad(day)}`
+          const dow = new Date(dateStr).getDay()
+          const isHoliday = !!holidays[dateStr]
+          const isSun = dow === 0; const isSat = dow === 6
+          const isMonday = dow === 1 && day !== 1
+          const holiday = isHoliday ? ` (${holidays[dateStr]})` : ''
+          const topBorder = isMonday ? med('FFAAB0CC') : thin()
+
+          const row = ws.addRow(new Array(totalCols).fill(''))
+          row.height = 20
+
+          // 날짜/요일
+          const dateBg = isSun||isHoliday ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFFAFAFA'
+          const dateClr = isSun||isHoliday ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF333333'
+          const dc = row.getCell(1)
+          dc.value = `${mM}/${day}${holiday}`
+          dc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
+          dc.font = { color:{ argb:dateClr }, size:10 }
+          dc.alignment = { horizontal:'left', vertical:'middle' }
+          dc.border = { top:topBorder, bottom:thin(), left:thin(), right:thin() }
+          const dw = row.getCell(2)
+          dw.value = DOW_KR[dow]
+          dw.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
+          dw.font = { bold:true, color:{ argb:dateClr }, size:10 }
+          dw.alignment = { horizontal:'center', vertical:'middle' }
+          dw.border = { top:topBorder, bottom:thin(), left:thin(), right:med() }
+
+          // 직원 셀
+          storeRanges.forEach(({ staff, start, end, schedMap, offReqMap }, si) => {
+            let workCnt = 0
+            const isLastStore = si === storeRanges.length - 1
+            staff.forEach((name, i) => {
+              const sc = schedMap[`${name}-${dateStr}`]
+              const offR = offReqMap[`${name}-${dateStr}`]
+              const cell = row.getCell(start + i)
+              cell.alignment = { horizontal:'center', vertical:'middle' }
+              cell.border = { top:topBorder, bottom:thin(), left:i===0?med('FFFFFFFF'):thin(), right:thin() }
+              if (sc) {
+                const label = STATUS_LABEL[sc.status] || sc.status
+                const pos = sc.position ? ` [${sc.position}]` : ''
+                const note = sc.note ? ` (${sc.note.replace(/\[조퇴:\d{2}:\d{2}\]\s*/,'')})` : ''
+                cell.value = `${label}${pos}${note}${sc.is_confirmed?' 🔒':''}`
+                const key = sc.is_confirmed ? 'confirmed' : sc.status
+                if (CELL_COLOR[key]) {
+                  cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:CELL_COLOR[key] } }
+                  cell.font = { bold:true, color:{ argb:TEXT_COLOR[key] }, size:10 }
+                }
+                if (sc.status==='work'||sc.status==='half'||sc.status==='early') workCnt++
+              } else if (offR?.status === 'approved') {
+                cell.value = '🔒 휴일확정'
+                cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:CELL_COLOR.confirmed } }
+                cell.font = { bold:true, color:{ argb:TEXT_COLOR.confirmed }, size:10 }
+              } else if (offR?.status === 'pending') {
+                cell.value = '🙏 요청중'
+                cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:CELL_COLOR.pending } }
+                cell.font = { color:{ argb:TEXT_COLOR.pending }, size:10 }
+              } else {
+                cell.font = { color:{ argb:'FFDDDDDD' }, size:9 }
+              }
+            })
+            // 출근수
+            const cc = row.getCell(end)
+            cc.value = workCnt || null
+            cc.font = { bold:true, color:{ argb: workCnt<3?'FFE84393':'FF6C5CE7' }, size:10 }
+            cc.alignment = { horizontal:'center', vertical:'middle' }
+            cc.border = { top:topBorder, bottom:thin(), left:thin(), right: isLastStore?med('FFAAAAAA'):med('FFFFFFFF') }
+          })
+        }
+
+        // 합계 행
+        const sumRow = ws.addRow(new Array(totalCols).fill(''))
+        ws.mergeCells(ws.rowCount, 1, ws.rowCount, 2)
+        const sc1 = sumRow.getCell(1)
+        sc1.value = `${mY}년 ${mM}월 합계`
+        sc1.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFE8CC' } }
+        sc1.font = { bold:true, size:11, color:{ argb:'FF1A1A2E' } }
+        sc1.alignment = { horizontal:'center', vertical:'middle' }
+        sc1.border = { top:med('FFFF6B35'), bottom:thin(), left:thin(), right:med() }
+        storeRanges.forEach(({ staff, start, end, schedMap }) => {
+          staff.forEach((name, i) => {
+            const cnt = Object.values(schedMap).filter((s: any) => s.staff_name === name && ['work','half','early'].includes(s.status)).length
+            const c = sumRow.getCell(start + i)
+            c.value = cnt || null
+            c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFE8CC' } }
+            c.font = { bold:true, color:{ argb:'FF6C5CE7' }, size:11 }
+            c.alignment = { horizontal:'center', vertical:'middle' }
+            c.border = { top:med('FFFF6B35'), bottom:thin(), left:thin(), right:thin() }
+          })
+          const ec = sumRow.getCell(end)
+          ec.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFE8CC' } }
+          ec.border = { top:med('FFFF6B35'), bottom:thin(), left:thin(), right:med('FFFFFFFF') }
+        })
+        sumRow.height = 26
+        ws.views = [{ state:'frozen', xSplit:2, ySplit:3 }]
+      }
+
+      const buf = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `전지점_스케줄_${exportStartYear}년${exportStartMonth}월~${exportEndYear}년${exportEndMonth}월.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      alert('내보내기 실패: ' + (e?.message || '다시 시도해주세요'))
+    } finally {
+      setExporting(false)
+      setShowExportModal(false)
+    }
   }
 
   const today = toDateStr(new Date())
@@ -1118,6 +1250,47 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
 
   return (
     <div>
+      {/* 엑셀 내보내기 모달 */}
+      {showExportModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={() => setShowExportModal(false)}>
+          <div style={{ background:'#fff', borderRadius:20, padding:24, width:'100%', maxWidth:360, boxShadow:'0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize:16, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>📥 엑셀 내보내기</div>
+            <div style={{ fontSize:11, color:'#aaa', marginBottom:20 }}>월별 시트, 전 지점 한눈에 표시</div>
+            <div style={{ display:'flex', gap:12, marginBottom:16 }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:11, color:'#888', fontWeight:600, marginBottom:6 }}>시작 월</div>
+                <div style={{ display:'flex', gap:6 }}>
+                  <input type="number" value={exportStartYear} onChange={e => setExportStartYear(Number(e.target.value))} min={2020} max={2030}
+                    style={{ width:70, padding:'8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none', textAlign:'center' as const }} />
+                  <select value={exportStartMonth} onChange={e => setExportStartMonth(Number(e.target.value))}
+                    style={{ flex:1, padding:'8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none' }}>
+                    {Array.from({length:12},(_,i)=>i+1).map(m => <option key={m} value={m}>{m}월</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:10, color:'#bbb', fontSize:18 }}>~</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:11, color:'#888', fontWeight:600, marginBottom:6 }}>종료 월</div>
+                <div style={{ display:'flex', gap:6 }}>
+                  <input type="number" value={exportEndYear} onChange={e => setExportEndYear(Number(e.target.value))} min={2020} max={2030}
+                    style={{ width:70, padding:'8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none', textAlign:'center' as const }} />
+                  <select value={exportEndMonth} onChange={e => setExportEndMonth(Number(e.target.value))}
+                    style={{ flex:1, padding:'8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:13, outline:'none' }}>
+                    {Array.from({length:12},(_,i)=>i+1).map(m => <option key={m} value={m}>{m}월</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div style={{ padding:'10px 14px', background:'rgba(0,184,148,0.06)', borderRadius:10, border:'1px solid rgba(0,184,148,0.2)', marginBottom:20, fontSize:11, color:'#00B894' }}>
+              📋 시트: 월별 분리 &nbsp;|&nbsp; 📊 전 지점 한 시트에 &nbsp;|&nbsp; 🎨 색상 구분
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={() => setShowExportModal(false)} style={{ flex:1, padding:'11px 0', borderRadius:10, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:13, cursor:'pointer' }}>취소</button>
+              <button onClick={exportManageExcel} style={{ flex:2, padding:'11px 0', borderRadius:10, background:'linear-gradient(135deg,#00B894,#6C5CE7)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>📥 내보내기</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* 상단 요약 카드 */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:16 }}>
         <div style={{ background:'#fff', borderRadius:14, border:'1px solid #E8ECF0', padding:'12px 8px', textAlign:'center' }}>
@@ -1160,7 +1333,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
         </button>
         <button style={secBtn(section==='logs')} onClick={() => { setSection('logs'); loadLogs() }}>🕐 이력</button>
         </div>
-        <button onClick={exportManageExcel} style={{ padding:'7px 14px', borderRadius:10, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0, whiteSpace:'nowrap' as const }}>📥 엑셀</button>
+        <button onClick={() => setShowExportModal(true)} disabled={exporting} style={{ padding:'7px 14px', borderRadius:10, background: exporting ? '#F4F6F9' : 'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color: exporting ? '#aaa' : '#00B894', fontSize:12, fontWeight:700, cursor: exporting ? 'not-allowed' : 'pointer', flexShrink:0, whiteSpace:'nowrap' as const }}>{exporting ? '⏳ 내보내는 중...' : '📥 엑셀'}</button>
       </div>
 
       {/* ── 섹션 1: 오늘 / 내일 출근자 ── */}
