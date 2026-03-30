@@ -209,7 +209,7 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
       wb.creator = '매장노트'
       wb.created = new Date()
 
-      // 1) 기간 내 전체 마감일지 조회
+      // ── 1) 데이터 조회 ──
       const { data: closingsAll } = await supabase
         .from('closings').select('*')
         .in('store_id', stores.map((s: any) => s.id))
@@ -225,320 +225,541 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
 
       const closingIds = closingsAll.map((c: any) => c.id)
 
-      // 2) 관련 데이터 일괄 조회
-      const [salesRes, todosRes, reviewsRes, checksRes, platformsRes, checkItemsRes] = await Promise.all([
+      const [salesRes, todosRes, reviewsRes, checksRes, platformsRes, checkItemsRes, reviewPlatformsRes] = await Promise.all([
         supabase.from('closing_sales').select('*').in('closing_id', closingIds),
-        supabase.from('closing_next_todos').select('*').in('closing_id', closingIds),
+        supabase.from('closing_next_todos').select('*').in('closing_id', closingIds).order('created_at'),
         supabase.from('closing_reviews').select('*').in('closing_id', closingIds),
         supabase.from('closing_checks').select('*').in('closing_id', closingIds),
         supabase.from('closing_platforms').select('*').in('store_id', stores.map((s: any) => s.id)).order('sort_order'),
         supabase.from('closing_checklist_items').select('*').in('store_id', stores.map((s: any) => s.id)).order('sort_order'),
+        supabase.from('closing_review_platforms').select('*').in('store_id', stores.map((s: any) => s.id)).order('sort_order'),
       ])
 
-      // 3) Map 구성
-      const salesMap: Record<string, any[]> = {}
-      ;(salesRes.data || []).forEach((s: any) => {
-        if (!salesMap[s.closing_id]) salesMap[s.closing_id] = []
-        salesMap[s.closing_id].push(s)
-      })
-      const todosMap: Record<string, any[]> = {}
-      ;(todosRes.data || []).forEach((t: any) => {
-        if (!todosMap[t.closing_id]) todosMap[t.closing_id] = []
-        todosMap[t.closing_id].push(t)
-      })
-      const reviewsMap: Record<string, any[]> = {}
-      ;(reviewsRes.data || []).forEach((r: any) => {
-        if (!reviewsMap[r.closing_id]) reviewsMap[r.closing_id] = []
-        reviewsMap[r.closing_id].push(r)
-      })
-      const checksMap: Record<string, any[]> = {}
-      ;(checksRes.data || []).forEach((c: any) => {
-        if (!checksMap[c.closing_id]) checksMap[c.closing_id] = []
-        checksMap[c.closing_id].push(c)
-      })
-      const platformsByStore: Record<string, any[]> = {}
-      ;(platformsRes.data || []).forEach((p: any) => {
-        if (!platformsByStore[p.store_id]) platformsByStore[p.store_id] = []
-        platformsByStore[p.store_id].push(p)
-      })
-      const checkItemsByStore: Record<string, any[]> = {}
-      ;(checkItemsRes.data || []).forEach((c: any) => {
-        if (!checkItemsByStore[c.store_id]) checkItemsByStore[c.store_id] = []
-        checkItemsByStore[c.store_id].push(c)
-      })
+      // ── 2) Map 구성 ──
+      const exSalesMap: Record<string, any[]> = {}
+      ;(salesRes.data || []).forEach((s: any) => { if (!exSalesMap[s.closing_id]) exSalesMap[s.closing_id] = []; exSalesMap[s.closing_id].push(s) })
+      const exTodosMap: Record<string, any[]> = {}
+      ;(todosRes.data || []).forEach((t: any) => { if (!exTodosMap[t.closing_id]) exTodosMap[t.closing_id] = []; exTodosMap[t.closing_id].push(t) })
+      const exReviewsMap: Record<string, any[]> = {}
+      ;(reviewsRes.data || []).forEach((r: any) => { if (!exReviewsMap[r.closing_id]) exReviewsMap[r.closing_id] = []; exReviewsMap[r.closing_id].push(r) })
+      const exChecksMap: Record<string, any[]> = {}
+      ;(checksRes.data || []).forEach((c: any) => { if (!exChecksMap[c.closing_id]) exChecksMap[c.closing_id] = []; exChecksMap[c.closing_id].push(c) })
+      const exPlatsByStore: Record<string, any[]> = {}
+      ;(platformsRes.data || []).forEach((p: any) => { if (!exPlatsByStore[p.store_id]) exPlatsByStore[p.store_id] = []; exPlatsByStore[p.store_id].push(p) })
+      const exCheckItemsByStore: Record<string, any[]> = {}
+      ;(checkItemsRes.data || []).forEach((c: any) => { if (!exCheckItemsByStore[c.store_id]) exCheckItemsByStore[c.store_id] = []; exCheckItemsByStore[c.store_id].push(c) })
+      const exRvPlatsByStore: Record<string, any[]> = {}
+      ;(reviewPlatformsRes.data || []).forEach((p: any) => { if (!exRvPlatsByStore[p.store_id]) exRvPlatsByStore[p.store_id] = []; exRvPlatsByStore[p.store_id].push(p) })
       const closingsByStore: Record<string, any[]> = {}
-      closingsAll.forEach((c: any) => {
-        if (!closingsByStore[c.store_id]) closingsByStore[c.store_id] = []
-        closingsByStore[c.store_id].push(c)
+      closingsAll.forEach((c: any) => { if (!closingsByStore[c.store_id]) closingsByStore[c.store_id] = []; closingsByStore[c.store_id].push(c) })
+
+      // ── 3) 헬퍼 ──
+      const DOW_KR = ['일', '월', '화', '수', '목', '금', '토']
+      function wxLabel(code: number | null): string {
+        if (code === null || code === undefined) return ''
+        if (code === 0) return '☀ 맑음'
+        if (code <= 2) return '🌤 대체로맑음'
+        if (code <= 3) return '☁ 흐림'
+        if (code <= 49) return '🌫 안개'
+        if (code <= 59) return '🌧 이슬비'
+        if (code <= 69) return '🌧 비'
+        if (code <= 79) return '❄ 눈'
+        if (code <= 82) return '🌧 소나기'
+        if (code <= 86) return '🌨 눈'
+        if (code <= 99) return '⛈ 뇌우'
+        return ''
+      }
+
+      // border 헬퍼
+      const thin = (argb = 'FFD8D8D8') => ({ style: 'thin' as const, color: { argb } })
+      const medium = (argb = 'FF999999') => ({ style: 'medium' as const, color: { argb } })
+      const cellBorder = (leftMedium = false, rightMedium = false) => ({
+        top: thin(), bottom: thin(),
+        left: leftMedium ? medium() : thin(),
+        right: rightMedium ? medium() : thin(),
       })
 
-      const DOW_KR = ['일', '월', '화', '수', '목', '금', '토']
-
-      // 날짜 범위 배열 생성
+      // 날짜 범위 배열
       const allDates: string[] = []
-      const startD = new Date(exportStart)
-      const endD = new Date(exportEnd)
-      for (const d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+      for (const d = new Date(exportStart); d <= new Date(exportEnd); d.setDate(d.getDate() + 1)) {
         allDates.push(toDateStr(new Date(d)))
       }
 
-      // ─── 시트 1: 전체 요약 ───
+      // ════════════════════════════
+      // 시트 1: 전체 요약
+      // (지점별 합산만 표시, 전체 합산 없음)
+      // ════════════════════════════
       const wsSummary = wb.addWorksheet('전체 요약')
+      const SC = 4 // 지점당 컬럼 수: 총매출, 건수, 취소건수, 시재
+      const storeColors = ['FF1D3557', 'FF457B9D', 'FF2D6A4F', 'FF6B4226', 'FF4A4E69']
 
-      const summaryHeaders = ['날짜', '요일']
-      stores.forEach((s: any) => { summaryHeaders.push(`${s.name} 매출`, `${s.name} 건수`) })
-      summaryHeaders.push('전체 합계')
-
-      const shRow = wsSummary.addRow(summaryHeaders)
-      shRow.eachCell((cell) => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2C3E50' } }
-        cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 }
+      // 행1: 지점명 (merge)
+      const titleRowData: any[] = ['', '']
+      stores.forEach((s: any) => { titleRowData.push(s.name); for (let i = 1; i < SC; i++) titleRowData.push('') })
+      const titleRow = wsSummary.addRow(titleRowData)
+      titleRow.height = 22
+      // 날짜/요일 헤더
+      for (let ci = 1; ci <= 2; ci++) {
+        const cell = titleRow.getCell(ci)
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A1A2E' } }
+        cell.border = cellBorder()
+      }
+      // 지점 병합
+      stores.forEach((s: any, si: number) => {
+        const startCol = 3 + si * SC
+        const endCol = 2 + (si + 1) * SC
+        wsSummary.mergeCells(1, startCol, 1, endCol)
+        const cell = titleRow.getCell(startCol)
+        cell.value = `🏪 ${s.name}`
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: storeColors[si % storeColors.length] } }
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 }
         cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        cell.border = { top: thin(), bottom: thin(), left: medium('FFFFFFFF'), right: medium('FFFFFFFF') }
       })
-      wsSummary.getRow(1).height = 24
-      wsSummary.getColumn(1).width = 14
-      wsSummary.getColumn(2).width = 6
-      stores.forEach((_: any, i: number) => {
-        wsSummary.getColumn(3 + i * 2).width = 16
-        wsSummary.getColumn(4 + i * 2).width = 8
+
+      // 행2: 필드명
+      const fieldRow2Data: string[] = ['날짜', '요일']
+      stores.forEach(() => { fieldRow2Data.push('총매출', '건수', '취소건수', '시재') })
+      const fieldRow2 = wsSummary.addRow(fieldRow2Data)
+      fieldRow2.height = 18
+      fieldRow2.eachCell((cell, ci) => {
+        const si = ci <= 2 ? -1 : Math.floor((ci - 3) / SC)
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ci <= 2 ? 'FF2C3E50' : storeColors[(si) % storeColors.length] } }
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        const isSecLeft = ci > 2 && (ci - 3) % SC === 0
+        const isSecRight = ci > 2 && (ci - 3) % SC === SC - 1
+        cell.border = cellBorder(isSecLeft, isSecRight)
       })
-      wsSummary.getColumn(3 + stores.length * 2).width = 14
 
-      const storeTotals: Record<string, number> = {}
-      stores.forEach((s: any) => { storeTotals[s.id] = 0 })
-      let grandTotal = 0
+      // 컬럼 너비
+      wsSummary.getColumn(1).width = 13; wsSummary.getColumn(2).width = 5
+      stores.forEach((_: any, si: number) => {
+        wsSummary.getColumn(3 + si * SC + 0).width = 18  // 총매출
+        wsSummary.getColumn(3 + si * SC + 1).width = 9   // 건수
+        wsSummary.getColumn(3 + si * SC + 2).width = 9   // 취소
+        wsSummary.getColumn(3 + si * SC + 3).width = 15  // 시재
+      })
 
+      // 지점별 누계
+      const storeSummaryTotals: Record<string, { sales: number; count: number; cancel: number }> = {}
+      stores.forEach((s: any) => { storeSummaryTotals[s.id] = { sales: 0, count: 0, cancel: 0 } })
+
+      // 데이터 행
       allDates.forEach((dateStr) => {
         const dow = new Date(dateStr).getDay()
         const isSun = dow === 0; const isSat = dow === 6
-        const rowData: any[] = [dateStr.replace(/-/g, '.'), DOW_KR[dow]]
-        let rowTotal = 0
-
+        const rowVals: any[] = [dateStr.replace(/-/g, '.'), DOW_KR[dow]]
         stores.forEach((store: any) => {
-          const closing = (closingsByStore[store.id] || []).find((c: any) => c.closing_date === dateStr)
-          if (closing) {
-            const totalS = (salesMap[closing.id] || []).reduce((s: number, r: any) => s + (r.amount || 0), 0)
-            const totalC = (salesMap[closing.id] || []).reduce((s: number, r: any) => s + (r.count || 0), 0)
-            rowData.push(totalS, totalC)
-            rowTotal += totalS
-            storeTotals[store.id] = (storeTotals[store.id] || 0) + totalS
+          const cl = (closingsByStore[store.id] || []).find((c: any) => c.closing_date === dateStr)
+          if (cl) {
+            const sv = exSalesMap[cl.id] || []
+            const totalS = sv.reduce((a: number, r: any) => a + (r.amount || 0), 0)
+            const totalC = sv.reduce((a: number, r: any) => a + (r.count || 0), 0)
+            const totalCan = sv.reduce((a: number, r: any) => a + (r.cancel_count || 0), 0)
+            rowVals.push(totalS || null, totalC || null, totalCan || null, cl.cash_amount || null)
+            storeSummaryTotals[store.id].sales += totalS
+            storeSummaryTotals[store.id].count += totalC
+            storeSummaryTotals[store.id].cancel += totalCan
           } else {
-            rowData.push(0, 0)
+            rowVals.push(null, null, null, null)
           }
         })
-        rowData.push(rowTotal)
-        grandTotal += rowTotal
-
-        const row = wsSummary.addRow(rowData)
-        row.height = 18
-
-        const dateBg = isSun ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFF8F9FB'
-        const dateColor = isSun ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF555555'
+        const row = wsSummary.addRow(rowVals)
+        row.height = 20
+        const dateBg = isSun ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFFAFAFA'
+        const dateClr = isSun ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF333333'
         for (let ci = 1; ci <= 2; ci++) {
-          row.getCell(ci).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: dateBg } }
-          row.getCell(ci).font = { bold: ci === 2, color: { argb: dateColor }, size: 10 }
-          row.getCell(ci).alignment = { horizontal: ci === 1 ? 'left' : 'center', vertical: 'middle' }
+          const cell = row.getCell(ci)
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: dateBg } }
+          cell.font = { bold: ci === 2, color: { argb: dateClr }, size: 10 }
+          cell.alignment = { horizontal: 'center', vertical: 'middle' }
+          cell.border = cellBorder()
         }
-        stores.forEach((_: any, i: number) => {
-          const sc = row.getCell(3 + i * 2)
-          const cc = row.getCell(4 + i * 2)
-          sc.numFmt = '#,##0'
-          sc.font = { color: { argb: rowData[3 + i * 2] > 0 ? 'FFFF6B35' : 'FFcccccc' }, size: 10 }
+        stores.forEach((_: any, si: number) => {
+          const base = 3 + si * SC
+          const storeBgAlt = ['FFF8F9FB', 'FFFFF9F5', 'FFF5FCF8', 'FFF5F5FF', 'FFFDF5FF']
+          const storeBg = storeBgAlt[si % storeBgAlt.length]
+          const vals = [rowVals[base - 1], rowVals[base], rowVals[base + 1], rowVals[base + 2]]
+
+          // 총매출
+          const sc = row.getCell(base)
+          sc.value = vals[0]
+          sc.numFmt = '#,##0"원"'
+          sc.font = { bold: !!vals[0], color: { argb: vals[0] ? 'FFFF6B35' : 'FFCCCCCC' }, size: 10 }
           sc.alignment = { horizontal: 'right', vertical: 'middle' }
-          cc.font = { color: { argb: rowData[4 + i * 2] > 0 ? 'FF6C5CE7' : 'FFcccccc' }, size: 10 }
+          sc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: vals[0] ? 'FFFFF3EE' : storeBg } }
+          sc.border = cellBorder(true, false)
+
+          // 건수
+          const cc = row.getCell(base + 1)
+          cc.value = vals[1]
+          cc.numFmt = '0"건"'
+          cc.font = { color: { argb: vals[1] ? 'FF6C5CE7' : 'FFCCCCCC' }, size: 10 }
           cc.alignment = { horizontal: 'center', vertical: 'middle' }
+          cc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: storeBg } }
+          cc.border = cellBorder()
+
+          // 취소건수
+          const xc = row.getCell(base + 2)
+          xc.value = vals[2]
+          xc.numFmt = '0"건"'
+          xc.font = { bold: !!vals[2], color: { argb: vals[2] ? 'FFE84393' : 'FFCCCCCC' }, size: 10 }
+          xc.alignment = { horizontal: 'center', vertical: 'middle' }
+          xc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: storeBg } }
+          xc.border = cellBorder()
+
+          // 시재
+          const cashC = row.getCell(base + 3)
+          cashC.value = vals[3]
+          cashC.numFmt = '#,##0"원"'
+          cashC.font = { color: { argb: vals[3] ? 'FF555555' : 'FFCCCCCC' }, size: 10 }
+          cashC.alignment = { horizontal: 'right', vertical: 'middle' }
+          cashC.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: storeBg } }
+          cashC.border = cellBorder(false, true)
         })
-        const totalCell = row.getCell(3 + stores.length * 2)
-        totalCell.numFmt = '#,##0'
-        totalCell.font = { bold: rowTotal > 0, color: { argb: rowTotal > 0 ? 'FFFF6B35' : 'FFcccccc' }, size: 10 }
-        totalCell.alignment = { horizontal: 'right', vertical: 'middle' }
       })
 
-      // 합계 행
-      const footerData = ['합계', '']
-      stores.forEach((store: any) => { footerData.push(String(storeTotals[store.id] || 0), '') })
-      footerData.push(String(grandTotal))
-      const fRow = wsSummary.addRow(footerData)
-      fRow.height = 22
-      fRow.eachCell((cell, i) => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3E6' } }
-        cell.font = { bold: true, color: { argb: i >= 3 ? 'FFFF6B35' : 'FF1a1a2e' }, size: 11 }
-        cell.alignment = { horizontal: i === 1 ? 'left' : i % 2 === 1 ? 'right' : 'center', vertical: 'middle' }
-        if (i >= 3) cell.numFmt = '#,##0'
-        cell.border = { top: { style: 'medium', color: { argb: 'FFFF6B35' } } }
+      // 지점별 합계 행 (전체 합산 없음)
+      const sumFooter: any[] = [`기간 합계 (${allDates.length}일)`, '']
+      stores.forEach((store: any) => {
+        const t = storeSummaryTotals[store.id]
+        sumFooter.push(t.sales, t.count, t.cancel, null)
       })
+      const sfRow = wsSummary.addRow(sumFooter)
+      sfRow.height = 26
+      wsSummary.mergeCells(sfRow.number, 1, sfRow.number, 2)
+      sfRow.eachCell((cell, ci) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE8CC' } }
+        cell.border = { top: { style: 'medium', color: { argb: 'FFFF6B35' } }, bottom: thin(), left: thin(), right: thin() }
+        if (ci === 1) {
+          cell.value = `기간 합계 (${allDates.length}일)`
+          cell.font = { bold: true, size: 11, color: { argb: 'FF1A1A2E' } }
+          cell.alignment = { horizontal: 'left', vertical: 'middle' }
+        } else if (ci > 2) {
+          const fieldInStore = (ci - 3) % SC
+          if (fieldInStore === 0) {
+            cell.numFmt = '#,##0"원"'; cell.font = { bold: true, color: { argb: 'FFFF6B35' }, size: 13 }
+            cell.alignment = { horizontal: 'right', vertical: 'middle' }
+          } else if (fieldInStore === 1) {
+            cell.numFmt = '0"건"'; cell.font = { bold: true, color: { argb: 'FF6C5CE7' }, size: 12 }
+            cell.alignment = { horizontal: 'center', vertical: 'middle' }
+          } else if (fieldInStore === 2) {
+            cell.numFmt = '0"건"'; cell.font = { bold: true, color: { argb: 'FFE84393' }, size: 11 }
+            cell.alignment = { horizontal: 'center', vertical: 'middle' }
+          }
+        }
+      })
+      wsSummary.views = [{ state: 'frozen', xSplit: 2, ySplit: 2 }]
 
-      // ─── 시트 2~: 지점별 상세 ───
+      // ════════════════════════════
+      // 시트 2~: 지점별 상세
+      // ════════════════════════════
       for (const store of stores) {
         const closings = (closingsByStore[store.id] || []).sort((a: any, b: any) => a.closing_date.localeCompare(b.closing_date))
         if (closings.length === 0) continue
 
-        const platforms = platformsByStore[store.id] || []
-        const checkItems = checkItemsByStore[store.id] || []
+        const plats = exPlatsByStore[store.id] || []
+        const checkItems = exCheckItemsByStore[store.id] || []
+        const rvPlats = exRvPlatsByStore[store.id] || []
 
         const ws = wb.addWorksheet(store.name.slice(0, 31))
 
-        // 헤더 구성
-        const headers = ['날짜', '요일', '작성자', '마감담당자', '근무인원', '오픈', '마감', '총매출', '건수', '취소', '객단가', '시재']
-        platforms.forEach((p: any) => { headers.push(`${p.name} 매출`, `${p.name} 건수`) })
-        headers.push('체크완료', '전달사항수', '클레임/특이사항', '특이사항메모')
+        // ── 섹션 구조 정의 ──
+        // 기본정보(8) | 매출요약(6) | 플랫폼(n*3) | 리뷰(m*2) | 운영(2) | 메모(2)
+        const SEC_BASE_S = 1;  const SEC_BASE_E = 8
+        const SEC_SUM_S  = 9;  const SEC_SUM_E  = 14
+        const SEC_PLAT_S = 15; const SEC_PLAT_E = 14 + plats.length * 3
+        const SEC_RV_S   = SEC_PLAT_E + 1; const SEC_RV_E = SEC_PLAT_E + rvPlats.length * 2
+        const SEC_OPS_S  = SEC_RV_E + 1;   const SEC_OPS_E = SEC_RV_E + 2
+        const SEC_NOTE_S = SEC_OPS_E + 1;  const SEC_NOTE_E = SEC_OPS_E + 2
 
-        const hRow2 = ws.addRow(headers)
-        hRow2.eachCell((cell) => {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2C3E50' } }
+        const secs = [
+          { label: '📋 기본 정보', s: SEC_BASE_S, e: SEC_BASE_E, argb: 'FF1D3557' },
+          { label: '💰 매출 요약', s: SEC_SUM_S,  e: SEC_SUM_E,  argb: 'FF7B2D00' },
+          ...(plats.length > 0 ? [{ label: '🏪 플랫폼별 매출', s: SEC_PLAT_S, e: SEC_PLAT_E, argb: 'FF4A148C' }] : []),
+          ...(rvPlats.length > 0 ? [{ label: '⭐ 리뷰 / 답글', s: SEC_RV_S, e: SEC_RV_E, argb: 'FF006064' }] : []),
+          { label: '✅ 체크 / 전달사항', s: SEC_OPS_S,  e: SEC_OPS_E,  argb: 'FF1B5E20' },
+          { label: '📝 메모 / 특이사항', s: SEC_NOTE_S, e: SEC_NOTE_E, argb: 'FF3E2723' },
+        ]
+        const TOTAL_COLS = SEC_NOTE_E
+
+        // 행1: 섹션 타이틀
+        const sec1Row = ws.addRow(new Array(TOTAL_COLS).fill(''))
+        sec1Row.height = 18
+        secs.forEach((sec) => {
+          ws.mergeCells(1, sec.s, 1, sec.e)
+          const cell = sec1Row.getCell(sec.s)
+          cell.value = sec.label
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: sec.argb } }
           cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
           cell.alignment = { horizontal: 'center', vertical: 'middle' }
+          cell.border = { top: thin(), bottom: thin(), left: medium('FFFFFFFF'), right: medium('FFFFFFFF') }
         })
-        ws.getRow(1).height = 22
+
+        // 행2: 필드명
+        const fieldNames: string[] = [
+          '날짜', '요일', '날씨', '기온(최고/최저)', '작성자', '마감담당자', '근무인원', '오픈 ~ 마감',
+          '총 매출', '총 건수', '취소건수', '객 단가', '할인금액', '시 재',
+        ]
+        plats.forEach((p: any) => { fieldNames.push(`${p.name}\n매출`, `${p.name}\n건수`, `${p.name}\n취소`) })
+        rvPlats.forEach((p: any) => { fieldNames.push(`${p.name}\n리뷰수`, `${p.name}\n답글수`) })
+        fieldNames.push('체크리스트', '전달사항 내용')
+        fieldNames.push('클레임/특이사항', '특이사항 메모')
+
+        const fn2Row = ws.addRow(fieldNames)
+        fn2Row.height = 28
+        fn2Row.eachCell((cell, ci) => {
+          const sec = secs.find(s => ci >= s.s && ci <= s.e)
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: sec ? sec.argb : 'FF333333' } }
+          cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }
+          cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+          const isSecStart = secs.some(s => s.s === ci)
+          cell.border = cellBorder(isSecStart, false)
+        })
 
         // 컬럼 너비
-        const colWidths = [12, 5, 10, 10, 8, 8, 8, 14, 7, 7, 10, 12]
-        platforms.forEach(() => { colWidths.push(14, 7) })
-        colWidths.push(10, 8, 30, 30)
-        colWidths.forEach((w, i) => { ws.getColumn(i + 1).width = w })
+        const colW: Record<number, number> = {
+          1:13, 2:5, 3:12, 4:14, 5:10, 6:10, 7:8, 8:14,
+          9:17, 10:8, 11:8, 12:14, 13:13, 14:14,
+        }
+        plats.forEach((_: any, i: number) => {
+          colW[SEC_PLAT_S + i * 3 + 0] = 16
+          colW[SEC_PLAT_S + i * 3 + 1] = 7
+          colW[SEC_PLAT_S + i * 3 + 2] = 7
+        })
+        rvPlats.forEach((_: any, i: number) => {
+          colW[SEC_RV_S + i * 2 + 0] = 9
+          colW[SEC_RV_S + i * 2 + 1] = 9
+        })
+        colW[SEC_OPS_S] = 12; colW[SEC_OPS_E] = 36
+        colW[SEC_NOTE_S] = 36; colW[SEC_NOTE_E] = 36
+        Object.entries(colW).forEach(([col, w]) => { ws.getColumn(Number(col)).width = w })
+
+        // ── 데이터 행 ──
+        let storeTotal = 0; let storeCount = 0; let storeCancel = 0
 
         closings.forEach((closing: any) => {
           const dow = new Date(closing.closing_date).getDay()
           const isSun = dow === 0; const isSat = dow === 6
-          const sales = salesMap[closing.id] || []
-          const totalSales = sales.reduce((s: number, r: any) => s + (r.amount || 0), 0)
-          const totalCount = sales.reduce((s: number, r: any) => s + (r.count || 0), 0)
-          const totalCancel = sales.reduce((s: number, r: any) => s + (r.cancel_count || 0), 0)
-          const avgPerOrder = totalCount > 0 ? Math.round(totalSales / totalCount) : 0
-          const todos = todosMap[closing.id] || []
-          const checks = checksMap[closing.id] || []
-          const checkPct = checkItems.length > 0 ? `${checks.length}/${checkItems.length}` : '—'
+          const sv = exSalesMap[closing.id] || []
+          const totalSales   = sv.reduce((a: number, r: any) => a + (r.amount || 0), 0)
+          const totalCount   = sv.reduce((a: number, r: any) => a + (r.count || 0), 0)
+          const totalCancel  = sv.reduce((a: number, r: any) => a + (r.cancel_count || 0), 0)
+          const avgPerOrder  = totalCount > 0 ? Math.round(totalSales / totalCount) : null
+          const todos        = exTodosMap[closing.id] || []
+          const checks       = exChecksMap[closing.id] || []
+          const rvData       = exReviewsMap[closing.id] || []
+          const checkStr     = checkItems.length > 0 ? `${checks.length} / ${checkItems.length}` : '—'
+          const todoText     = todos.map((t: any, idx: number) => `${idx + 1}. ${t.content}`).join('\n')
+          const tempStr      = closing.temp_max != null ? `${Math.round(closing.temp_max)}° / ${Math.round(closing.temp_min)}°` : ''
+          const timeStr      = closing.open_time && closing.close_time ? `${closing.open_time} ~ ${closing.close_time}` : closing.open_time || closing.close_time || ''
 
-          const rowData: (string | number)[] = [
+          storeTotal += totalSales; storeCount += totalCount; storeCancel += totalCancel
+
+          const rowVals: any[] = [
             closing.closing_date.replace(/-/g, '.'),
-            `${new Date(closing.closing_date).getMonth() + 1}/${new Date(closing.closing_date).getDate()}`,
+            DOW_KR[dow],
+            wxLabel(closing.weather_code),
+            tempStr,
             closing.writer || '',
             closing.close_staff || '',
-            closing.staff_count || '',
-            closing.open_time || '',
-            closing.close_time || '',
-            totalSales,
-            totalCount,
-            totalCancel,
-            avgPerOrder || '',
-            closing.cash_amount || '',
+            closing.staff_count || null,
+            timeStr,
+            totalSales || null,
+            totalCount || null,
+            totalCancel || null,
+            avgPerOrder,
+            closing.discount_amount || null,
+            closing.cash_amount || null,
           ]
-
-          platforms.forEach((p: any) => {
-            const pSales = sales.find((s: any) => s.platform === p.name)
-            rowData.push(pSales?.amount || 0, pSales?.count || 0)
+          plats.forEach((p: any) => {
+            const pd = sv.find((r: any) => r.platform === p.name)
+            rowVals.push(pd?.amount || null, pd?.count || null, pd?.cancel_count || null)
           })
-
-          rowData.push(checkPct, todos.length || 0, closing.note || '', closing.memo || '')
-
-          const row = ws.addRow(rowData)
-          row.height = 18
-
-          const dateBg = isSun ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFF8F9FB'
-          const dateColor = isSun ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF555555'
-          for (let ci = 1; ci <= 2; ci++) {
-            row.getCell(ci).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: dateBg } }
-            row.getCell(ci).font = { bold: ci === 2, color: { argb: dateColor }, size: 10 }
-            row.getCell(ci).alignment = { horizontal: 'center', vertical: 'middle' }
-          }
-
-          // 총매출
-          const salesCell = row.getCell(8)
-          salesCell.numFmt = '#,##0'
-          salesCell.font = { bold: true, color: { argb: totalSales > 0 ? 'FFFF6B35' : 'FFcccccc' }, size: 11 }
-          salesCell.alignment = { horizontal: 'right', vertical: 'middle' }
-          salesCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: totalSales > 0 ? 'FFFFF3EE' : 'FFFFFFFF' } }
-
-          // 건수
-          row.getCell(9).font = { bold: true, color: { argb: 'FF6C5CE7' }, size: 10 }
-          row.getCell(9).alignment = { horizontal: 'center', vertical: 'middle' }
-
-          // 취소
-          if (totalCancel > 0) {
-            row.getCell(10).font = { bold: true, color: { argb: 'FFE84393' }, size: 10 }
-          }
-          row.getCell(10).alignment = { horizontal: 'center', vertical: 'middle' }
-
-          // 객단가
-          row.getCell(11).numFmt = '#,##0'
-          row.getCell(11).alignment = { horizontal: 'right', vertical: 'middle' }
-          row.getCell(11).font = { color: { argb: 'FF6C5CE7' }, size: 10 }
-
-          // 시재
-          row.getCell(12).numFmt = '#,##0'
-          row.getCell(12).alignment = { horizontal: 'right', vertical: 'middle' }
-
-          // 플랫폼별 매출
-          platforms.forEach((_: any, i: number) => {
-            const sc = row.getCell(13 + i * 2)
-            sc.numFmt = '#,##0'
-            sc.font = { color: { argb: rowData[13 + i * 2] as number > 0 ? 'FFFF6B35' : 'FFcccccc' }, size: 10 }
-            sc.alignment = { horizontal: 'right', vertical: 'middle' }
-            const cc = row.getCell(14 + i * 2)
-            cc.font = { color: { argb: rowData[14 + i * 2] as number > 0 ? 'FF6C5CE7' : 'FFcccccc' }, size: 10 }
-            cc.alignment = { horizontal: 'center', vertical: 'middle' }
+          rvPlats.forEach((p: any) => {
+            const rd = rvData.find((r: any) => r.platform === p.name)
+            rowVals.push(rd?.review_count || null, rd?.reply_count || null)
           })
+          rowVals.push(checkStr, todoText, closing.note || '', closing.memo || '')
 
-          // 체크완료
-          const checkColIdx = 13 + platforms.length * 2
-          row.getCell(checkColIdx).font = {
-            bold: true, size: 10,
-            color: { argb: checks.length === checkItems.length && checkItems.length > 0 ? 'FF00B894' : 'FFFF6B35' }
-          }
-          row.getCell(checkColIdx).alignment = { horizontal: 'center', vertical: 'middle' }
+          const row = ws.addRow(rowVals)
+          row.height = todos.length > 1 ? Math.min(18 + todos.length * 15, 120) : 20
 
-          // 전달사항수
-          const todoColIdx = checkColIdx + 1
-          if (todos.length > 0) {
-            row.getCell(todoColIdx).font = { bold: true, color: { argb: 'FFFF6B35' }, size: 10 }
-            row.getCell(todoColIdx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF8F5' } }
-          }
-          row.getCell(todoColIdx).alignment = { horizontal: 'center', vertical: 'middle' }
+          const dateBg  = isSun ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFFFFFFF'
+          const dateClr = isSun ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF333333'
 
-          // 클레임/메모 텍스트 줄바꿈
-          const noteColIdx = todoColIdx + 1
-          row.getCell(noteColIdx).alignment = { wrapText: true, vertical: 'top' }
-          row.getCell(noteColIdx + 1).alignment = { wrapText: true, vertical: 'top' }
+          rowVals.forEach((_: any, idx: number) => {
+            const ci = idx + 1
+            const cell = row.getCell(ci)
+            const isSecStart = secs.some(sec => sec.s === ci)
 
-          // 전달사항 내용이 있으면 행 강조
-          if (todos.length > 0) {
-            row.getCell(noteColIdx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE8E0' } }
-          }
+            // 기본 border
+            cell.border = cellBorder(isSecStart, false)
+            cell.font = { size: 10, color: { argb: 'FF333333' } }
+            cell.alignment = { horizontal: 'left', vertical: 'middle' }
+
+            if (ci === 1) { // 날짜
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: dateBg } }
+              cell.font = { size: 10, color: { argb: dateClr } }
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            } else if (ci === 2) { // 요일
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: dateBg } }
+              cell.font = { bold: true, size: 10, color: { argb: dateClr } }
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            } else if (ci === 3) { // 날씨
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF8F0' } }
+            } else if (ci === 4) { // 기온
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+              cell.font = { size: 9, color: { argb: 'FF2DC6D6' } }
+            } else if (ci === 7) { // 근무인원
+              cell.numFmt = '0"명"'
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            } else if (ci === 9) { // 총매출
+              cell.numFmt = '#,##0"원"'
+              cell.font = { bold: true, color: { argb: totalSales > 0 ? 'FFFF6B35' : 'FFCCCCCC' }, size: 11 }
+              cell.alignment = { horizontal: 'right', vertical: 'middle' }
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: totalSales > 0 ? 'FFFFF3EE' : 'FFFAFAFA' } }
+            } else if (ci === 10) { // 건수
+              cell.numFmt = '0"건"'
+              cell.font = { color: { argb: totalCount > 0 ? 'FF6C5CE7' : 'FFCCCCCC' }, size: 10 }
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            } else if (ci === 11) { // 취소
+              cell.numFmt = '0"건"'
+              cell.font = { bold: totalCancel > 0, color: { argb: totalCancel > 0 ? 'FFE84393' : 'FFCCCCCC' }, size: 10 }
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+              if (totalCancel > 0) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF0F5' } }
+            } else if (ci === 12) { // 객단가
+              cell.numFmt = '#,##0"원"'
+              cell.font = { color: { argb: avgPerOrder ? 'FF6C5CE7' : 'FFCCCCCC' }, size: 10 }
+              cell.alignment = { horizontal: 'right', vertical: 'middle' }
+            } else if (ci === 13) { // 할인금액
+              cell.numFmt = '#,##0"원"'
+              cell.alignment = { horizontal: 'right', vertical: 'middle' }
+              cell.font = { color: { argb: closing.discount_amount > 0 ? 'FF888888' : 'FFCCCCCC' }, size: 10 }
+            } else if (ci === 14) { // 시재
+              cell.numFmt = '#,##0"원"'
+              cell.alignment = { horizontal: 'right', vertical: 'middle' }
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: closing.cash_amount > 0 ? 'FFF0F8FF' : 'FFFAFAFA' } }
+              cell.font = { color: { argb: closing.cash_amount > 0 ? 'FF2980B9' : 'FFCCCCCC' }, size: 10 }
+            } else if (ci >= SEC_PLAT_S && ci <= SEC_PLAT_E) {
+              const offset = (ci - SEC_PLAT_S) % 3
+              const val = cell.value as number
+              if (offset === 0) {
+                cell.numFmt = '#,##0"원"'
+                cell.font = { color: { argb: val > 0 ? 'FFFF6B35' : 'FFCCCCCC' }, size: 10 }
+                cell.alignment = { horizontal: 'right', vertical: 'middle' }
+                if (val > 0) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF8F4' } }
+              } else if (offset === 1) {
+                cell.numFmt = '0"건"'
+                cell.font = { color: { argb: val > 0 ? 'FF6C5CE7' : 'FFCCCCCC' }, size: 10 }
+                cell.alignment = { horizontal: 'center', vertical: 'middle' }
+              } else {
+                cell.numFmt = '0"건"'
+                cell.font = { color: { argb: val > 0 ? 'FFE84393' : 'FFCCCCCC' }, size: 10 }
+                cell.alignment = { horizontal: 'center', vertical: 'middle' }
+              }
+            } else if (ci >= SEC_RV_S && ci <= SEC_RV_E) {
+              const val = cell.value as number
+              const offset = (ci - SEC_RV_S) % 2
+              cell.numFmt = offset === 0 ? '0"개"' : '0"개"'
+              cell.font = { color: { argb: val > 0 ? 'FF00B894' : 'FFCCCCCC' }, size: 10 }
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            } else if (ci === SEC_OPS_S) { // 체크리스트
+              const allDone = checks.length === checkItems.length && checkItems.length > 0
+              cell.font = { bold: true, color: { argb: allDone ? 'FF00B894' : 'FFFF6B35' }, size: 10 }
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: allDone ? 'FFE8FFF8' : 'FFFFF8E8' } }
+            } else if (ci === SEC_OPS_E) { // 전달사항
+              cell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' }
+              if (todoText) {
+                cell.font = { color: { argb: 'FFFF6B35' }, size: 10 }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF8F4' } }
+              } else {
+                cell.font = { color: { argb: 'FFCCCCCC' }, size: 10 }
+              }
+            } else if (ci === SEC_NOTE_S) { // 클레임/특이사항
+              cell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' }
+              if (closing.note) {
+                cell.font = { color: { argb: 'FFE84393' }, size: 10 }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF0F5' } }
+              } else {
+                cell.font = { color: { argb: 'FFCCCCCC' }, size: 10 }
+              }
+            } else if (ci === SEC_NOTE_E) { // 특이사항 메모
+              cell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' }
+              if (closing.memo) {
+                cell.font = { color: { argb: 'FF6C5CE7' }, size: 10 }
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F0FF' } }
+              } else {
+                cell.font = { color: { argb: 'FFCCCCCC' }, size: 10 }
+              }
+            }
+          })
         })
 
-        // 지점 합계 행
-        const storeClosings = closings
-        const storeTotal = storeClosings.reduce((sum: number, c: any) =>
-          sum + (salesMap[c.id] || []).reduce((s: number, r: any) => s + (r.amount || 0), 0), 0)
-        const storeCount = storeClosings.reduce((sum: number, c: any) =>
-          sum + (salesMap[c.id] || []).reduce((s: number, r: any) => s + (r.count || 0), 0), 0)
+        // ── 지점 합계 행 ──
+        const platTotals = plats.map((p: any) => ({
+          amount: closings.reduce((a: number, c: any) => {
+            const pd = (exSalesMap[c.id] || []).find((r: any) => r.platform === p.name)
+            return a + (pd?.amount || 0)
+          }, 0),
+          count: closings.reduce((a: number, c: any) => {
+            const pd = (exSalesMap[c.id] || []).find((r: any) => r.platform === p.name)
+            return a + (pd?.count || 0)
+          }, 0),
+        }))
 
-        const storeFooterData: (string | number)[] = ['합계', '', '', '', '', '', '']
-        storeFooterData.push(storeTotal, storeCount)
-        // 나머지 컬럼 빈값
-        for (let i = 0; i < headers.length - 9; i++) storeFooterData.push('')
+        const footVals: any[] = new Array(TOTAL_COLS).fill(null)
+        footVals[0] = `합계 (${closings.length}일)`
+        footVals[8] = storeTotal; footVals[9] = storeCount; footVals[10] = storeCancel
+        footVals[11] = storeCount > 0 ? Math.round(storeTotal / storeCount) : null
+        plats.forEach((p: any, i: number) => {
+          footVals[SEC_PLAT_S - 1 + i * 3] = platTotals[i].amount
+          footVals[SEC_PLAT_S + i * 3]     = platTotals[i].count
+        })
 
-        const sfRow = ws.addRow(storeFooterData)
-        sfRow.height = 22
-        sfRow.eachCell((cell, ci) => {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3E6' } }
-          cell.font = { bold: true, size: 11 }
+        const footRow = ws.addRow(footVals)
+        footRow.height = 26
+        ws.mergeCells(footRow.number, 1, footRow.number, 8)
+        footRow.eachCell((cell, ci) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE8CC' } }
+          cell.border = { top: { style: 'medium', color: { argb: 'FFFF6B35' } }, bottom: thin(), left: thin(), right: thin() }
+          const isSecStart = secs.some(sec => sec.s === ci)
+          if (isSecStart && ci > 1) cell.border = { ...cell.border, left: medium('FFFF6B35') }
+
           if (ci === 1) {
-            cell.font = { bold: true, color: { argb: 'FF1a1a2e' }, size: 11 }
-            cell.value = `합계 (${storeClosings.length}일)`
-          } else if (ci === 8) {
-            cell.numFmt = '#,##0'
-            cell.font = { bold: true, color: { argb: 'FFFF6B35' }, size: 12 }
-            cell.alignment = { horizontal: 'right', vertical: 'middle' }
+            cell.font = { bold: true, size: 12, color: { argb: 'FF1A1A2E' } }
+            cell.alignment = { horizontal: 'left', vertical: 'middle' }
           } else if (ci === 9) {
-            cell.font = { bold: true, color: { argb: 'FF6C5CE7' }, size: 11 }
+            cell.numFmt = '#,##0"원"'; cell.font = { bold: true, color: { argb: 'FFFF6B35' }, size: 14 }
+            cell.alignment = { horizontal: 'right', vertical: 'middle' }
+          } else if (ci === 10) {
+            cell.numFmt = '0"건"'; cell.font = { bold: true, color: { argb: 'FF6C5CE7' }, size: 12 }
             cell.alignment = { horizontal: 'center', vertical: 'middle' }
+          } else if (ci === 11) {
+            cell.numFmt = '0"건"'; cell.font = { bold: true, color: { argb: 'FFE84393' }, size: 11 }
+            cell.alignment = { horizontal: 'center', vertical: 'middle' }
+          } else if (ci === 12) {
+            cell.numFmt = '#,##0"원"'; cell.font = { bold: true, color: { argb: 'FF6C5CE7' }, size: 11 }
+            cell.alignment = { horizontal: 'right', vertical: 'middle' }
+          } else if (ci >= SEC_PLAT_S && ci <= SEC_PLAT_E) {
+            const offset = (ci - SEC_PLAT_S) % 3
+            if (offset === 0) {
+              cell.numFmt = '#,##0"원"'; cell.font = { bold: true, color: { argb: 'FFFF6B35' }, size: 11 }
+              cell.alignment = { horizontal: 'right', vertical: 'middle' }
+            } else if (offset === 1) {
+              cell.numFmt = '0"건"'; cell.font = { bold: true, color: { argb: 'FF6C5CE7' }, size: 10 }
+              cell.alignment = { horizontal: 'center', vertical: 'middle' }
+            }
           }
-          cell.border = { top: { style: 'medium', color: { argb: 'FFFF6B35' } } }
         })
+
+        ws.views = [{ state: 'frozen', xSplit: 2, ySplit: 2 }]
       }
 
-      // 파일 다운로드
+      // ── 파일 다운로드 ──
       const buf = await wb.xlsx.writeBuffer()
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
       const url = URL.createObjectURL(blob)
