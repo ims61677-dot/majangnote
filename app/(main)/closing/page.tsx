@@ -120,6 +120,14 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
   const [selectedStoreDetail, setSelectedStoreDetail] = useState<string | null>(null)
   const [dataLoading, setDataLoading] = useState(false)
 
+  // ── 엑셀 내보내기 상태 ──
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [exportStart, setExportStart] = useState(() => {
+    const d = new Date(); d.setDate(1); return toDateStr(d)
+  })
+  const [exportEnd, setExportEnd] = useState(toDateStr(new Date()))
+  const [exporting, setExporting] = useState(false)
+
   useEffect(() => { loadStores() }, [storeId])
   useEffect(() => { if (stores.length > 0) { loadClosingData(); loadMonthDots() } }, [selectedDate, stores])
   useEffect(() => { if (stores.length > 0) loadMonthDots() }, [calYear, calMonth, stores])
@@ -190,6 +198,364 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
     setClosingDates(doneSet)
   }
 
+  // ── 엑셀 내보내기 함수 ──
+  async function exportToExcel() {
+    if (stores.length === 0) { alert('지점 데이터가 없습니다.'); return }
+    if (exportStart > exportEnd) { alert('시작일이 종료일보다 늦습니다.'); return }
+    setExporting(true)
+    try {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      wb.creator = '매장노트'
+      wb.created = new Date()
+
+      // 1) 기간 내 전체 마감일지 조회
+      const { data: closingsAll } = await supabase
+        .from('closings').select('*')
+        .in('store_id', stores.map((s: any) => s.id))
+        .gte('closing_date', exportStart)
+        .lte('closing_date', exportEnd)
+        .order('closing_date')
+
+      if (!closingsAll || closingsAll.length === 0) {
+        alert('해당 기간에 마감일지가 없습니다.')
+        setExporting(false)
+        return
+      }
+
+      const closingIds = closingsAll.map((c: any) => c.id)
+
+      // 2) 관련 데이터 일괄 조회
+      const [salesRes, todosRes, reviewsRes, checksRes, platformsRes, checkItemsRes] = await Promise.all([
+        supabase.from('closing_sales').select('*').in('closing_id', closingIds),
+        supabase.from('closing_next_todos').select('*').in('closing_id', closingIds),
+        supabase.from('closing_reviews').select('*').in('closing_id', closingIds),
+        supabase.from('closing_checks').select('*').in('closing_id', closingIds),
+        supabase.from('closing_platforms').select('*').in('store_id', stores.map((s: any) => s.id)).order('sort_order'),
+        supabase.from('closing_checklist_items').select('*').in('store_id', stores.map((s: any) => s.id)).order('sort_order'),
+      ])
+
+      // 3) Map 구성
+      const salesMap: Record<string, any[]> = {}
+      ;(salesRes.data || []).forEach((s: any) => {
+        if (!salesMap[s.closing_id]) salesMap[s.closing_id] = []
+        salesMap[s.closing_id].push(s)
+      })
+      const todosMap: Record<string, any[]> = {}
+      ;(todosRes.data || []).forEach((t: any) => {
+        if (!todosMap[t.closing_id]) todosMap[t.closing_id] = []
+        todosMap[t.closing_id].push(t)
+      })
+      const reviewsMap: Record<string, any[]> = {}
+      ;(reviewsRes.data || []).forEach((r: any) => {
+        if (!reviewsMap[r.closing_id]) reviewsMap[r.closing_id] = []
+        reviewsMap[r.closing_id].push(r)
+      })
+      const checksMap: Record<string, any[]> = {}
+      ;(checksRes.data || []).forEach((c: any) => {
+        if (!checksMap[c.closing_id]) checksMap[c.closing_id] = []
+        checksMap[c.closing_id].push(c)
+      })
+      const platformsByStore: Record<string, any[]> = {}
+      ;(platformsRes.data || []).forEach((p: any) => {
+        if (!platformsByStore[p.store_id]) platformsByStore[p.store_id] = []
+        platformsByStore[p.store_id].push(p)
+      })
+      const checkItemsByStore: Record<string, any[]> = {}
+      ;(checkItemsRes.data || []).forEach((c: any) => {
+        if (!checkItemsByStore[c.store_id]) checkItemsByStore[c.store_id] = []
+        checkItemsByStore[c.store_id].push(c)
+      })
+      const closingsByStore: Record<string, any[]> = {}
+      closingsAll.forEach((c: any) => {
+        if (!closingsByStore[c.store_id]) closingsByStore[c.store_id] = []
+        closingsByStore[c.store_id].push(c)
+      })
+
+      const DOW_KR = ['일', '월', '화', '수', '목', '금', '토']
+
+      // 날짜 범위 배열 생성
+      const allDates: string[] = []
+      const startD = new Date(exportStart)
+      const endD = new Date(exportEnd)
+      for (const d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+        allDates.push(toDateStr(new Date(d)))
+      }
+
+      // ─── 시트 1: 전체 요약 ───
+      const wsSummary = wb.addWorksheet('전체 요약')
+
+      const summaryHeaders = ['날짜', '요일']
+      stores.forEach((s: any) => { summaryHeaders.push(`${s.name} 매출`, `${s.name} 건수`) })
+      summaryHeaders.push('전체 합계')
+
+      const shRow = wsSummary.addRow(summaryHeaders)
+      shRow.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2C3E50' } }
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 }
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+      })
+      wsSummary.getRow(1).height = 24
+      wsSummary.getColumn(1).width = 14
+      wsSummary.getColumn(2).width = 6
+      stores.forEach((_: any, i: number) => {
+        wsSummary.getColumn(3 + i * 2).width = 16
+        wsSummary.getColumn(4 + i * 2).width = 8
+      })
+      wsSummary.getColumn(3 + stores.length * 2).width = 14
+
+      const storeTotals: Record<string, number> = {}
+      stores.forEach((s: any) => { storeTotals[s.id] = 0 })
+      let grandTotal = 0
+
+      allDates.forEach((dateStr) => {
+        const dow = new Date(dateStr).getDay()
+        const isSun = dow === 0; const isSat = dow === 6
+        const rowData: any[] = [dateStr.replace(/-/g, '.'), DOW_KR[dow]]
+        let rowTotal = 0
+
+        stores.forEach((store: any) => {
+          const closing = (closingsByStore[store.id] || []).find((c: any) => c.closing_date === dateStr)
+          if (closing) {
+            const totalS = (salesMap[closing.id] || []).reduce((s: number, r: any) => s + (r.amount || 0), 0)
+            const totalC = (salesMap[closing.id] || []).reduce((s: number, r: any) => s + (r.count || 0), 0)
+            rowData.push(totalS, totalC)
+            rowTotal += totalS
+            storeTotals[store.id] = (storeTotals[store.id] || 0) + totalS
+          } else {
+            rowData.push(0, 0)
+          }
+        })
+        rowData.push(rowTotal)
+        grandTotal += rowTotal
+
+        const row = wsSummary.addRow(rowData)
+        row.height = 18
+
+        const dateBg = isSun ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFF8F9FB'
+        const dateColor = isSun ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF555555'
+        for (let ci = 1; ci <= 2; ci++) {
+          row.getCell(ci).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: dateBg } }
+          row.getCell(ci).font = { bold: ci === 2, color: { argb: dateColor }, size: 10 }
+          row.getCell(ci).alignment = { horizontal: ci === 1 ? 'left' : 'center', vertical: 'middle' }
+        }
+        stores.forEach((_: any, i: number) => {
+          const sc = row.getCell(3 + i * 2)
+          const cc = row.getCell(4 + i * 2)
+          sc.numFmt = '#,##0'
+          sc.font = { color: { argb: rowData[3 + i * 2] > 0 ? 'FFFF6B35' : 'FFcccccc' }, size: 10 }
+          sc.alignment = { horizontal: 'right', vertical: 'middle' }
+          cc.font = { color: { argb: rowData[4 + i * 2] > 0 ? 'FF6C5CE7' : 'FFcccccc' }, size: 10 }
+          cc.alignment = { horizontal: 'center', vertical: 'middle' }
+        })
+        const totalCell = row.getCell(3 + stores.length * 2)
+        totalCell.numFmt = '#,##0'
+        totalCell.font = { bold: rowTotal > 0, color: { argb: rowTotal > 0 ? 'FFFF6B35' : 'FFcccccc' }, size: 10 }
+        totalCell.alignment = { horizontal: 'right', vertical: 'middle' }
+      })
+
+      // 합계 행
+      const footerData = ['합계', '']
+      stores.forEach((store: any) => { footerData.push(String(storeTotals[store.id] || 0), '') })
+      footerData.push(String(grandTotal))
+      const fRow = wsSummary.addRow(footerData)
+      fRow.height = 22
+      fRow.eachCell((cell, i) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3E6' } }
+        cell.font = { bold: true, color: { argb: i >= 3 ? 'FFFF6B35' : 'FF1a1a2e' }, size: 11 }
+        cell.alignment = { horizontal: i === 1 ? 'left' : i % 2 === 1 ? 'right' : 'center', vertical: 'middle' }
+        if (i >= 3) cell.numFmt = '#,##0'
+        cell.border = { top: { style: 'medium', color: { argb: 'FFFF6B35' } } }
+      })
+
+      // ─── 시트 2~: 지점별 상세 ───
+      for (const store of stores) {
+        const closings = (closingsByStore[store.id] || []).sort((a: any, b: any) => a.closing_date.localeCompare(b.closing_date))
+        if (closings.length === 0) continue
+
+        const platforms = platformsByStore[store.id] || []
+        const checkItems = checkItemsByStore[store.id] || []
+
+        const ws = wb.addWorksheet(store.name.slice(0, 31))
+
+        // 헤더 구성
+        const headers = ['날짜', '요일', '작성자', '마감담당자', '근무인원', '오픈', '마감', '총매출', '건수', '취소', '객단가', '시재']
+        platforms.forEach((p: any) => { headers.push(`${p.name} 매출`, `${p.name} 건수`) })
+        headers.push('체크완료', '전달사항수', '클레임/특이사항', '특이사항메모')
+
+        const hRow2 = ws.addRow(headers)
+        hRow2.eachCell((cell) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2C3E50' } }
+          cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+          cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        })
+        ws.getRow(1).height = 22
+
+        // 컬럼 너비
+        const colWidths = [12, 5, 10, 10, 8, 8, 8, 14, 7, 7, 10, 12]
+        platforms.forEach(() => { colWidths.push(14, 7) })
+        colWidths.push(10, 8, 30, 30)
+        colWidths.forEach((w, i) => { ws.getColumn(i + 1).width = w })
+
+        closings.forEach((closing: any) => {
+          const dow = new Date(closing.closing_date).getDay()
+          const isSun = dow === 0; const isSat = dow === 6
+          const sales = salesMap[closing.id] || []
+          const totalSales = sales.reduce((s: number, r: any) => s + (r.amount || 0), 0)
+          const totalCount = sales.reduce((s: number, r: any) => s + (r.count || 0), 0)
+          const totalCancel = sales.reduce((s: number, r: any) => s + (r.cancel_count || 0), 0)
+          const avgPerOrder = totalCount > 0 ? Math.round(totalSales / totalCount) : 0
+          const todos = todosMap[closing.id] || []
+          const checks = checksMap[closing.id] || []
+          const checkPct = checkItems.length > 0 ? `${checks.length}/${checkItems.length}` : '—'
+
+          const rowData: (string | number)[] = [
+            closing.closing_date.replace(/-/g, '.'),
+            `${new Date(closing.closing_date).getMonth() + 1}/${new Date(closing.closing_date).getDate()}`,
+            closing.writer || '',
+            closing.close_staff || '',
+            closing.staff_count || '',
+            closing.open_time || '',
+            closing.close_time || '',
+            totalSales,
+            totalCount,
+            totalCancel,
+            avgPerOrder || '',
+            closing.cash_amount || '',
+          ]
+
+          platforms.forEach((p: any) => {
+            const pSales = sales.find((s: any) => s.platform === p.name)
+            rowData.push(pSales?.amount || 0, pSales?.count || 0)
+          })
+
+          rowData.push(checkPct, todos.length || 0, closing.note || '', closing.memo || '')
+
+          const row = ws.addRow(rowData)
+          row.height = 18
+
+          const dateBg = isSun ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFF8F9FB'
+          const dateColor = isSun ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF555555'
+          for (let ci = 1; ci <= 2; ci++) {
+            row.getCell(ci).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: dateBg } }
+            row.getCell(ci).font = { bold: ci === 2, color: { argb: dateColor }, size: 10 }
+            row.getCell(ci).alignment = { horizontal: 'center', vertical: 'middle' }
+          }
+
+          // 총매출
+          const salesCell = row.getCell(8)
+          salesCell.numFmt = '#,##0'
+          salesCell.font = { bold: true, color: { argb: totalSales > 0 ? 'FFFF6B35' : 'FFcccccc' }, size: 11 }
+          salesCell.alignment = { horizontal: 'right', vertical: 'middle' }
+          salesCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: totalSales > 0 ? 'FFFFF3EE' : 'FFFFFFFF' } }
+
+          // 건수
+          row.getCell(9).font = { bold: true, color: { argb: 'FF6C5CE7' }, size: 10 }
+          row.getCell(9).alignment = { horizontal: 'center', vertical: 'middle' }
+
+          // 취소
+          if (totalCancel > 0) {
+            row.getCell(10).font = { bold: true, color: { argb: 'FFE84393' }, size: 10 }
+          }
+          row.getCell(10).alignment = { horizontal: 'center', vertical: 'middle' }
+
+          // 객단가
+          row.getCell(11).numFmt = '#,##0'
+          row.getCell(11).alignment = { horizontal: 'right', vertical: 'middle' }
+          row.getCell(11).font = { color: { argb: 'FF6C5CE7' }, size: 10 }
+
+          // 시재
+          row.getCell(12).numFmt = '#,##0'
+          row.getCell(12).alignment = { horizontal: 'right', vertical: 'middle' }
+
+          // 플랫폼별 매출
+          platforms.forEach((_: any, i: number) => {
+            const sc = row.getCell(13 + i * 2)
+            sc.numFmt = '#,##0'
+            sc.font = { color: { argb: rowData[13 + i * 2] as number > 0 ? 'FFFF6B35' : 'FFcccccc' }, size: 10 }
+            sc.alignment = { horizontal: 'right', vertical: 'middle' }
+            const cc = row.getCell(14 + i * 2)
+            cc.font = { color: { argb: rowData[14 + i * 2] as number > 0 ? 'FF6C5CE7' : 'FFcccccc' }, size: 10 }
+            cc.alignment = { horizontal: 'center', vertical: 'middle' }
+          })
+
+          // 체크완료
+          const checkColIdx = 13 + platforms.length * 2
+          row.getCell(checkColIdx).font = {
+            bold: true, size: 10,
+            color: { argb: checks.length === checkItems.length && checkItems.length > 0 ? 'FF00B894' : 'FFFF6B35' }
+          }
+          row.getCell(checkColIdx).alignment = { horizontal: 'center', vertical: 'middle' }
+
+          // 전달사항수
+          const todoColIdx = checkColIdx + 1
+          if (todos.length > 0) {
+            row.getCell(todoColIdx).font = { bold: true, color: { argb: 'FFFF6B35' }, size: 10 }
+            row.getCell(todoColIdx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF8F5' } }
+          }
+          row.getCell(todoColIdx).alignment = { horizontal: 'center', vertical: 'middle' }
+
+          // 클레임/메모 텍스트 줄바꿈
+          const noteColIdx = todoColIdx + 1
+          row.getCell(noteColIdx).alignment = { wrapText: true, vertical: 'top' }
+          row.getCell(noteColIdx + 1).alignment = { wrapText: true, vertical: 'top' }
+
+          // 전달사항 내용이 있으면 행 강조
+          if (todos.length > 0) {
+            row.getCell(noteColIdx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE8E0' } }
+          }
+        })
+
+        // 지점 합계 행
+        const storeClosings = closings
+        const storeTotal = storeClosings.reduce((sum: number, c: any) =>
+          sum + (salesMap[c.id] || []).reduce((s: number, r: any) => s + (r.amount || 0), 0), 0)
+        const storeCount = storeClosings.reduce((sum: number, c: any) =>
+          sum + (salesMap[c.id] || []).reduce((s: number, r: any) => s + (r.count || 0), 0), 0)
+
+        const storeFooterData: (string | number)[] = ['합계', '', '', '', '', '', '']
+        storeFooterData.push(storeTotal, storeCount)
+        // 나머지 컬럼 빈값
+        for (let i = 0; i < headers.length - 9; i++) storeFooterData.push('')
+
+        const sfRow = ws.addRow(storeFooterData)
+        sfRow.height = 22
+        sfRow.eachCell((cell, ci) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3E6' } }
+          cell.font = { bold: true, size: 11 }
+          if (ci === 1) {
+            cell.font = { bold: true, color: { argb: 'FF1a1a2e' }, size: 11 }
+            cell.value = `합계 (${storeClosings.length}일)`
+          } else if (ci === 8) {
+            cell.numFmt = '#,##0'
+            cell.font = { bold: true, color: { argb: 'FFFF6B35' }, size: 12 }
+            cell.alignment = { horizontal: 'right', vertical: 'middle' }
+          } else if (ci === 9) {
+            cell.font = { bold: true, color: { argb: 'FF6C5CE7' }, size: 11 }
+            cell.alignment = { horizontal: 'center', vertical: 'middle' }
+          }
+          cell.border = { top: { style: 'medium', color: { argb: 'FFFF6B35' } } }
+        })
+      }
+
+      // 파일 다운로드
+      const buf = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `마감일지_${exportStart}_${exportEnd}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+
+    } catch (e: any) {
+      alert('내보내기 실패: ' + (e?.message || '다시 시도해주세요'))
+    } finally {
+      setExporting(false)
+      setShowExportModal(false)
+    }
+  }
+
   if (loading) return (
     <div style={{ textAlign: 'center', padding: 48, color: '#bbb' }}>
       <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
@@ -256,9 +622,16 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
   // ── 전체 요약 ──
   const summaryBar = (
     <div style={{ ...bx, marginBottom: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>
-        📊 {selectedDate.replace(/-/g,'.')} 전 지점 현황
-        {dataLoading && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 8 }}>불러오는 중...</span>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>
+          📊 {selectedDate.replace(/-/g,'.')} 전 지점 현황
+          {dataLoading && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 8 }}>불러오는 중...</span>}
+        </div>
+        {/* ── 엑셀 내보내기 버튼 ── */}
+        <button onClick={() => setShowExportModal(true)}
+          style={{ padding: '6px 14px', borderRadius: 10, background: 'rgba(0,184,148,0.1)', border: '1px solid rgba(0,184,148,0.3)', color: '#00B894', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+          📥 엑셀 내보내기
+        </button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
         {[
@@ -414,17 +787,69 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
     </div>
   )
 
+  // ── 엑셀 내보내기 모달 ──
+  const exportModal = showExportModal && (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={() => !exporting && setShowExportModal(false)}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 400, boxShadow: '0 8px 40px rgba(0,0,0,0.2)' }}
+        onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 6 }}>📥 마감일지 엑셀 내보내기</div>
+        <div style={{ fontSize: 11, color: '#aaa', marginBottom: 20 }}>
+          기간을 선택하면 전 지점 마감일지를 엑셀 파일로 내려받을 수 있어요
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 6, fontWeight: 600 }}>📅 시작일</div>
+            <input type="date" value={exportStart} onChange={e => setExportStart(e.target.value)}
+              style={{ ...inp, fontSize: 13 }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 6, fontWeight: 600 }}>📅 종료일</div>
+            <input type="date" value={exportEnd} onChange={e => setExportEnd(e.target.value)}
+              style={{ ...inp, fontSize: 13 }} />
+          </div>
+        </div>
+
+        <div style={{ padding: '10px 14px', background: 'rgba(0,184,148,0.06)', borderRadius: 12, marginBottom: 20, border: '1px solid rgba(0,184,148,0.2)' }}>
+          <div style={{ fontSize: 11, color: '#00B894', fontWeight: 700, marginBottom: 4 }}>📋 포함 내용</div>
+          <div style={{ fontSize: 11, color: '#555', lineHeight: 1.8 }}>
+            • 시트1: 전체 요약 (지점별 매출 비교)<br />
+            • 시트2~: 지점별 상세 (날짜·매출·플랫폼별·체크리스트·메모 등)
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowExportModal(false)} disabled={exporting}
+            style={{ flex: 1, padding: '12px 0', borderRadius: 12, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+            취소
+          </button>
+          <button onClick={exportToExcel} disabled={exporting}
+            style={{ flex: 2, padding: '12px 0', borderRadius: 12, background: exporting ? '#ddd' : 'linear-gradient(135deg,#00B894,#6C5CE7)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer' }}>
+            {exporting ? '⏳ 생성 중...' : '📥 내보내기'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
   if (isPC) {
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, alignItems: 'start' }}>
-        <div style={{ position: 'sticky', top: 80 }}>{calendarSection}</div>
-        <div>{summaryBar}{storeCards}</div>
+      <div>
+        {exportModal}
+        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, alignItems: 'start' }}>
+          <div style={{ position: 'sticky', top: 80 }}>{calendarSection}</div>
+          <div>{summaryBar}{storeCards}</div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div>{calendarSection}{summaryBar}{storeCards}</div>
+    <div>
+      {exportModal}
+      {calendarSection}{summaryBar}{storeCards}
+    </div>
   )
 }
 
@@ -850,6 +1275,7 @@ export default function ClosingPage() {
       }))
       if (rows.length > 0) await supabase.from('closing_sales').insert(rows)
 
+      // ★ 리뷰 저장 (reviews 상태를 클로저에서 직접 사용)
       await supabase.from('closing_reviews').delete().eq('closing_id', closingId)
       const reviewRows = reviewPlatforms
         .filter(p => reviews[p.name]?.review_count || reviews[p.name]?.reply_count)
@@ -1189,7 +1615,7 @@ export default function ClosingPage() {
         {cashAmount > 0 && <div style={{ fontSize:11, color:'#888', marginTop:4, textAlign:'right' }}>{cashAmount.toLocaleString()}원</div>}
       </div>
 
-      {/* 리뷰 */}
+      {/* ★ 리뷰 - onBlur={saveNow} 추가로 자동저장 수정 */}
       <div style={bx}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
           <div>
@@ -1207,14 +1633,24 @@ export default function ClosingPage() {
               <div style={{ display:'flex', gap:6 }}>
                 <div style={{ flex:1 }}>
                   <span style={{ fontSize:9, color:'#aaa', display:'block', marginBottom:3 }}>리뷰 수</span>
+                  {/* ★ onChange에 triggerAutoSave 추가, onBlur에 saveNow 추가 */}
                   <input type="number" value={reviews[p.name]?.review_count||''} disabled={disabled}
-                    onChange={e => setReviews(prev => ({ ...prev, [p.name]: { ...prev[p.name], review_count: Number(e.target.value), reply_count: prev[p.name]?.reply_count||0 } }))}
+                    onChange={e => {
+                      setReviews(prev => ({ ...prev, [p.name]: { ...prev[p.name], review_count: Number(e.target.value), reply_count: prev[p.name]?.reply_count||0 } }))
+                      if (selectedDate === todayStr) triggerAutoSave()
+                    }}
+                    onBlur={saveNow}
                     placeholder="0" style={{ ...inp, textAlign:'center', padding:'5px 4px', fontSize:13, fontWeight:700, background: disabled?'#F4F6F9':'#fff', color:'#FF6B35' }} />
                 </div>
                 <div style={{ flex:1 }}>
                   <span style={{ fontSize:9, color:'#aaa', display:'block', marginBottom:3 }}>답글 수</span>
+                  {/* ★ onChange에 triggerAutoSave 추가, onBlur에 saveNow 추가 */}
                   <input type="number" value={reviews[p.name]?.reply_count||''} disabled={disabled}
-                    onChange={e => setReviews(prev => ({ ...prev, [p.name]: { review_count: prev[p.name]?.review_count||0, reply_count: Number(e.target.value) } }))}
+                    onChange={e => {
+                      setReviews(prev => ({ ...prev, [p.name]: { review_count: prev[p.name]?.review_count||0, reply_count: Number(e.target.value) } }))
+                      if (selectedDate === todayStr) triggerAutoSave()
+                    }}
+                    onBlur={saveNow}
                     placeholder="0" style={{ ...inp, textAlign:'center', padding:'5px 4px', fontSize:13, fontWeight:700, background: disabled?'#F4F6F9':'#fff', color:'#00B894' }} />
                 </div>
               </div>
