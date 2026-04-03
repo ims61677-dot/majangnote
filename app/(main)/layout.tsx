@@ -18,6 +18,7 @@ const PC_NAV = [
   { href: '/recipe',      ic: '🍳', l: '레시피' },
   { href: '/goal',        ic: '🎯', l: '목표매출' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
+  { href: '/advance',     ic: '💸', l: '선입금' },
   { href: '/placerank',   ic: '📍', l: '순위' },
   { href: '/mypage',      ic: '👤', l: '마이페이지' },
   { href: '/export',      ic: '📥', l: '내보내기' },
@@ -61,6 +62,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     }
 
     const parsedUser = JSON.parse(u)
+
+    const WEAK_PINS = ['1234', '0000', '9999', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9876']
+    if (WEAK_PINS.includes(parsedUser.pin)) {
+      router.push('/change-pin')
+      return
+    }
+
     setUser(parsedUser)
     setStore(JSON.parse(s))
     loadStores(parsedUser.id)
@@ -123,12 +131,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     return (
       <div style={{ minHeight: '100vh', background: '#F4F6F9', display: 'flex', flexDirection: 'column' }}>
         <header style={{
-          background: '#fff',
-          borderBottom: '1px solid #E8ECF0',
+          background: '#fff', borderBottom: '1px solid #E8ECF0',
           boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
           position: 'sticky', top: 0, zIndex: 50,
-          padding: '0 24px',
-          display: 'flex', alignItems: 'center', gap: 0, height: 56,
+          padding: '0 24px', display: 'flex', alignItems: 'center', gap: 0, height: 56,
         }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <div onClick={() => setShowDropdown(p => !p)}
@@ -211,10 +217,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                     padding: '6px 12px', borderRadius: 8, cursor: 'pointer',
                     background: active ? '#FFF0EB' : 'transparent',
                     color: active ? '#FF6B35' : '#555',
-                    fontWeight: active ? 700 : 500,
-                    fontSize: 13,
-                    transition: 'all 0.15s',
-                    position: 'relative',
+                    fontWeight: active ? 700 : 500, fontSize: 13,
+                    transition: 'all 0.15s', position: 'relative',
                   }}
                     onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#F8F9FB' }}
                     onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
@@ -234,8 +238,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                       <div style={{
                         position: 'absolute', bottom: -9, left: '50%',
                         transform: 'translateX(-50%)',
-                        width: '70%', height: 2, borderRadius: 2,
-                        background: '#FF6B35',
+                        width: '70%', height: 2, borderRadius: 2, background: '#FF6B35',
                       }} />
                     )}
                   </div>
@@ -265,20 +268,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   return (
     <div style={{
       maxWidth: isFullWidth ? '100%' : (isTablet ? 900 : 480),
-      margin: '0 auto',
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      background: '#F4F6F9',
+      margin: '0 auto', minHeight: '100vh',
+      display: 'flex', flexDirection: 'column', background: '#F4F6F9',
     }}>
       <header style={{
-        background: '#ffffff',
-        padding: '14px 20px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderBottom: '1px solid #E8ECF0',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+        background: '#ffffff', padding: '14px 20px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        borderBottom: '1px solid #E8ECF0', boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
         position: 'sticky', top: 0, zIndex: 50,
       }}>
         <div style={{ position: 'relative' }}>
