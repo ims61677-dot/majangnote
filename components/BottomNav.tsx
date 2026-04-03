@@ -31,6 +31,7 @@ const MORE_ITEMS = [
   { href: '/attendance',  ic: '🕐', l: '출퇴근' },
   { href: '/placerank',   ic: '📍', l: '순위' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
+  { href: '/advance',     ic: '💸', l: '선입금' },
   { href: '/mypage',      ic: '👤', l: '마이페이지' },
   { href: '/export',      ic: '📥', l: '내보내기' },
 ]
