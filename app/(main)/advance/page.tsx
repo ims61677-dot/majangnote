@@ -645,7 +645,7 @@ export default function AdvancePage() {
 
   const isOwner = userRole === 'owner'
   const isManager = userRole === 'manager' || userRole === 'owner'
-  const isStaff = !isManager
+  const isStaff = userRole !== 'owner'
 
   useEffect(() => {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
@@ -755,7 +755,7 @@ export default function AdvancePage() {
           <div style={{ fontSize: 13, color: '#bbb' }}>{isStaff ? '신청 내역이 없어요' : '해당 내역이 없어요'}</div>
         </div>
       ) : filtered.map((item: any) => {
-        const canManagerApprove = isManager && !isOwner && item.status === 'pending'
+        const canManagerApprove = isManager && !isOwner && item.status === 'pending' && item.author_name !== userName
         const canOwnerApprove = isOwner && item.status === 'manager_approved'
         return (
           <div key={item.id} style={{ ...bx, borderLeft: item.status === 'pending' ? '3px solid #FF6B35' : item.status === 'manager_approved' ? '3px solid #6C5CE7' : item.status === 'approved' ? '3px solid #00B894' : '3px solid #E84393' }}>
