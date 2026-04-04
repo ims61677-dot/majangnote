@@ -5,22 +5,17 @@ import YearMonthPicker from '@/components/YearMonthPicker'
 
 // ── 한국 공휴일 ──
 const KR_HOLIDAYS: Record<string, string> = {
-  // 고정 공휴일 (MMDD)
   '0101': '신정', '0301': '삼일절', '0505': '어린이날',
   '0606': '현충일', '0815': '광복절', '1003': '개천절',
   '1009': '한글날', '1225': '크리스마스',
-  // 근로자의날
   '0501': '근로자의날',
-  // 2025 (YYYYMMDD)
   '20250128': '설 전날', '20250129': '설날', '20250130': '설 다음날',
   '20250506': '대체공휴일', '20250605': '대체공휴일',
   '20251005': '추석 전날', '20251006': '추석', '20251007': '추석 다음날', '20251008': '대체공휴일',
-  // 2026
   '20260216': '설 전날', '20260217': '설날', '20260218': '설 다음날',
   '20260302': '대체공휴일',
   '20260524': '부처님오신날',
   '20260924': '추석 전날', '20260925': '추석', '20260926': '추석 다음날',
-  // 2027
   '20270206': '설 전날', '20270207': '설날', '20270208': '설 다음날',
   '20270513': '부처님오신날',
   '20271014': '추석 전날', '20271015': '추석', '20271016': '추석 다음날',
@@ -67,6 +62,11 @@ function ProgressBar({value,color='#FF6B35',height=8}:{value:number;color?:strin
     <div style={{width:`${pct}%`,height:'100%',borderRadius:height,background:pct>=100?'#00B894':color,transition:'width 0.5s'}}/>
   </div>
 }
+
+// ── 달성률 뱃지 색상 ──
+function getRateColor(rate:number){ return rate>=100?'#00B894':rate>=80?'#FF6B35':rate>=60?'#F39C12':'#E84393' }
+function getRateLabel(rate:number){ return rate>=100?'🎉 달성!':rate>=80?'🔥 거의 다 왔어요':rate>=60?'⚡ 분발 필요':rate>0?'🚨 위험':'미집계' }
+
 const DOW=['일','월','화','수','목','금','토']
 const FAIL_CHECKS=['날씨/외부요인','인력 부족','재고 부족','서비스 문제','경쟁사 영향','마케팅 부족','시즌 비수기','기타']
 
@@ -81,11 +81,13 @@ export default function GoalPage(){
 
   const [weekGoals,setWeekGoals]=useState<Record<number,{weekday:number;weekend:number}>>({})
   const [weekReviews,setWeekReviews]=useState<Record<number,{failReasons:string[];comment:string;action:string}>>({})
+  const [weekIssues,setWeekIssues]=useState<Record<number,{issue1:string;issue2:string}>>({})
   const [dailySales,setDailySales]=useState<Record<number,number>>({})
   const [saving,setSaving]=useState(false)
   const [savedWeek,setSavedWeek]=useState<number|null>(null)
   const [expandedWeek,setExpandedWeek]=useState<number|null>(null)
 
+  const isOwner=myRole==='owner'
   const canEdit=myRole==='owner'||myRole==='manager'
   const moNum=mo+1
   const totalWeeks=getWeeksInMonth(yr,moNum)
@@ -102,6 +104,7 @@ export default function GoalPage(){
     const {data:g}=await supabase.from('goals').select('*').eq('store_id',sid).eq('year',y).eq('month',m).single()
     if(g?.weekly_goals) setWeekGoals(g.weekly_goals); else setWeekGoals({})
     if(g?.week_reviews) setWeekReviews(g.week_reviews); else setWeekReviews({})
+    if(g?.week_issues) setWeekIssues(g.week_issues); else setWeekIssues({})
 
     const from=`${y}-${String(m).padStart(2,'0')}-01`
     const to=`${y}-${String(m).padStart(2,'0')}-${String(getDaysInMonth(y,m)).padStart(2,'0')}`
@@ -118,7 +121,6 @@ export default function GoalPage(){
     } else setDailySales({})
   }
 
-  // 주간 집계
   const weekCalc=useMemo(()=>{
     const result:Record<number,{goal:number;actual:number;weekdays:number;redDays:number}>={}
     for(let w=1;w<=totalWeeks;w++){
@@ -139,7 +141,6 @@ export default function GoalPage(){
   const monthActualTotal=useMemo(()=>Object.values(dailySales).reduce((a,b)=>a+b,0),[dailySales])
   const monthRate=monthGoalTotal>0?Math.round((monthActualTotal/monthGoalTotal)*100):0
 
-  // 대시보드 연동: 전체 평균 weekday/weekend 계산
   const avgWeekday=useMemo(()=>{
     const vals=Object.values(weekGoals).map(w=>w.weekday).filter(v=>v>0)
     return vals.length>0?Math.round(vals.reduce((a,b)=>a+b,0)/vals.length):0
@@ -154,10 +155,11 @@ export default function GoalPage(){
     setSaving(true)
     await supabase.from('goals').upsert({
       store_id:storeId, year:yr, month:moNum,
-      weekday_goal:avgWeekday,  // 대시보드 연동
-      weekend_goal:avgWeekend,  // 대시보드 연동
+      weekday_goal:avgWeekday,
+      weekend_goal:avgWeekend,
       weekly_goals:weekGoals,
       week_reviews:weekReviews,
+      week_issues:weekIssues,
     },{onConflict:'store_id,year,month'})
     setSaving(false); setSavedWeek(week)
     setTimeout(()=>setSavedWeek(null),2000)
@@ -168,6 +170,9 @@ export default function GoalPage(){
   }
   function setWR(week:number,field:string,val:any){
     setWeekReviews(p=>({...p,[week]:{...(p[week]||{failReasons:[],comment:'',action:''}),[field]:val}}))
+  }
+  function setWI(week:number,field:'issue1'|'issue2',val:string){
+    setWeekIssues(p=>({...p,[week]:{...(p[week]||{issue1:'',issue2:''}),[field]:val}}))
   }
 
   return(
@@ -183,7 +188,10 @@ export default function GoalPage(){
             <div style={{fontSize:13,fontWeight:700,color:'#1a1a2e'}}>📊 {moNum}월 전체 현황</div>
             <div style={{fontSize:10,color:'#aaa',marginTop:2}}>주간 목표 자동 합산</div>
           </div>
-          <div style={{fontSize:24,fontWeight:900,color:monthRate>=100?'#00B894':'#FF6B35'}}>{monthRate}%</div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:28,fontWeight:900,color:getRateColor(monthRate)}}>{monthRate}%</div>
+            <div style={{fontSize:10,fontWeight:600,color:getRateColor(monthRate)}}>{getRateLabel(monthRate)}</div>
+          </div>
         </div>
         <ProgressBar value={monthRate} color="#FF6B35" height={12}/>
         <div style={{display:'flex',justifyContent:'space-between',marginTop:10}}>
@@ -213,13 +221,15 @@ export default function GoalPage(){
         const rate=calc.goal>0?Math.round((calc.actual/calc.goal)*100):0
         const wg=weekGoals[week]||{weekday:0,weekend:0}
         const wr=weekReviews[week]||{failReasons:[],comment:'',action:''}
+        const wi=weekIssues[week]||{issue1:'',issue2:''}
         const isExpanded=expandedWeek===week
         const isCurrent=yr===now.getFullYear()&&moNum===now.getMonth()+1&&days.includes(now.getDate())
         const isSaved=savedWeek===week
+        const hasIssues=wi.issue1||wi.issue2
 
         return(
           <div key={week} style={{...bx,border:isCurrent?'2px solid rgba(255,107,53,0.45)':'1px solid #E8ECF0'}}>
-            {/* 헤더 (클릭하면 펼치기) */}
+            {/* 헤더 */}
             <div onClick={()=>setExpandedWeek(isExpanded?null:week)} style={{cursor:'pointer'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -228,26 +238,36 @@ export default function GoalPage(){
                   <span style={{fontSize:11,color:'#aaa'}}>{moNum}/{days[0]} ~ {moNum}/{days[days.length-1]}</span>
                 </div>
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  {hasIssues&&<span style={{fontSize:10,background:'rgba(232,67,147,0.1)',color:'#E84393',padding:'2px 6px',borderRadius:6,fontWeight:700}}>📌 지적사항</span>}
                   {calc.goal>0&&(
-                    <span style={{fontSize:14,fontWeight:800,color:rate>=100?'#00B894':rate>=70?'#FF6B35':'#E84393'}}>{rate}%</span>
+                    <span style={{fontSize:14,fontWeight:800,color:getRateColor(rate)}}>{rate}%</span>
                   )}
                   <span style={{fontSize:11,color:'#ccc'}}>{isExpanded?'▲':'▼'}</span>
                 </div>
               </div>
 
-              {/* 프로그레스바 */}
+              {/* 주간 달성률 강조 배너 */}
               {calc.goal>0&&(
-                <>
-                  <ProgressBar value={rate} color={rate>=100?'#00B894':'#6C5CE7'} height={8}/>
+                <div style={{background:rate>=100?'rgba(0,184,148,0.07)':rate>=80?'rgba(255,107,53,0.07)':'rgba(232,67,147,0.07)',
+                  borderRadius:10,padding:'8px 12px',marginBottom:10,
+                  border:`1px solid ${rate>=100?'rgba(0,184,148,0.2)':rate>=80?'rgba(255,107,53,0.2)':'rgba(232,67,147,0.2)'}`}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                    <span style={{fontSize:11,fontWeight:700,color:getRateColor(rate)}}>
+                      {getRateLabel(rate)}
+                    </span>
+                    <span style={{fontSize:20,fontWeight:900,color:getRateColor(rate)}}>{rate}%</span>
+                  </div>
+                  <ProgressBar value={rate} color={getRateColor(rate)} height={10}/>
                   <div style={{display:'flex',justifyContent:'space-between',marginTop:5}}>
                     <span style={{fontSize:11,color:'#aaa'}}>실제 {fmtW(calc.actual)}</span>
+                    {calc.actual<calc.goal&&<span style={{fontSize:11,color:'#E84393',fontWeight:600}}>-{fmtW(calc.goal-calc.actual)}</span>}
                     <span style={{fontSize:11,color:'#aaa'}}>목표 {fmtW(calc.goal)}</span>
                   </div>
-                </>
+                </div>
               )}
 
               {/* 일별 미니 캘린더 */}
-              <div style={{display:'flex',gap:3,marginTop:10}}>
+              <div style={{display:'flex',gap:3,marginTop:4}}>
                 {days.map(d=>{
                   const dow=getDow(yr,moNum,d)
                   const sale=dailySales[d]||0
@@ -276,6 +296,47 @@ export default function GoalPage(){
             {/* 펼침 영역 */}
             {isExpanded&&(
               <div style={{marginTop:16,borderTop:'1px solid #F4F6F9',paddingTop:16}}>
+
+                {/* 주간 지적사항 - 대표만 입력, 전직원 열람 */}
+                <div style={{marginBottom:16,background:'rgba(232,67,147,0.04)',borderRadius:12,padding:14,border:'1px solid rgba(232,67,147,0.15)'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10}}>
+                    <span style={{fontSize:12,fontWeight:700,color:'#E84393'}}>📌 주간 지적사항</span>
+                    {isOwner
+                      ? <span style={{fontSize:9,background:'rgba(232,67,147,0.12)',color:'#E84393',padding:'2px 6px',borderRadius:4,fontWeight:600}}>대표 입력</span>
+                      : <span style={{fontSize:9,background:'#F0F2F5',color:'#aaa',padding:'2px 6px',borderRadius:4}}>열람만 가능</span>
+                    }
+                  </div>
+
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:11,color:'#E84393',fontWeight:600,marginBottom:4}}>① 지적사항 1</div>
+                    {isOwner
+                      ? <textarea
+                          value={wi.issue1||''}
+                          onChange={e=>setWI(week,'issue1',e.target.value)}
+                          placeholder="이번 주 첫 번째 지적사항을 입력하세요..."
+                          style={{...ta,minHeight:56,borderColor:'rgba(232,67,147,0.25)',background:'#fff'}}
+                        />
+                      : <div style={{padding:'8px 12px',borderRadius:8,background:'#fff',border:'1px solid #E8ECF0',fontSize:12,color:wi.issue1?'#1a1a2e':'#ccc',minHeight:40,lineHeight:1.6}}>
+                          {wi.issue1||'입력된 지적사항 없음'}
+                        </div>
+                    }
+                  </div>
+
+                  <div>
+                    <div style={{fontSize:11,color:'#E84393',fontWeight:600,marginBottom:4}}>② 지적사항 2</div>
+                    {isOwner
+                      ? <textarea
+                          value={wi.issue2||''}
+                          onChange={e=>setWI(week,'issue2',e.target.value)}
+                          placeholder="이번 주 두 번째 지적사항을 입력하세요..."
+                          style={{...ta,minHeight:56,borderColor:'rgba(232,67,147,0.25)',background:'#fff'}}
+                        />
+                      : <div style={{padding:'8px 12px',borderRadius:8,background:'#fff',border:'1px solid #E8ECF0',fontSize:12,color:wi.issue2?'#1a1a2e':'#ccc',minHeight:40,lineHeight:1.6}}>
+                          {wi.issue2||'입력된 지적사항 없음'}
+                        </div>
+                    }
+                  </div>
+                </div>
 
                 {/* 목표 입력 */}
                 <div style={{fontSize:12,fontWeight:700,color:'#555',marginBottom:10}}>🎯 목표 설정</div>
@@ -315,7 +376,6 @@ export default function GoalPage(){
                 {/* 리뷰 섹션 */}
                 <div style={{fontSize:12,fontWeight:700,color:'#555',marginBottom:10}}>📝 주간 리뷰</div>
 
-                {/* 미달성 원인 체크 */}
                 {calc.goal>0&&calc.actual<calc.goal&&(
                   <div style={{marginBottom:12}}>
                     <div style={{fontSize:11,color:'#E84393',fontWeight:600,marginBottom:8}}>미달성 원인 체크</div>
