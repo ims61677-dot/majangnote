@@ -49,7 +49,7 @@ export default function SelectStorePage() {
     const updatedUser = { ...user, role: member.role }
     localStorage.setItem('mj_user', JSON.stringify(updatedUser))
     localStorage.setItem('mj_store', JSON.stringify(member.stores))
-    router.push('/dash')
+    router.push('/attendance')
   }
 
   const isOwner = user?.role === 'owner'
