@@ -7,10 +7,10 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import PushSetup from '@/components/PushSetup'
 
 const PC_NAV = [
-  { href: '/schedule',    ic: '📅', l: '스케줄' },
-  { href: '/closing',     ic: '📝', l: '마감' },
   { href: '/attendance',  ic: '🕐', l: '출퇴근' },
   { href: '/notice',      ic: '📢', l: '공지' },
+  { href: '/closing',     ic: '📝', l: '마감' },
+  { href: '/schedule',    ic: '📅', l: '스케줄' },
   { href: '/inventory',   ic: '📦', l: '재고&발주' },
   { href: '/analytics',   ic: '📈', l: '분석' },
   { href: '/staff',       ic: '👥', l: '직원관리' },
@@ -99,7 +99,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     setUser(updatedUser)
     setStore(member.stores)
     setShowDropdown(false)
-    window.location.href = '/schedule'
+    window.location.href = '/attendance'
   }
 
   function logout() {

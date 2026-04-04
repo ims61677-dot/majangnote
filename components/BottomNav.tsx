@@ -5,17 +5,17 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const MOBILE_TABS = [
   { href: '/attendance', ic: '🕐', l: '출퇴근' },
-  { href: '/schedule',   ic: '📅', l: '스케줄' },
-  { href: '/closing',    ic: '📝', l: '마감' },
   { href: '/notice',     ic: '📢', l: '공지' },
+  { href: '/closing',    ic: '📝', l: '마감' },
+  { href: '/schedule',   ic: '📅', l: '스케줄' },
   { href: '/more',       ic: '☰',  l: '더보기' },
 ]
 
 const TABLET_TABS = [
   { href: '/attendance', ic: '🕐', l: '출퇴근' },
-  { href: '/schedule',   ic: '📅', l: '스케줄' },
-  { href: '/closing',    ic: '📝', l: '마감' },
   { href: '/notice',     ic: '📢', l: '공지' },
+  { href: '/closing',    ic: '📝', l: '마감' },
+  { href: '/schedule',   ic: '📅', l: '스케줄' },
   { href: '/inventory',  ic: '📦', l: '재고' },
   { href: '/analytics',  ic: '📈', l: '분석' },
   { href: '/more',       ic: '☰',  l: '더보기' },
