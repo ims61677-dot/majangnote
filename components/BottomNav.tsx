@@ -4,21 +4,20 @@ import { useState, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const MOBILE_TABS = [
-  { href: '/dash',     ic: '📊', l: '대시' },
-  { href: '/schedule', ic: '📅', l: '스케줄' },
-  { href: '/closing',  ic: '📝', l: '마감' },
-  { href: '/notice',   ic: '📢', l: '공지' },
-  { href: '/more',     ic: '☰',  l: '더보기' },
+  { href: '/attendance', ic: '🕐', l: '출퇴근' },
+  { href: '/schedule',   ic: '📅', l: '스케줄' },
+  { href: '/closing',    ic: '📝', l: '마감' },
+  { href: '/notice',     ic: '📢', l: '공지' },
+  { href: '/more',       ic: '☰',  l: '더보기' },
 ]
 
 const TABLET_TABS = [
-  { href: '/dash',       ic: '📊', l: '대시' },
+  { href: '/attendance', ic: '🕐', l: '출퇴근' },
   { href: '/schedule',   ic: '📅', l: '스케줄' },
   { href: '/closing',    ic: '📝', l: '마감' },
   { href: '/notice',     ic: '📢', l: '공지' },
   { href: '/inventory',  ic: '📦', l: '재고' },
   { href: '/analytics',  ic: '📈', l: '분석' },
-  { href: '/attendance', ic: '🕐', l: '출퇴근' },
   { href: '/more',       ic: '☰',  l: '더보기' },
 ]
 
@@ -28,16 +27,13 @@ const MORE_ITEMS = [
   { href: '/recipe',      ic: '🍳', l: '레시피' },
   { href: '/staff',       ic: '👥', l: '직원관리' },
   { href: '/goal',        ic: '🎯', l: '목표매출' },
-  { href: '/attendance',  ic: '🕐', l: '출퇴근' },
-  { href: '/placerank',   ic: '📍', l: '순위' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
   { href: '/advance',     ic: '💸', l: '선입금' },
   { href: '/mypage',      ic: '👤', l: '마이페이지' },
-  { href: '/export',      ic: '📥', l: '내보내기' },
 ]
 
 const TABLET_MORE_ITEMS = MORE_ITEMS.filter(
-  m => !['/inventory', '/analytics', '/attendance'].includes(m.href)
+  m => !['/inventory', '/analytics'].includes(m.href)
 )
 
 const MORE_PATHS = MORE_ITEMS.map(m => m.href)
