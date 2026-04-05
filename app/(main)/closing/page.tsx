@@ -1148,6 +1148,11 @@ export default function ClosingPage() {
   const [editingReviewPlatform, setEditingReviewPlatform] = useState<any>(null)
   const [editReviewPlatformName, setEditReviewPlatformName] = useState('')
 
+  // ★ 새 기능: 체크리스트 수행/미수행, 리뷰 입력 여부, 목표매출
+  const [skippedChecks, setSkippedChecks] = useState<Set<string>>(new Set())
+  const [reviewTouched, setReviewTouched] = useState<Set<string>>(new Set())
+  const [dailyGoal, setDailyGoal] = useState(0)
+
   // ★ 탭 상태 (대표 전용 관리자탭)
   const [tab, setTab] = useState<'closing' | 'admin'>('closing')
 
@@ -1170,7 +1175,15 @@ export default function ClosingPage() {
     setStoreId(store.id); setUserName(user.nm || ''); setUserRole(user.role || '')
     loadBase(store.id); loadSalesMap(store.id)
     saveYesterdayWeather(store.id)
+    loadDailyGoal(store.id)
   }, [])
+
+  async function loadDailyGoal(sid: string) {
+    try {
+      const { data } = await supabase.from('store_settings').select('daily_sales_goal').eq('store_id', sid).maybeSingle()
+      if (data?.daily_sales_goal) setDailyGoal(data.daily_sales_goal)
+    } catch {}
+  }
 
   useEffect(() => { if (storeId) loadClosing(storeId, selectedDate) }, [selectedDate, storeId])
   useEffect(() => { closingRef.current = closing }, [closing])
@@ -1340,8 +1353,15 @@ export default function ClosingPage() {
 
       const { data: rv } = await supabase.from('closing_reviews').select('*').eq('closing_id', cl.id)
       const rvm: Record<string, { review_count: number; reply_count: number }> = {}
-      if (rv) rv.forEach((r:any) => { rvm[r.platform] = { review_count: r.review_count || 0, reply_count: r.reply_count || 0 } })
+      const touchedSet = new Set<string>()
+      if (rv) rv.forEach((r:any) => {
+        rvm[r.platform] = { review_count: r.review_count || 0, reply_count: r.reply_count || 0 }
+        touchedSet.add(r.platform)
+      })
       setReviews(rvm)
+      // 기존 저장된 일지 로드 시: 리뷰 입력된 플랫폼 touched 표시, 체크항목 초기화
+      setReviewTouched(touchedSet)
+      setSkippedChecks(new Set())
 
       prevDataRef.current = {
         writer: cl.writer || '', close_staff: cl.close_staff || '',
@@ -1370,7 +1390,8 @@ export default function ClosingPage() {
       setStaffCount(0); setOpenTime(''); setCloseTime('')
       setSales({}); setCounts({}); setCancelCounts({})
       setChecks({}); setSoldouts([]); setNextTodos([]); setTodoChecks({})
-      setReviews({}); prevDataRef.current = null
+      setReviews({}); setSkippedChecks(new Set()); setReviewTouched(new Set())
+      prevDataRef.current = null
       setShowForm(date === todayStr)
     }
   }
@@ -1542,15 +1563,24 @@ export default function ClosingPage() {
     )
   }
 
-  async function toggleCheck(itemId: string) {
+  // ★ 체크리스트: 수행 버튼
+  async function markCheckDone(itemId: string) {
+    setSkippedChecks(prev => { const n = new Set(prev); n.delete(itemId); return n })
+    if (checks[itemId]) return // 이미 수행 처리됨
     const closingId = await getOrCreateClosingId()
+    const { data } = await supabase.from('closing_checks').insert({
+      closing_id: closingId, item_id: itemId, checked_by: userName, checked_at: new Date().toISOString()
+    }).select().single()
+    setChecks(p => ({ ...p, [itemId]: data }))
+  }
+
+  // ★ 체크리스트: 미수행 버튼
+  async function markCheckSkipped(itemId: string) {
     if (checks[itemId]) {
       await supabase.from('closing_checks').delete().eq('id', checks[itemId].id)
       setChecks(p => { const n = {...p}; delete n[itemId]; return n })
-    } else {
-      const { data } = await supabase.from('closing_checks').insert({ closing_id: closingId, item_id: itemId, checked_by: userName, checked_at: new Date().toISOString() }).select().single()
-      setChecks(p => ({ ...p, [itemId]: data }))
     }
+    setSkippedChecks(prev => new Set([...prev, itemId]))
   }
 
   async function addCheckItem() {
@@ -1645,6 +1675,20 @@ export default function ClosingPage() {
   const totalReviews = useMemo(() => reviewPlatforms.reduce((sum, p) => sum + (reviews[p.name]?.review_count || 0), 0), [reviewPlatforms, reviews])
   const totalReplies = useMemo(() => reviewPlatforms.reduce((sum, p) => sum + (reviews[p.name]?.reply_count || 0), 0), [reviewPlatforms, reviews])
 
+  // ★ 잠금 해제 조건
+  // 체크리스트: 전 항목이 수행 또는 미수행으로 응답됨
+  const checklistAllResponded = checkItems.length === 0 ||
+    checkItems.every(item => !!checks[item.id] || skippedChecks.has(item.id))
+  // 리뷰: 전 플랫폼이 touched(숫자 입력)됨
+  const reviewsAllEntered = reviewPlatforms.length === 0 ||
+    reviewPlatforms.every(p => reviewTouched.has(p.name))
+  // 매출 입력 잠금 해제: 기존 저장된 일지이거나 매니저/대표이거나 두 조건 충족
+  const salesUnlocked = isSaved || disabled || isManager || (checklistAllResponded && reviewsAllEntered)
+
+  // 목표 달성 여부
+  const goalAchieved = dailyGoal > 0 && totalSales >= dailyGoal
+  const goalProgress = dailyGoal > 0 ? Math.min(Math.round((totalSales / dailyGoal) * 100), 999) : 0
+
   // ── 수정 이력 모달 ──
   const editLogModal = showEditLogs && isOwner && (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300, display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
@@ -1721,7 +1765,7 @@ export default function ClosingPage() {
         </div>
       )}
 
-      {/* 작성자 */}
+      {/* ① 작성자 / 영업 정보 */}
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>👤 작성자 / 영업 정보</div>
         <div style={{ display:'grid', gridTemplateColumns: isPC ? '1fr 1fr 100px 120px 120px' : '1fr 1fr', gap:8 }}>
@@ -1756,8 +1800,179 @@ export default function ClosingPage() {
         </div>
       </div>
 
-      {/* 매출 */}
-      <div style={bx}>
+      {/* ② 마감 체크리스트 - 수행/미수행 버튼 */}
+      <div style={{ ...bx, border: checklistAllResponded ? '1px solid rgba(0,184,148,0.3)' : '1px solid rgba(255,107,53,0.3)' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>✅ 마감 체크리스트</span>
+            <span style={{ fontSize:10, padding:'1px 7px', borderRadius:10,
+              background: checklistAllResponded ? 'rgba(0,184,148,0.12)' : 'rgba(255,107,53,0.1)',
+              color: checklistAllResponded ? '#00B894' : '#FF6B35', fontWeight:700 }}>
+              {checkItems.filter(item => !!checks[item.id] || skippedChecks.has(item.id)).length}/{checkItems.length}
+            </span>
+          </div>
+          {isManager && <button onClick={() => setShowCheckMgr(true)} style={{ fontSize:10, color:'#2DC6D6', background:'rgba(45,198,214,0.1)', border:'1px solid rgba(45,198,214,0.3)', borderRadius:6, padding:'3px 8px', cursor:'pointer' }}>항목 관리</button>}
+        </div>
+
+        {/* 안내 메시지 */}
+        {!checklistAllResponded && (
+          <div style={{ padding:'8px 12px', background:'rgba(255,107,53,0.07)', borderRadius:10, marginBottom:12, border:'1px solid rgba(255,107,53,0.2)', fontSize:11, color:'#FF6B35', fontWeight:600 }}>
+            🔒 모든 항목에 수행 또는 미수행을 선택해야 매출 입력이 활성화됩니다
+          </div>
+        )}
+        {checklistAllResponded && !salesUnlocked && (
+          <div style={{ padding:'8px 12px', background:'rgba(0,184,148,0.07)', borderRadius:10, marginBottom:12, border:'1px solid rgba(0,184,148,0.2)', fontSize:11, color:'#00B894', fontWeight:600 }}>
+            ✅ 체크리스트 완료! 리뷰를 모두 입력하면 매출 입력이 활성화됩니다
+          </div>
+        )}
+
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {checkItems.map(item => {
+            const isDone = !!checks[item.id]
+            const isSkipped = skippedChecks.has(item.id)
+            const isResponded = isDone || isSkipped
+            return (
+              <div key={item.id} style={{
+                borderRadius:12, border: isDone ? '1px solid rgba(0,184,148,0.35)' : isSkipped ? '1px solid rgba(253,196,0,0.5)' : '1px solid #E8ECF0',
+                background: isDone ? 'rgba(0,184,148,0.05)' : isSkipped ? 'rgba(253,196,0,0.06)' : '#F8F9FB',
+                padding:'10px 14px', transition:'all 0.15s'
+              }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, flex:1 }}>
+                    <span style={{ fontSize:16, flexShrink:0, color: isDone ? '#00B894' : isSkipped ? '#FDC400' : '#ddd' }}>
+                      {isDone ? '✓' : isSkipped ? '—' : '○'}
+                    </span>
+                    <span style={{ fontSize:13, color: isDone ? '#00B894' : isSkipped ? '#B8860B' : '#444', textDecoration: isDone ? 'line-through' : 'none', fontWeight: isResponded ? 600 : 400 }}>
+                      {item.title}
+                    </span>
+                  </div>
+                  <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                    <button onClick={() => markCheckDone(item.id)}
+                      style={{ padding:'5px 12px', borderRadius:8, border: isDone ? '1.5px solid #00B894' : '1px solid #E8ECF0',
+                        background: isDone ? 'rgba(0,184,148,0.15)' : '#fff',
+                        color: isDone ? '#00B894' : '#aaa', fontSize:11, fontWeight:700, cursor:'pointer', transition:'all 0.1s' }}>
+                      ✅ 수행
+                    </button>
+                    <button onClick={() => markCheckSkipped(item.id)}
+                      style={{ padding:'5px 12px', borderRadius:8, border: isSkipped ? '1.5px solid #FDC400' : '1px solid #E8ECF0',
+                        background: isSkipped ? 'rgba(253,196,0,0.15)' : '#fff',
+                        color: isSkipped ? '#B8860B' : '#aaa', fontSize:11, fontWeight:700, cursor:'pointer', transition:'all 0.1s' }}>
+                      ❌ 미수행
+                    </button>
+                  </div>
+                </div>
+                {isDone && checks[item.id]?.checked_by && (
+                  <div style={{ fontSize:10, color:'#00B894', marginTop:4, marginLeft:26 }}>
+                    {checks[item.id].checked_by} · {new Date(checks[item.id].checked_at).toLocaleTimeString('ko',{hour:'2-digit',minute:'2-digit',hour12:false})}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {checklistAllResponded && (
+          <div style={{ marginTop:10, padding:'8px 12px', background:'rgba(0,184,148,0.08)', borderRadius:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span style={{ fontSize:11, color:'#00B894', fontWeight:700 }}>체크리스트 완료 ✓</span>
+            <span style={{ fontSize:11, color:'#aaa' }}>
+              수행 {checkItems.filter(i => !!checks[i.id]).length}개
+              {skippedChecks.size > 0 && ` · 미수행 ${checkItems.filter(i => skippedChecks.has(i.id)).length}개`}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ③ 리뷰 / 답글 - 전 플랫폼 입력 후 매출 잠금 해제 */}
+      <div style={{ ...bx, border: reviewsAllEntered ? '1px solid rgba(0,184,148,0.3)' : checklistAllResponded ? '1px solid rgba(108,92,231,0.3)' : '1px solid #E8ECF0' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+          <div>
+            <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>⭐ 리뷰 / 답글</span>
+            {(totalReviews > 0 || totalReplies > 0) && (
+              <span style={{ marginLeft:8, fontSize:11, color:'#FF6B35' }}>리뷰 {totalReviews}건 · 답글 {totalReplies}건</span>
+            )}
+          </div>
+          {isManager && <button onClick={() => setShowReviewMgr(true)} style={{ fontSize:10, color:'#6C5CE7', background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', borderRadius:6, padding:'3px 8px', cursor:'pointer' }}>플랫폼 관리</button>}
+        </div>
+
+        {/* 리뷰 입력 안내 */}
+        {checklistAllResponded && !reviewsAllEntered && !isSaved && !isManager && (
+          <div style={{ padding:'8px 12px', background:'rgba(108,92,231,0.07)', borderRadius:10, marginBottom:12, border:'1px solid rgba(108,92,231,0.2)', fontSize:11, color:'#6C5CE7', fontWeight:600 }}>
+            💜 모든 플랫폼의 리뷰/답글 수를 입력해야 매출 입력이 활성화됩니다 (0도 입력해주세요)
+          </div>
+        )}
+
+        <div style={{ display:'grid', gridTemplateColumns: isPC ? 'repeat(3,1fr)' : 'repeat(2,1fr)', gap:8 }}>
+          {reviewPlatforms.map(p => {
+            const isTouched = reviewTouched.has(p.name)
+            return (
+              <div key={p.id} style={{
+                background: isTouched ? 'rgba(0,184,148,0.04)' : '#F8F9FB',
+                borderRadius:12, padding:'10px 12px',
+                border: isTouched ? '1px solid rgba(0,184,148,0.3)' : '1px solid #E8ECF0',
+                transition:'all 0.15s'
+              }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>{p.name}</span>
+                  {isTouched && <span style={{ fontSize:9, color:'#00B894', fontWeight:700 }}>✓ 입력됨</span>}
+                </div>
+                <div style={{ display:'flex', gap:6 }}>
+                  <div style={{ flex:1 }}>
+                    <span style={{ fontSize:9, color:'#aaa', display:'block', marginBottom:3 }}>리뷰 수</span>
+                    <input type="number" value={reviews[p.name]?.review_count ?? ''} disabled={disabled}
+                      onChange={e => {
+                        setReviews(prev => ({ ...prev, [p.name]: { ...prev[p.name], review_count: Number(e.target.value), reply_count: prev[p.name]?.reply_count||0 } }))
+                        setReviewTouched(prev => new Set([...prev, p.name]))
+                        if (selectedDate === todayStr) triggerAutoSave()
+                      }}
+                      onBlur={saveNow}
+                      placeholder="0 입력" style={{ ...inp, textAlign:'center', padding:'5px 4px', fontSize:13, fontWeight:700, background: disabled?'#F4F6F9':'#fff', color:'#FF6B35' }} />
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <span style={{ fontSize:9, color:'#aaa', display:'block', marginBottom:3 }}>답글 수</span>
+                    <input type="number" value={reviews[p.name]?.reply_count ?? ''} disabled={disabled}
+                      onChange={e => {
+                        setReviews(prev => ({ ...prev, [p.name]: { review_count: prev[p.name]?.review_count||0, reply_count: Number(e.target.value) } }))
+                        setReviewTouched(prev => new Set([...prev, p.name]))
+                        if (selectedDate === todayStr) triggerAutoSave()
+                      }}
+                      onBlur={saveNow}
+                      placeholder="0 입력" style={{ ...inp, textAlign:'center', padding:'5px 4px', fontSize:13, fontWeight:700, background: disabled?'#F4F6F9':'#fff', color:'#00B894' }} />
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {reviewsAllEntered && (
+          <div style={{ marginTop:10, padding:'8px 12px', background:'rgba(0,184,148,0.08)', borderRadius:10, fontSize:11, color:'#00B894', fontWeight:700, textAlign:'center' }}>
+            ✅ 리뷰 입력 완료 — 매출 입력이 활성화됩니다
+          </div>
+        )}
+      </div>
+
+      {/* ④ 매출 - 체크리스트+리뷰 완료 전까지 잠금 */}
+      <div style={{ ...bx, opacity: salesUnlocked ? 1 : 0.5, transition:'opacity 0.2s', position:'relative' as const }}>
+        {/* 잠금 오버레이 */}
+        {!salesUnlocked && (
+          <div style={{
+            position:'absolute' as const, inset:0, borderRadius:16, zIndex:10,
+            background:'rgba(255,255,255,0.7)', backdropFilter:'blur(2px)',
+            display:'flex', flexDirection:'column' as const, alignItems:'center', justifyContent:'center', gap:8
+          }}>
+            <span style={{ fontSize:28 }}>🔒</span>
+            <div style={{ fontSize:13, fontWeight:700, color:'#555', textAlign:'center' as const }}>
+              {!checklistAllResponded
+                ? '체크리스트를 먼저 완료해주세요'
+                : '리뷰/답글 수를 모두 입력해주세요'}
+            </div>
+            <div style={{ fontSize:11, color:'#aaa', textAlign:'center' as const }}>
+              {!checklistAllResponded
+                ? `남은 항목: ${checkItems.filter(i => !checks[i.id] && !skippedChecks.has(i.id)).length}개`
+                : `미입력 플랫폼: ${reviewPlatforms.filter(p => !reviewTouched.has(p.name)).map(p => p.name).join(', ')}`}
+            </div>
+          </div>
+        )}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
           <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>💰 매출</span>
           {isManager && <button onClick={() => setShowPlatformMgr(true)} style={{ fontSize:10, color:'#2DC6D6', background:'rgba(45,198,214,0.1)', border:'1px solid rgba(45,198,214,0.3)', borderRadius:6, padding:'3px 8px', cursor:'pointer' }}>플랫폼 관리</button>}
@@ -1772,20 +1987,20 @@ export default function ClosingPage() {
           <div key={p.id} style={{ display:'grid', gridTemplateColumns:'80px 1fr 64px 64px', gap:6, marginBottom:8, alignItems:'center' }}>
             <span style={{ fontSize:12, color:'#555', fontWeight:600 }}>{p.name}</span>
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-              <input type="number" value={sales[p.name]||''} placeholder="0" disabled={disabled}
+              <input type="number" value={sales[p.name]||''} placeholder="0" disabled={disabled || !salesUnlocked}
                 onChange={e => { const v = Number(e.target.value); setSales(prev => {const n={...prev,[p.name]:v}; salesRef.current=n; return n}); if(selectedDate===todayStr) triggerAutoSave() }}
                 onBlur={saveNow}
-                style={{ ...inp, textAlign:'right', padding:'6px 8px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
+                style={{ ...inp, textAlign:'right', padding:'6px 8px', background: (disabled||!salesUnlocked)?'#F4F6F9':'#F8F9FB' }} />
               <span style={{ fontSize:10, color:'#aaa', flexShrink:0 }}>원</span>
             </div>
-            <input type="number" value={counts[p.name]||''} placeholder="0" disabled={disabled}
+            <input type="number" value={counts[p.name]||''} placeholder="0" disabled={disabled || !salesUnlocked}
               onChange={e => { const v = Number(e.target.value); setCounts(prev => {const n={...prev,[p.name]:v}; countsRef.current=n; return n}); if(selectedDate===todayStr) triggerAutoSave() }}
               onBlur={saveNow}
-              style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'#F8F9FB' }} />
-            <input type="number" value={cancelCounts[p.name]||''} placeholder="0" disabled={disabled}
+              style={{ ...inp, textAlign:'center', padding:'6px 4px', background: (disabled||!salesUnlocked)?'#F4F6F9':'#F8F9FB' }} />
+            <input type="number" value={cancelCounts[p.name]||''} placeholder="0" disabled={disabled || !salesUnlocked}
               onChange={e => { const v = Number(e.target.value); setCancelCounts(prev => {const n={...prev,[p.name]:v}; cancelCountsRef.current=n; return n}); if(selectedDate===todayStr) triggerAutoSave() }}
               onBlur={saveNow}
-              style={{ ...inp, textAlign:'center', padding:'6px 4px', background: disabled?'#F4F6F9':'rgba(232,67,147,0.04)', border:'1px solid rgba(232,67,147,0.2)' }} />
+              style={{ ...inp, textAlign:'center', padding:'6px 4px', background: (disabled||!salesUnlocked)?'#F4F6F9':'rgba(232,67,147,0.04)', border:'1px solid rgba(232,67,147,0.2)' }} />
           </div>
         ))}
         <div style={{ borderTop:'1px dashed #E8ECF0', paddingTop:10, marginTop:4 }}>
@@ -1804,7 +2019,39 @@ export default function ClosingPage() {
         </div>
       </div>
 
-      {/* 취소/할인 */}
+      {/* ⑤ 금일 목표 매출 달성 여부 */}
+      <div style={{ ...bx, border: dailyGoal > 0 ? (goalAchieved ? '1px solid rgba(0,184,148,0.35)' : '1px solid rgba(255,107,53,0.35)') : '1px solid #E8ECF0' }}>
+        <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>🎯 금일 목표 매출</div>
+        {dailyGoal > 0 ? (
+          <>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+              <span style={{ fontSize:12, color:'#888' }}>목표</span>
+              <span style={{ fontSize:14, fontWeight:700, color:'#555' }}>{dailyGoal.toLocaleString()}원</span>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+              <span style={{ fontSize:12, color:'#888' }}>오늘 매출</span>
+              <span style={{ fontSize:14, fontWeight:700, color:'#FF6B35' }}>{totalSales.toLocaleString()}원</span>
+            </div>
+            {/* 진행 바 */}
+            <div style={{ height:8, background:'#F0F2F5', borderRadius:8, marginBottom:8, overflow:'hidden' }}>
+              <div style={{ height:8, borderRadius:8, width:`${Math.min(goalProgress, 100)}%`, background: goalAchieved ? 'linear-gradient(90deg,#00B894,#00cec9)' : 'linear-gradient(90deg,#FF6B35,#E84393)', transition:'width 0.4s' }} />
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <span style={{ fontSize:11, color: goalAchieved ? '#00B894' : '#FF6B35', fontWeight:700 }}>
+                {goalAchieved ? `🎉 목표 달성! (+${(totalSales - dailyGoal).toLocaleString()}원)` : `📉 ${(dailyGoal - totalSales).toLocaleString()}원 부족`}
+              </span>
+              <span style={{ fontSize:11, fontWeight:700, color: goalAchieved ? '#00B894' : '#FF6B35' }}>{goalProgress}%</span>
+            </div>
+          </>
+        ) : (
+          <div style={{ textAlign:'center', padding:'8px 0', color:'#bbb', fontSize:12 }}>
+            목표 매출이 설정되지 않았습니다<br />
+            <span style={{ fontSize:10 }}>store_settings에서 daily_sales_goal을 설정하세요</span>
+          </div>
+        )}
+      </div>
+
+      {/* ⑥ 취소/할인 */}
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>📉 취소/할인</div>
         <div style={{ display:'flex', gap:8 }}>
@@ -1825,7 +2072,7 @@ export default function ClosingPage() {
         </div>
       </div>
 
-      {/* 시재 */}
+      {/* ⑦ 시재 */}
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>💵 시재</div>
         <div style={{ display:'flex', alignItems:'center', gap:4 }}>
@@ -1836,59 +2083,7 @@ export default function ClosingPage() {
         {cashAmount > 0 && <div style={{ fontSize:11, color:'#888', marginTop:4, textAlign:'right' }}>{cashAmount.toLocaleString()}원</div>}
       </div>
 
-      {/* ★ 리뷰 - onBlur={saveNow} 추가로 자동저장 수정 */}
-      <div style={bx}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-          <div>
-            <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>⭐ 리뷰 / 답글</span>
-            {(totalReviews > 0 || totalReplies > 0) && (
-              <span style={{ marginLeft:8, fontSize:11, color:'#FF6B35' }}>리뷰 {totalReviews}건 · 답글 {totalReplies}건</span>
-            )}
-          </div>
-          {isManager && <button onClick={() => setShowReviewMgr(true)} style={{ fontSize:10, color:'#6C5CE7', background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', borderRadius:6, padding:'3px 8px', cursor:'pointer' }}>플랫폼 관리</button>}
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns: isPC ? 'repeat(3,1fr)' : 'repeat(2,1fr)', gap:8 }}>
-          {reviewPlatforms.map(p => (
-            <div key={p.id} style={{ background:'#F8F9FB', borderRadius:12, padding:'10px 12px', border:'1px solid #E8ECF0' }}>
-              <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>{p.name}</div>
-              <div style={{ display:'flex', gap:6 }}>
-                <div style={{ flex:1 }}>
-                  <span style={{ fontSize:9, color:'#aaa', display:'block', marginBottom:3 }}>리뷰 수</span>
-                  {/* ★ onChange에 triggerAutoSave 추가, onBlur에 saveNow 추가 */}
-                  <input type="number" value={reviews[p.name]?.review_count||''} disabled={disabled}
-                    onChange={e => {
-                      setReviews(prev => ({ ...prev, [p.name]: { ...prev[p.name], review_count: Number(e.target.value), reply_count: prev[p.name]?.reply_count||0 } }))
-                      if (selectedDate === todayStr) triggerAutoSave()
-                    }}
-                    onBlur={saveNow}
-                    placeholder="0" style={{ ...inp, textAlign:'center', padding:'5px 4px', fontSize:13, fontWeight:700, background: disabled?'#F4F6F9':'#fff', color:'#FF6B35' }} />
-                </div>
-                <div style={{ flex:1 }}>
-                  <span style={{ fontSize:9, color:'#aaa', display:'block', marginBottom:3 }}>답글 수</span>
-                  {/* ★ onChange에 triggerAutoSave 추가, onBlur에 saveNow 추가 */}
-                  <input type="number" value={reviews[p.name]?.reply_count||''} disabled={disabled}
-                    onChange={e => {
-                      setReviews(prev => ({ ...prev, [p.name]: { review_count: prev[p.name]?.review_count||0, reply_count: Number(e.target.value) } }))
-                      if (selectedDate === todayStr) triggerAutoSave()
-                    }}
-                    onBlur={saveNow}
-                    placeholder="0" style={{ ...inp, textAlign:'center', padding:'5px 4px', fontSize:13, fontWeight:700, background: disabled?'#F4F6F9':'#fff', color:'#00B894' }} />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 특이사항 메모 */}
-      <div style={bx}>
-        <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📌 특이사항 메모</div>
-        <div style={{ fontSize:10, color:'#aaa', marginBottom:8 }}>이벤트, 행사, 날씨, 특이 상황 등 — 분석탭에서 매출과 연결됩니다</div>
-        <textarea value={memo} onChange={e => sr(setMemo, memoRef)(e.target.value)} onBlur={saveNow} placeholder="오늘의 특이사항을 기록하세요 (이벤트, 날씨, 행사 등)" disabled={disabled}
-          style={{ ...inp, minHeight:70, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
-      </div>
-
-      {/* 품절 메뉴 */}
+      {/* ⑧ 품절 메뉴 */}
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>🚫 품절 메뉴</div>
         {soldouts.length === 0 && <div style={{ fontSize:12, color:'#bbb', textAlign:'center', padding:'8px 0', marginBottom:8 }}>품절 메뉴 없음 ✓</div>}
@@ -1907,58 +2102,22 @@ export default function ClosingPage() {
         </div>
       </div>
 
-      {/* 마감 체크리스트 */}
+      {/* ⑨ 특이사항 메모 */}
       <div style={bx}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>✅ 마감 체크리스트</span>
-            <span style={{ fontSize:10, padding:'1px 7px', borderRadius:10, background: checkedCount===checkItems.length&&checkItems.length>0?'rgba(0,184,148,0.12)':'#F4F6F9', color: checkedCount===checkItems.length&&checkItems.length>0?'#00B894':'#aaa' }}>
-              {checkedCount}/{checkItems.length}
-            </span>
-          </div>
-          {isManager && <button onClick={() => setShowCheckMgr(true)} style={{ fontSize:10, color:'#2DC6D6', background:'rgba(45,198,214,0.1)', border:'1px solid rgba(45,198,214,0.3)', borderRadius:6, padding:'3px 8px', cursor:'pointer' }}>항목 관리</button>}
-        </div>
-        {isPC ? (
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:6 }}>
-            {checkItems.map(item => {
-              const ck = checks[item.id]
-              return (
-                <button key={item.id} onClick={() => toggleCheck(item.id)}
-                  style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'11px 14px', borderRadius:10, border: ck?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0', background: ck?'rgba(0,184,148,0.06)':'#F8F9FB', cursor:'pointer', textAlign:'left' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <span style={{ fontSize:17, color: ck?'#00B894':'#ddd', lineHeight:1 }}>{ck?'✓':'○'}</span>
-                    <span style={{ fontSize:13, color: ck?'#00B894':'#444', textDecoration: ck?'line-through':'none' }}>{item.title}</span>
-                  </div>
-                  {ck && <span style={{ fontSize:10, color:'#00B894', flexShrink:0 }}>{ck.checked_by}</span>}
-                </button>
-              )
-            })}
-          </div>
-        ) : (
-          checkItems.map(item => {
-            const ck = checks[item.id]
-            return (
-              <button key={item.id} onClick={() => toggleCheck(item.id)}
-                style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'11px 14px', borderRadius:10, border: ck?'1px solid rgba(0,184,148,0.3)':'1px solid #E8ECF0', background: ck?'rgba(0,184,148,0.06)':'#F8F9FB', marginBottom:6, cursor:'pointer', textAlign:'left' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <span style={{ fontSize:17, color: ck?'#00B894':'#ddd', lineHeight:1 }}>{ck?'✓':'○'}</span>
-                  <span style={{ fontSize:13, color: ck?'#00B894':'#444', textDecoration: ck?'line-through':'none' }}>{item.title}</span>
-                </div>
-                {ck && <span style={{ fontSize:10, color:'#00B894', flexShrink:0 }}>{ck.checked_by} · {new Date(ck.checked_at).toLocaleTimeString('ko',{hour:'2-digit',minute:'2-digit',hour12:false})}</span>}
-              </button>
-            )
-          })
-        )}
+        <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📌 특이사항 메모</div>
+        <div style={{ fontSize:10, color:'#aaa', marginBottom:8 }}>이벤트, 행사, 날씨, 특이 상황 등 — 분석탭에서 매출과 연결됩니다</div>
+        <textarea value={memo} onChange={e => sr(setMemo, memoRef)(e.target.value)} onBlur={saveNow} placeholder="오늘의 특이사항을 기록하세요 (이벤트, 날씨, 행사 등)" disabled={disabled}
+          style={{ ...inp, minHeight:70, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
       </div>
 
-      {/* 클레임/특이사항 */}
+      {/* ⑩ 클레임/특이사항 */}
       <div style={bx}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>📝 클레임/특이사항</div>
         <textarea value={note} onChange={e => sr(setNote, noteRef)(e.target.value)} onBlur={saveNow} placeholder={disabled?'':'오늘 발생한 클레임이나 특이사항을 기록하세요'} disabled={disabled}
           style={{ ...inp, minHeight:80, resize:'none' as const, lineHeight:1.6, background: disabled?'#F4F6F9':'#F8F9FB' }} />
       </div>
 
-      {/* 다음 담당자 전달사항 */}
+      {/* ⑪ 다음 담당자 전달사항 */}
       <div style={{ ...bx, border: nextTodos.length>0?'1px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0' }}>
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>📢 다음 담당자 전달사항</div>
         <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>누구나 항목 추가 가능 · 공지 탭에서도 확인 가능</div>
@@ -2014,7 +2173,6 @@ export default function ClosingPage() {
       )}
     </>
   )
-
   const editLogBtn = isOwner && (
     <button onClick={() => setShowEditLogs(true)}
       style={{ position:'relative', padding:'6px 14px', borderRadius:10, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.25)', color:'#E84393', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
@@ -2133,11 +2291,7 @@ export default function ClosingPage() {
             <span style={{ fontSize:20, fontWeight:700, color:'#1a1a2e' }}>📋 마감일지</span>
             {tab === 'closing' && editLogBtn}
           </div>
-
-          {/* ★ 탭 바 (대표만) */}
           {tabBar}
-
-          {/* ★ 마감일지 탭 */}
           {tab === 'closing' && (
             <div style={{ display:'grid', gridTemplateColumns:'340px 1fr', gap:20, alignItems:'start' }}>
               <div style={{ position:'sticky', top:80 }}>
@@ -2161,8 +2315,6 @@ export default function ClosingPage() {
               <div>{showForm && formContent}</div>
             </div>
           )}
-
-          {/* ★ 전 지점 관리 탭 */}
           {tab === 'admin' && isOwner && (
             <ClosingAdminTab storeId={storeId} userName={userName} isPC={true} />
           )}
@@ -2174,11 +2326,7 @@ export default function ClosingPage() {
             <span style={{ fontSize:17, fontWeight:700, color:'#1a1a2e' }}>📋 마감일지</span>
             {tab === 'closing' && editLogBtn}
           </div>
-
-          {/* ★ 탭 바 (대표만) */}
           {tabBar}
-
-          {/* ★ 마감일지 탭 */}
           {tab === 'closing' && (
             <>
               <ClosingCalendar year={calYear} month={calMonth} salesMap={salesMap} weatherMap={weatherMap} editedDates={editedDates}
@@ -2200,8 +2348,6 @@ export default function ClosingPage() {
               {showForm && formContent}
             </>
           )}
-
-          {/* ★ 전 지점 관리 탭 */}
           {tab === 'admin' && isOwner && (
             <ClosingAdminTab storeId={storeId} userName={userName} isPC={false} />
           )}
