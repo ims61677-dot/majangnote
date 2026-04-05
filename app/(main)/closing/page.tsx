@@ -903,128 +903,169 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
         const isDone = !!closing
         const allChecked = checkItems.length > 0 && checks.length >= checkItems.length
         const checkPct = checkItems.length > 0 ? Math.round((checks.length / checkItems.length) * 100) : 0
-        const isExpanded = selectedStoreDetail === store.id
+        const skippedCount = checkItems.length - checks.length  // 미체크 수
+        const isExpanded = false // 더 이상 사용 안 함 (전체 상시 표시)
         const avgPerOrder = totalCount > 0 ? Math.round(totalSales / totalCount) : 0
+        const totalReviews = (reviews || []).reduce((s: number, r: any) => s + (r.review_count || 0), 0)
+        const totalReplies = (reviews || []).reduce((s: number, r: any) => s + (r.reply_count || 0), 0)
+        const hasNote = !!closing?.note
+        const hasMemo = !!closing?.memo
+        const hasTodos = todos.length > 0
+        const hasAlert = hasNote || totalCancelCount > 0  // 주의 필요 여부
 
         return (
-          <div key={store.id}
-            onClick={() => isDone && setSelectedStoreDetail(isExpanded ? null : store.id)}
-            style={{
-              borderRadius: 14, padding: 14, transition: 'box-shadow 0.15s',
-              background: isDone ? (isExpanded ? '#fff' : 'rgba(0,184,148,0.04)') : 'rgba(255,107,53,0.03)',
-              border: isExpanded ? '2px solid #FF6B35' : isDone ? '1px solid rgba(0,184,148,0.2)' : '1px solid rgba(255,107,53,0.2)',
-              boxShadow: isExpanded ? '0 4px 16px rgba(255,107,53,0.1)' : '0 1px 4px rgba(0,0,0,0.04)',
-              cursor: isDone ? 'pointer' : 'default',
-            }}>
+          <div key={store.id} style={{
+            borderRadius: 16, overflow: 'hidden', transition: 'box-shadow 0.15s',
+            background: isDone ? '#fff' : 'rgba(255,107,53,0.02)',
+            border: hasAlert && isDone ? '1.5px solid rgba(232,67,147,0.4)'
+              : isDone ? '1px solid rgba(0,184,148,0.2)'
+              : '1px solid rgba(255,107,53,0.2)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+          }}>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+            {/* ── 헤더 ── */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: isDone ? '#FAFBFC' : 'rgba(255,107,53,0.04)', borderBottom: '1px solid #F0F2F5' }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                 🏪 {store.name}
               </div>
-              <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 8, fontWeight: 700, flexShrink: 0, marginLeft: 8,
+              <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 20, fontWeight: 700, flexShrink: 0, marginLeft: 8,
                 background: isDone ? 'rgba(0,184,148,0.12)' : 'rgba(255,107,53,0.12)',
                 color: isDone ? '#00B894' : '#FF6B35' }}>
-                {isDone ? '✅ 완료' : '⏳ 미마감'}
+                {isDone ? '✅ 마감완료' : '⏳ 미마감'}
               </span>
             </div>
 
             {isDone ? (
-              <>
-                <div style={{ fontSize: 20, fontWeight: 800, color: '#FF6B35', marginBottom: 6 }}>
-                  {totalSales.toLocaleString()}원
+              <div style={{ padding: '12px 14px' }}>
+
+                {/* ── 섹션 1: 매출 요약 ── */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 22, fontWeight: 900, color: '#FF6B35' }}>{totalSales.toLocaleString()}원</span>
+                    <span style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 700 }}>{totalCount}건</span>
+                    {avgPerOrder > 0 && <span style={{ fontSize: 11, color: '#aaa' }}>객단가 {avgPerOrder.toLocaleString()}원</span>}
+                    {totalCancelCount > 0 && <span style={{ fontSize: 11, color: '#E84393', fontWeight: 700 }}>취소 {totalCancelCount}건</span>}
+                  </div>
+                  {/* 플랫폼별 매출 태그 */}
+                  {sales.filter((s: any) => s.amount > 0).length > 0 && (
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      {sales.filter((s: any) => s.amount > 0).map((s: any) => (
+                        <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0' }}>
+                          <span style={{ fontSize: 10, color: '#888' }}>{s.platform}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35' }}>{s.amount >= 10000 ? `${Math.floor(s.amount/10000)}만` : s.amount.toLocaleString()}</span>
+                          {s.count > 0 && <span style={{ fontSize: 9, color: '#bbb' }}>{s.count}건</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                  {totalCount > 0 && <span style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 600 }}>{totalCount}건</span>}
-                  {avgPerOrder > 0 && <span style={{ fontSize: 11, color: '#888' }}>객단가 {avgPerOrder.toLocaleString()}원</span>}
-                  {totalCancelCount > 0 && <span style={{ fontSize: 11, color: '#E84393', fontWeight: 600 }}>취소 {totalCancelCount}건</span>}
+
+                {/* 담당자·시재·시간 */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #F4F6F9' }}>
+                  {closing.close_staff && <span style={{ fontSize: 11, color: '#555', background: '#F4F6F9', padding: '3px 9px', borderRadius: 8 }}>👤 {closing.close_staff}</span>}
+                  {closing.cash_amount > 0 && <span style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 600, background: 'rgba(108,92,231,0.07)', padding: '3px 9px', borderRadius: 8 }}>💵 {closing.cash_amount.toLocaleString()}원</span>}
+                  {closing.open_time && closing.close_time && <span style={{ fontSize: 11, color: '#888', background: '#F4F6F9', padding: '3px 9px', borderRadius: 8 }}>🕐 {closing.open_time}~{closing.close_time}</span>}
                 </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                  {closing.close_staff && <span style={{ fontSize: 11, color: '#888', background: '#F4F6F9', padding: '2px 8px', borderRadius: 6 }}>👤 {closing.close_staff}</span>}
-                  {closing.cash_amount > 0 && <span style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 600, background: 'rgba(108,92,231,0.07)', padding: '2px 8px', borderRadius: 6 }}>💵 {closing.cash_amount.toLocaleString()}원</span>}
-                  {closing.open_time && closing.close_time && <span style={{ fontSize: 11, color: '#888', background: '#F4F6F9', padding: '2px 8px', borderRadius: 6 }}>🕐 {closing.open_time}~{closing.close_time}</span>}
-                </div>
+
+                {/* ── 섹션 2: 체크리스트 ── */}
                 {checkItems.length > 0 && (
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 10, color: '#aaa' }}>✅ 체크리스트</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: allChecked ? '#00B894' : '#FF6B35' }}>
-                        {checks.length}/{checkItems.length} {allChecked ? '완료 ✓' : '진행중'}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#555' }}>✅ 마감 체크리스트</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: allChecked ? '#00B894' : '#FF6B35' }}>
+                        {checks.length}/{checkItems.length} {allChecked ? '완료 ✓' : `(${skippedCount}개 미완)` }
                       </span>
                     </div>
-                    <div style={{ height: 5, background: '#F0F2F5', borderRadius: 4 }}>
-                      <div style={{ height: 5, background: allChecked ? '#00B894' : '#FF6B35', borderRadius: 4, width: `${checkPct}%`, transition: 'width 0.3s' }} />
+                    <div style={{ height: 6, background: '#F0F2F5', borderRadius: 6, overflow: 'hidden' }}>
+                      <div style={{ height: 6, background: allChecked ? '#00B894' : '#FF6B35', borderRadius: 6, width: `${checkPct}%`, transition: 'width 0.3s' }} />
                     </div>
-                  </div>
-                )}
-                {todos.length > 0 && (
-                  <div style={{ fontSize: 11, color: '#FF6B35', background: 'rgba(255,107,53,0.07)', borderRadius: 8, padding: '4px 10px', marginBottom: 6, display: 'inline-block' }}>
-                    📢 전달사항 {todos.length}건
-                  </div>
-                )}
-                {!isExpanded && (closing.note || closing.memo || todos.length > 0) && (
-                  <div style={{ fontSize: 10, color: '#bbb', textAlign: 'right', marginTop: 4 }}>▼ 상세보기</div>
-                )}
-                {isExpanded && (
-                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,107,53,0.12)' }}>
-                    {sales.filter((s: any) => s.amount > 0).length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6 }}>💰 플랫폼별 매출</div>
-                        {sales.filter((s: any) => s.amount > 0).map((s: any) => (
-                          <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #F8F9FB' }}>
-                            <span style={{ fontSize: 12, color: '#555' }}>{s.platform}</span>
-                            <div style={{ textAlign: 'right' }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: '#FF6B35' }}>{s.amount.toLocaleString()}원</span>
-                              {s.count > 0 && <span style={{ fontSize: 10, color: '#aaa', marginLeft: 6 }}>{s.count}건</span>}
-                              {s.cancel_count > 0 && <span style={{ fontSize: 10, color: '#E84393', marginLeft: 4 }}>취소{s.cancel_count}</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {closing.note && (
-                      <div style={{ padding: '8px 10px', background: 'rgba(232,67,147,0.05)', borderRadius: 8, fontSize: 12, color: '#555', marginBottom: 8, border: '1px solid rgba(232,67,147,0.15)' }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: '#E84393', marginBottom: 3 }}>📝 클레임/특이사항</div>
-                        {closing.note}
-                      </div>
-                    )}
-                    {closing.memo && (
-                      <div style={{ padding: '8px 10px', background: 'rgba(108,92,231,0.05)', borderRadius: 8, fontSize: 12, color: '#555', marginBottom: 8, border: '1px solid rgba(108,92,231,0.15)' }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: '#6C5CE7', marginBottom: 3 }}>📌 특이사항 메모</div>
-                        {closing.memo}
-                      </div>
-                    )}
-                    {todos.length > 0 && (
-                      <div style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35', marginBottom: 6 }}>📢 다음 담당자 전달사항</div>
-                        {todos.map((t: any) => (
-                          <div key={t.id} style={{ fontSize: 12, color: '#444', padding: '5px 8px', borderRadius: 7, background: '#FFF8F5', border: '1px solid rgba(255,107,53,0.15)', marginBottom: 4 }}>
-                            • {t.content}
-                            {t.created_by && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 6 }}>{t.created_by}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {reviews && reviews.length > 0 && (
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6 }}>⭐ 리뷰/답글</div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {reviews.map((r: any) => (
-                            <span key={r.id} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 8, background: 'rgba(255,107,53,0.07)', color: '#FF6B35', fontWeight: 600 }}>
-                              {r.platform}: 리뷰{r.review_count}·답글{r.reply_count}
+                    {/* 미완료 항목 표시 */}
+                    {!allChecked && (
+                      <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {checkItems
+                          .filter((_: any, i: number) => !checks[i])
+                          .slice(0, 3)
+                          .map((item: any) => (
+                            <span key={item.id} style={{ fontSize: 9, color: '#FF6B35', background: 'rgba(255,107,53,0.08)', padding: '1px 6px', borderRadius: 6 }}>
+                              {item.title}
                             </span>
                           ))}
-                        </div>
+                        {skippedCount > 3 && <span style={{ fontSize: 9, color: '#aaa' }}>+{skippedCount - 3}개</span>}
                       </div>
                     )}
-                    <div style={{ textAlign: 'right', marginTop: 8 }}>
-                      <span style={{ fontSize: 10, color: '#bbb' }}>▲ 접기</span>
+                  </div>
+                )}
+
+                {/* ── 섹션 3: 리뷰 ── */}
+                {reviews && reviews.length > 0 && (
+                  <div style={{ marginBottom: 12, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,107,53,0.04)', border: '1px solid rgba(255,107,53,0.12)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#555', marginBottom: 6 }}>⭐ 리뷰 / 답글</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {reviews.map((r: any) => (
+                        <div key={r.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 10px', borderRadius: 8, background: '#fff', border: '1px solid #E8ECF0', minWidth: 56 }}>
+                          <span style={{ fontSize: 9, color: '#aaa', marginBottom: 2 }}>{r.platform}</span>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            {r.review_count > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35' }}>리뷰 {r.review_count}</span>}
+                            {r.reply_count > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#6C5CE7' }}>답글 {r.reply_count}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 10, color: '#aaa', textAlign: 'right' }}>
+                      총 리뷰 {totalReviews}건 · 답글 {totalReplies}건
                     </div>
                   </div>
                 )}
-              </>
+                {reviews && reviews.length === 0 && (
+                  <div style={{ marginBottom: 12, padding: '6px 10px', borderRadius: 10, background: '#F8F9FB', border: '1px solid #F0F2F5', fontSize: 11, color: '#ccc', textAlign: 'center' }}>
+                    ⭐ 리뷰 미입력
+                  </div>
+                )}
+
+                {/* ── 섹션 4: 전달사항 ── */}
+                {hasTodos ? (
+                  <div style={{ marginBottom: 12, borderRadius: 10, background: 'rgba(255,107,53,0.05)', border: '1px solid rgba(255,107,53,0.2)', overflow: 'hidden' }}>
+                    <div style={{ padding: '7px 10px', borderBottom: '1px solid rgba(255,107,53,0.12)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35' }}>📢 다음 담당자 전달사항</span>
+                      <span style={{ fontSize: 10, color: '#FF6B35', fontWeight: 700 }}>{todos.length}건</span>
+                    </div>
+                    {todos.map((t: any) => (
+                      <div key={t.id} style={{ padding: '6px 10px', fontSize: 12, color: '#444', borderBottom: '1px solid rgba(255,107,53,0.07)', lineHeight: 1.4 }}>
+                        • {t.content}
+                        {t.created_by && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 6 }}>{t.created_by}</span>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 12, padding: '6px 10px', borderRadius: 10, background: '#F8F9FB', border: '1px solid #F0F2F5', fontSize: 11, color: '#ccc', textAlign: 'center' }}>
+                    📢 전달사항 없음
+                  </div>
+                )}
+
+                {/* ── 섹션 5: 클레임/특이사항 ── */}
+                {hasNote && (
+                  <div style={{ marginBottom: 8, padding: '8px 10px', borderRadius: 10, background: 'rgba(232,67,147,0.06)', border: '1.5px solid rgba(232,67,147,0.25)' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#E84393', marginBottom: 4 }}>🚨 클레임 / 특이사항</div>
+                    <div style={{ fontSize: 12, color: '#444', lineHeight: 1.5 }}>{closing.note}</div>
+                  </div>
+                )}
+                {hasMemo && (
+                  <div style={{ marginBottom: 8, padding: '8px 10px', borderRadius: 10, background: 'rgba(108,92,231,0.05)', border: '1px solid rgba(108,92,231,0.15)' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#6C5CE7', marginBottom: 4 }}>📌 특이사항 메모</div>
+                    <div style={{ fontSize: 12, color: '#444', lineHeight: 1.5 }}>{closing.memo}</div>
+                  </div>
+                )}
+                {!hasNote && !hasMemo && (
+                  <div style={{ padding: '6px 10px', borderRadius: 10, background: '#F8F9FB', border: '1px solid #F0F2F5', fontSize: 11, color: '#ccc', textAlign: 'center' }}>
+                    📝 클레임/특이사항 없음 ✓
+                  </div>
+                )}
+
+              </div>
             ) : (
-              <div style={{ fontSize: 12, color: '#bbb', padding: '8px 0', textAlign: 'center' }}>
-                아직 마감일지 미작성
+              <div style={{ padding: '32px 14px', textAlign: 'center' }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>⏳</div>
+                <div style={{ fontSize: 13, color: '#bbb' }}>아직 마감일지 미작성</div>
               </div>
             )}
           </div>
