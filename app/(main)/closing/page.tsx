@@ -58,7 +58,9 @@ function isRedDayGoal(y: number, m: number, d: number): boolean {
 function getWeekNumGoal(y: number, m: number, d: number): number {
   const startDow = new Date(y, m - 1, 1).getDay()
   return Math.ceil((d + (startDow === 0 ? 6 : startDow - 1)) / 7)
-}({ year, month, salesMap, weatherMap, editedDates, selectedDate, onSelectDate, onChangeMonth }: {
+}
+
+function ClosingCalendar({ year, month, salesMap, weatherMap, editedDates, selectedDate, onSelectDate, onChangeMonth }: {
   year: number; month: number
   salesMap: Record<string, number>
   weatherMap: Record<string, { code: number; tmax: number; tmin: number }>
