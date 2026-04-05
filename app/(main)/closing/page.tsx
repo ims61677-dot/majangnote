@@ -35,7 +35,30 @@ function weatherIcon(code: number): string {
   return '🌡️'
 }
 
-function ClosingCalendar({ year, month, salesMap, weatherMap, editedDates, selectedDate, onSelectDate, onChangeMonth }: {
+// ── 목표매출 연동용 공휴일 + 주차 계산 ──
+const KR_HOLIDAYS: Record<string, string> = {
+  '0101':'신정','0301':'삼일절','0505':'어린이날','0606':'현충일',
+  '0815':'광복절','1003':'개천절','1009':'한글날','1225':'크리스마스','0501':'근로자의날',
+  '20250128':'설 전날','20250129':'설날','20250130':'설 다음날',
+  '20250506':'대체공휴일','20250605':'대체공휴일',
+  '20251005':'추석 전날','20251006':'추석','20251007':'추석 다음날','20251008':'대체공휴일',
+  '20260216':'설 전날','20260217':'설날','20260218':'설 다음날',
+  '20260302':'대체공휴일','20260524':'부처님오신날',
+  '20260924':'추석 전날','20260925':'추석','20260926':'추석 다음날',
+}
+function isHoliday(y: number, m: number, d: number): boolean {
+  const mmdd = `${String(m).padStart(2,'0')}${String(d).padStart(2,'0')}`
+  const full = `${y}${mmdd}`
+  return !!(KR_HOLIDAYS[full] || KR_HOLIDAYS[mmdd])
+}
+function isRedDayGoal(y: number, m: number, d: number): boolean {
+  const dow = new Date(y, m - 1, d).getDay()
+  return dow === 0 || dow === 6 || isHoliday(y, m, d)
+}
+function getWeekNumGoal(y: number, m: number, d: number): number {
+  const startDow = new Date(y, m - 1, 1).getDay()
+  return Math.ceil((d + (startDow === 0 ? 6 : startDow - 1)) / 7)
+}({ year, month, salesMap, weatherMap, editedDates, selectedDate, onSelectDate, onChangeMonth }: {
   year: number; month: number
   salesMap: Record<string, number>
   weatherMap: Record<string, { code: number; tmax: number; tmin: number }>
@@ -1178,11 +1201,34 @@ export default function ClosingPage() {
     loadDailyGoal(store.id)
   }, [])
 
+  // ── 목표매출 로드: goals 테이블 weekly_goals 연동 ──
   async function loadDailyGoal(sid: string) {
     try {
-      const { data } = await supabase.from('store_settings').select('daily_sales_goal').eq('store_id', sid).maybeSingle()
-      if (data?.daily_sales_goal) setDailyGoal(data.daily_sales_goal)
-    } catch {}
+      const today = new Date()
+      const y = today.getFullYear()
+      const m = today.getMonth() + 1
+      const d = today.getDate()
+
+      const { data } = await supabase
+        .from('goals')
+        .select('weekly_goals')
+        .eq('store_id', sid)
+        .eq('year', y)
+        .eq('month', m)
+        .maybeSingle()
+
+      if (!data?.weekly_goals) { setDailyGoal(0); return }
+
+      const week = getWeekNumGoal(y, m, d)
+      const isRed = isRedDayGoal(y, m, d)
+      const wg = data.weekly_goals[week] as { weekday: number; weekend: number } | undefined
+
+      if (wg) {
+        setDailyGoal(isRed ? (wg.weekend || 0) : (wg.weekday || 0))
+      } else {
+        setDailyGoal(0)
+      }
+    } catch { setDailyGoal(0) }
   }
 
   useEffect(() => { if (storeId) loadClosing(storeId, selectedDate) }, [selectedDate, storeId])
@@ -2024,29 +2070,34 @@ export default function ClosingPage() {
         <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>🎯 금일 목표 매출</div>
         {dailyGoal > 0 ? (
           <>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-              <span style={{ fontSize:12, color:'#888' }}>목표</span>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+              <span style={{ fontSize:11, color:'#aaa' }}>
+                {isRedDayGoal(new Date().getFullYear(), new Date().getMonth()+1, new Date().getDate()) ? '🔴 주말/공휴일 목표' : '📅 평일 목표'}
+              </span>
               <span style={{ fontSize:14, fontWeight:700, color:'#555' }}>{dailyGoal.toLocaleString()}원</span>
             </div>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-              <span style={{ fontSize:12, color:'#888' }}>오늘 매출</span>
+              <span style={{ fontSize:11, color:'#aaa' }}>오늘 매출</span>
               <span style={{ fontSize:14, fontWeight:700, color:'#FF6B35' }}>{totalSales.toLocaleString()}원</span>
             </div>
-            {/* 진행 바 */}
-            <div style={{ height:8, background:'#F0F2F5', borderRadius:8, marginBottom:8, overflow:'hidden' }}>
-              <div style={{ height:8, borderRadius:8, width:`${Math.min(goalProgress, 100)}%`, background: goalAchieved ? 'linear-gradient(90deg,#00B894,#00cec9)' : 'linear-gradient(90deg,#FF6B35,#E84393)', transition:'width 0.4s' }} />
+            <div style={{ height:10, background:'#F0F2F5', borderRadius:10, marginBottom:10, overflow:'hidden' }}>
+              <div style={{ height:10, borderRadius:10, width:`${Math.min(goalProgress, 100)}%`, background: goalAchieved ? 'linear-gradient(90deg,#00B894,#00cec9)' : goalProgress >= 80 ? 'linear-gradient(90deg,#FF6B35,#FDC400)' : 'linear-gradient(90deg,#E84393,#FF6B35)', transition:'width 0.4s' }} />
             </div>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <span style={{ fontSize:11, color: goalAchieved ? '#00B894' : '#FF6B35', fontWeight:700 }}>
-                {goalAchieved ? `🎉 목표 달성! (+${(totalSales - dailyGoal).toLocaleString()}원)` : `📉 ${(dailyGoal - totalSales).toLocaleString()}원 부족`}
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', borderRadius:12, background: goalAchieved ? 'rgba(0,184,148,0.08)' : goalProgress >= 80 ? 'rgba(255,107,53,0.08)' : 'rgba(232,67,147,0.06)', border: `1px solid ${goalAchieved ? 'rgba(0,184,148,0.25)' : goalProgress >= 80 ? 'rgba(255,107,53,0.25)' : 'rgba(232,67,147,0.2)'}` }}>
+              <span style={{ fontSize:12, fontWeight:700, color: goalAchieved ? '#00B894' : goalProgress >= 80 ? '#FF6B35' : '#E84393' }}>
+                {goalAchieved
+                  ? `🎉 달성! +${(totalSales - dailyGoal).toLocaleString()}원`
+                  : goalProgress >= 80
+                    ? `🔥 거의 다! ${(dailyGoal - totalSales).toLocaleString()}원 부족`
+                    : `📉 ${(dailyGoal - totalSales).toLocaleString()}원 더 필요`}
               </span>
-              <span style={{ fontSize:11, fontWeight:700, color: goalAchieved ? '#00B894' : '#FF6B35' }}>{goalProgress}%</span>
+              <span style={{ fontSize:18, fontWeight:900, color: goalAchieved ? '#00B894' : goalProgress >= 80 ? '#FF6B35' : '#E84393' }}>{goalProgress}%</span>
             </div>
           </>
         ) : (
-          <div style={{ textAlign:'center', padding:'8px 0', color:'#bbb', fontSize:12 }}>
-            목표 매출이 설정되지 않았습니다<br />
-            <span style={{ fontSize:10 }}>store_settings에서 daily_sales_goal을 설정하세요</span>
+          <div style={{ textAlign:'center', padding:'12px 0', color:'#bbb', fontSize:12 }}>
+            목표 미설정<br />
+            <span style={{ fontSize:10 }}>📊 목표 탭에서 이번 주 목표를 설정하면 자동 연동됩니다</span>
           </div>
         )}
       </div>
