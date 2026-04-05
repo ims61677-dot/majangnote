@@ -56,6 +56,28 @@ function getMonthRemainingDays(y: number, m: number, today: Date): number {
   return count
 }
 
+// ── 사진 → base64 변환 ──
+function fileToBase64(file: File, maxWidth = 800): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const ratio = Math.min(1, maxWidth / img.width)
+        canvas.width = img.width * ratio
+        canvas.height = img.height * ratio
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.7))
+      }
+      img.onerror = reject
+      img.src = e.target?.result as string
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
 // ── 스타일 ──
 const bx = { background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', padding:16, marginBottom:12, boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }
 const inp = { width:'100%', padding:'9px 12px', borderRadius:8, background:'#F8F9FB', border:'1px solid #E0E4E8', color:'#1a1a2e', fontSize:14, outline:'none', boxSizing:'border-box' as const, textAlign:'right' as const }
@@ -81,7 +103,12 @@ function getRateLabel(rate:number){ return rate>=100?'🎉 달성!':rate>=80?'�
 const DOW=['일','월','화','수','목','금','토']
 const FAIL_CHECKS=['날씨/외부요인','인력 부족','재고 부족','서비스 문제','경쟁사 영향','마케팅 부족','시즌 비수기','기타']
 
-type Issue = { id: string; text: string; imageUrl?: string }
+// imageUrl: Storage URL (기존), imageBase64: base64 직접저장 (신규)
+type Issue = { id: string; text: string; imageUrl?: string; imageBase64?: string }
+
+function getIssueImage(issue: Issue): string {
+  return issue.imageBase64 || issue.imageUrl || ''
+}
 
 function parseWeekIssues(raw: any): Record<number, Issue[]> {
   if (!raw) return {}
@@ -113,15 +140,24 @@ export default function GoalPage(){
   const [weekReviews,setWeekReviews] = useState<Record<number,{failReasons:string[];comment:string;action:string}>>({})
   const [weekIssues,setWeekIssues] = useState<Record<number,Issue[]>>({})
 
+  // 새 지적사항
   const [newText,setNewText] = useState<Record<number,string>>({})
+  const [newPreview,setNewPreview] = useState<Record<number,string>>({})
+  const [newBase64,setNewBase64] = useState<Record<number,string>>({})
+  const [converting,setConverting] = useState(false)
+
+  // 수정
   const [editingIssue,setEditingIssue] = useState<{week:number;id:string}|null>(null)
   const [editText,setEditText] = useState('')
+  const [editBase64,setEditBase64] = useState('')
+  const [editPreview,setEditPreview] = useState('')
 
   const [dailySales,setDailySales] = useState<Record<number,number>>({})
   const [saving,setSaving] = useState(false)
   const [saveError,setSaveError] = useState<string|null>(null)
   const [savedWeek,setSavedWeek] = useState<number|null>(null)
   const [expandedWeek,setExpandedWeek] = useState<number|null>(null)
+  const [lightbox,setLightbox] = useState<string|null>(null)
 
   const isOwner = myRole==='owner'
   const canEdit = myRole==='owner'||myRole==='manager'
@@ -158,6 +194,40 @@ export default function GoalPage(){
     } else setDailySales({})
   }
 
+  // 사진 처리
+  async function handleNewImage(week:number, file:File){
+    setConverting(true)
+    try { const b64=await fileToBase64(file); setNewBase64(p=>({...p,[week]:b64})); setNewPreview(p=>({...p,[week]:b64})) }
+    catch(e){ alert('이미지 변환 실패') }
+    setConverting(false)
+  }
+  async function handleEditImage(file:File){
+    setConverting(true)
+    try { const b64=await fileToBase64(file); setEditBase64(b64); setEditPreview(b64) }
+    catch(e){ alert('이미지 변환 실패') }
+    setConverting(false)
+  }
+
+  // 지적사항 CRUD
+  function addIssue(week:number){
+    const text=(newText[week]||'').trim(); if(!text) return
+    const item:Issue={ id:Date.now().toString(), text, ...(newBase64[week]?{imageBase64:newBase64[week]}:{}) }
+    setWeekIssues(p=>({...p,[week]:[...(p[week]||[]),item]}))
+    setNewText(p=>({...p,[week]:''})); setNewBase64(p=>({...p,[week]:''})); setNewPreview(p=>({...p,[week]:''}))
+  }
+  function startEdit(week:number,issue:Issue){
+    setEditingIssue({week,id:issue.id}); setEditText(issue.text)
+    const img=getIssueImage(issue); setEditBase64(img); setEditPreview(img)
+  }
+  function saveEdit(week:number){
+    if(!editingIssue) return
+    setWeekIssues(p=>({...p,[week]:(p[week]||[]).map(i=>i.id===editingIssue.id?{...i,text:editText,imageBase64:editBase64||undefined,imageUrl:editBase64?undefined:i.imageUrl}:i)}))
+    setEditingIssue(null); setEditText(''); setEditBase64(''); setEditPreview('')
+  }
+  function deleteIssue(week:number,id:string){
+    setWeekIssues(p=>({...p,[week]:(p[week]||[]).filter(i=>i.id!==id)}))
+  }
+
   const weekCalc=useMemo(()=>{
     const result:Record<number,{goal:number;actual:number;weekdays:number;redDays:number}>={}
     for(let w=1;w<=totalWeeks;w++){
@@ -176,35 +246,27 @@ export default function GoalPage(){
   const monthRemaining=monthGoalTotal>monthActualTotal?monthGoalTotal-monthActualTotal:0
   const monthRemainDays=getMonthRemainingDays(yr,moNum,now)
 
-  // ✅ 예상 월 매출 계산
-  // 지난 주 + 이번 주 = 실제 매출 / 남은 주 = 목표 금액으로 합산
+  // 예상 월 매출
   const expectedMonthSales=useMemo(()=>{
     let total=0
     for(let w=1;w<=totalWeeks;w++){
       const calc=weekCalc[w]||{goal:0,actual:0}
       if(w < currentWeek) {
-        // 지난 주: 실제 매출로
         total+=calc.actual
       } else if(w === currentWeek) {
-        // 이번 주: 실제 매출 + 남은 일수 목표
         const days=getWeekDays(yr,moNum,w)
         const wg=weekGoals[w]||{weekday:0,weekend:0}
         let futureGoal=0
-        days.forEach(d=>{
-          if(d > now.getDate()) {
-            futureGoal+=isRedDay(yr,moNum,d)?wg.weekend:wg.weekday
-          }
-        })
+        days.forEach(d=>{ if(d > now.getDate()) futureGoal+=isRedDay(yr,moNum,d)?wg.weekend:wg.weekday })
         total+=calc.actual+futureGoal
       } else {
-        // 앞으로 남은 주: 목표 금액으로
         total+=calc.goal
       }
     }
     return total
-  },[weekCalc,weekGoals,dailySales,yr,moNum,totalWeeks,currentWeek])
+  },[weekCalc,weekGoals,yr,moNum,totalWeeks,currentWeek])
 
-  const expectedGap=monthGoalTotal-expectedMonthSales  // 양수면 부족, 음수면 초과
+  const expectedGap=monthGoalTotal-expectedMonthSales
   const expectedRate=monthGoalTotal>0?Math.round((expectedMonthSales/monthGoalTotal)*100):0
 
   const avgWeekday=useMemo(()=>{ const v=Object.values(weekGoals).map(w=>w.weekday).filter(v=>v>0); return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):0 },[weekGoals])
@@ -231,24 +293,17 @@ export default function GoalPage(){
   function setWR(week:number,field:string,val:any){
     setWeekReviews(p=>({...p,[week]:{...(p[week]||{failReasons:[],comment:'',action:''}),[field]:val}}))
   }
-  function addIssue(week:number){
-    const text=(newText[week]||'').trim(); if(!text) return
-    const item:Issue={ id:Date.now().toString(), text }
-    setWeekIssues(p=>({...p,[week]:[...(p[week]||[]),item]}))
-    setNewText(p=>({...p,[week]:''}))
-  }
-  function startEdit(week:number,issue:Issue){ setEditingIssue({week,id:issue.id}); setEditText(issue.text) }
-  function saveEdit(week:number){
-    if(!editingIssue) return
-    setWeekIssues(p=>({...p,[week]:(p[week]||[]).map(i=>i.id===editingIssue.id?{...i,text:editText}:i)}))
-    setEditingIssue(null); setEditText('')
-  }
-  function deleteIssue(week:number,id:string){
-    setWeekIssues(p=>({...p,[week]:(p[week]||[]).filter(i=>i.id!==id)}))
-  }
 
   return(
     <div>
+      {/* 라이트박스 */}
+      {lightbox&&(
+        <div onClick={()=>setLightbox(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.88)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <img src={lightbox} alt="확대" style={{maxWidth:'100%',maxHeight:'90vh',borderRadius:12,objectFit:'contain'}}/>
+          <button onClick={()=>setLightbox(null)} style={{position:'absolute',top:16,right:16,background:'rgba(255,255,255,0.2)',border:'none',color:'#fff',fontSize:20,width:36,height:36,borderRadius:'50%',cursor:'pointer'}}>✕</button>
+        </div>
+      )}
+
       <div style={{marginBottom:16}}>
         <YearMonthPicker year={yr} month={mo} onChange={(y,m)=>{setYr(y);setMo(m)}} color="#FF6B35"/>
       </div>
@@ -306,27 +361,19 @@ export default function GoalPage(){
           </div>
         ))}
 
-        {/* ✅ 예상 매출 섹션 */}
+        {/* 예상 매출 */}
         {monthGoalTotal>0&&isCurrentMonth&&(
           <div style={{borderRadius:12,padding:'14px',background:'rgba(108,92,231,0.06)',border:'1px solid rgba(108,92,231,0.2)'}}>
-            <div style={{fontSize:11,fontWeight:700,color:'#6C5CE7',marginBottom:10}}>🔮 이번 달 예상 매출</div>
-            <div style={{fontSize:9,color:'#aaa',marginBottom:8,lineHeight:1.6}}>
-              지난 주·이번 주 실제 + 남은 주 목표 합산
+            <div style={{fontSize:11,fontWeight:700,color:'#6C5CE7',marginBottom:6}}>🔮 이번 달 예상 매출</div>
+            <div style={{fontSize:9,color:'#aaa',marginBottom:10}}>지난 주·이번 주 실제 + 남은 주 목표 합산</div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+              <span style={{fontSize:11,fontWeight:700,color:expectedGap>0?'#E84393':'#00B894'}}>
+                {expectedGap>0?`목표보다 ${fmtW(expectedGap)} 부족 예상`:`목표 초과 ${fmtW(-expectedGap)} 예상 🎉`}
+              </span>
+              <span style={{fontSize:14,fontWeight:900,color:getRateColor(expectedRate)}}>{expectedRate}%</span>
             </div>
-
-            {/* 예상 달성률 바 */}
-            <div style={{marginBottom:10}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
-                <span style={{fontSize:11,fontWeight:700,color:expectedGap>0?'#E84393':'#00B894'}}>
-                  {expectedGap>0?`목표보다 ${fmtW(expectedGap)} 부족 예상`:`목표 초과 ${fmtW(-expectedGap)} 예상 🎉`}
-                </span>
-                <span style={{fontSize:14,fontWeight:900,color:getRateColor(expectedRate)}}>{expectedRate}%</span>
-              </div>
-              <ProgressBar value={expectedRate} color="#6C5CE7" height={8}/>
-            </div>
-
-            {/* 수치 3개 */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+            <ProgressBar value={expectedRate} color="#6C5CE7" height={8}/>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginTop:10}}>
               <div style={{background:'#fff',borderRadius:10,padding:'8px 10px',border:'1px solid #E8ECF0',textAlign:'center'}}>
                 <div style={{fontSize:9,color:'#aaa',marginBottom:3}}>월 목표</div>
                 <div style={{fontSize:13,fontWeight:800,color:'#1a1a2e'}}>{fmtW(monthGoalTotal)}</div>
@@ -337,28 +384,18 @@ export default function GoalPage(){
               </div>
               <div style={{background:expectedGap>0?'rgba(232,67,147,0.06)':'rgba(0,184,148,0.06)',borderRadius:10,padding:'8px 10px',border:`1px solid ${expectedGap>0?'rgba(232,67,147,0.2)':'rgba(0,184,148,0.2)'}`,textAlign:'center'}}>
                 <div style={{fontSize:9,color:expectedGap>0?'#E84393':'#00B894',marginBottom:3}}>예상 간극</div>
-                <div style={{fontSize:13,fontWeight:800,color:expectedGap>0?'#E84393':'#00B894'}}>
-                  {expectedGap>0?`-${fmtW(expectedGap)}`:`+${fmtW(-expectedGap)}`}
-                </div>
+                <div style={{fontSize:13,fontWeight:800,color:expectedGap>0?'#E84393':'#00B894'}}>{expectedGap>0?`-${fmtW(expectedGap)}`:`+${fmtW(-expectedGap)}`}</div>
               </div>
             </div>
-
-            {/* 경고 메시지 */}
             {expectedGap>0&&expectedRate<90&&(
               <div style={{marginTop:10,padding:'8px 12px',borderRadius:8,background:'rgba(232,67,147,0.08)',border:'1px solid rgba(232,67,147,0.2)'}}>
-                <div style={{fontSize:11,color:'#E84393',fontWeight:600}}>
-                  ⚠️ 지금 페이스대로면 이번 달 목표 달성이 어려워요
-                </div>
-                <div style={{fontSize:10,color:'#aaa',marginTop:3}}>
-                  남은 주 목표를 올리거나 매출을 더 올려야 해요
-                </div>
+                <div style={{fontSize:11,color:'#E84393',fontWeight:600}}>⚠️ 지금 페이스대로면 이번 달 목표 달성이 어려워요</div>
+                <div style={{fontSize:10,color:'#aaa',marginTop:3}}>남은 주 목표를 올리거나 매출을 더 올려야 해요</div>
               </div>
             )}
             {expectedGap<=0&&(
               <div style={{marginTop:10,padding:'8px 12px',borderRadius:8,background:'rgba(0,184,148,0.08)',border:'1px solid rgba(0,184,148,0.2)'}}>
-                <div style={{fontSize:11,color:'#00B894',fontWeight:600}}>
-                  ✅ 지금 페이스라면 이번 달 목표 달성 가능해요!
-                </div>
+                <div style={{fontSize:11,color:'#00B894',fontWeight:600}}>✅ 지금 페이스라면 이번 달 목표 달성 가능해요!</div>
               </div>
             )}
           </div>
@@ -457,7 +494,7 @@ export default function GoalPage(){
             {isExpanded&&(
               <div style={{marginTop:16,borderTop:'1px solid #F4F6F9',paddingTop:16}}>
 
-                {/* 주간 지적사항 */}
+                {/* ── 주간 지적사항 (사진 포함) ── */}
                 <div style={{marginBottom:16,background:'rgba(232,67,147,0.04)',borderRadius:12,padding:14,border:'1px solid rgba(232,67,147,0.15)'}}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
                     <div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -467,38 +504,92 @@ export default function GoalPage(){
                     {isOwner?<span style={{fontSize:9,background:'rgba(232,67,147,0.12)',color:'#E84393',padding:'2px 6px',borderRadius:4,fontWeight:600}}>대표 입력</span>
                       :<span style={{fontSize:9,background:'#F0F2F5',color:'#aaa',padding:'2px 6px',borderRadius:4}}>열람만 가능</span>}
                   </div>
+
                   {issues.length===0&&<div style={{textAlign:'center',padding:'14px 0',fontSize:12,color:'#ccc'}}>{isOwner?'아래에서 지적사항을 추가하세요':'등록된 지적사항 없음'}</div>}
-                  {issues.map((issue,idx)=>(
-                    <div key={issue.id} style={{marginBottom:8}}>
-                      {editingIssue?.week===week&&editingIssue?.id===issue.id?(
-                        <div style={{background:'#fff',borderRadius:10,padding:12,border:'1px solid rgba(232,67,147,0.3)'}}>
-                          <div style={{fontSize:10,color:'#E84393',fontWeight:600,marginBottom:8}}>✏️ {idx+1}번 수정 중</div>
-                          <input value={editText} onChange={e=>setEditText(e.target.value)} placeholder="지적사항 내용..." style={{...singleInp,marginBottom:8}} autoFocus/>
-                          <div style={{display:'flex',gap:6}}>
-                            <button onClick={()=>saveEdit(week)} style={{flex:1,padding:'8px 0',borderRadius:8,border:'none',background:'#E84393',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>✓ 저장</button>
-                            <button onClick={()=>{setEditingIssue(null);setEditText('')}} style={{flex:1,padding:'8px 0',borderRadius:8,border:'1px solid #E0E4E8',background:'#fff',color:'#888',fontSize:12,cursor:'pointer'}}>취소</button>
+
+                  {issues.map((issue,idx)=>{
+                    const imgSrc=getIssueImage(issue)
+                    return(
+                      <div key={issue.id} style={{marginBottom:8}}>
+                        {editingIssue?.week===week&&editingIssue?.id===issue.id?(
+                          // 수정 모드
+                          <div style={{background:'#fff',borderRadius:10,padding:12,border:'1px solid rgba(232,67,147,0.3)'}}>
+                            <div style={{fontSize:10,color:'#E84393',fontWeight:600,marginBottom:8}}>✏️ {idx+1}번 수정 중</div>
+                            <input value={editText} onChange={e=>setEditText(e.target.value)}
+                              placeholder="지적사항 내용..." style={{...singleInp,marginBottom:8}} autoFocus/>
+                            {editPreview?(
+                              <div style={{position:'relative',marginBottom:8}}>
+                                <img src={editPreview} alt="미리보기" style={{width:'100%',maxHeight:160,objectFit:'cover',borderRadius:8,border:'1px solid #E8ECF0'}}/>
+                                <button onClick={()=>{setEditBase64('');setEditPreview('')}}
+                                  style={{position:'absolute',top:4,right:4,background:'rgba(0,0,0,0.55)',border:'none',borderRadius:'50%',width:24,height:24,color:'#fff',fontSize:13,cursor:'pointer'}}>✕</button>
+                              </div>
+                            ):(
+                              <label style={{display:'flex',alignItems:'center',gap:6,padding:'8px 10px',borderRadius:8,border:'1px dashed rgba(232,67,147,0.3)',cursor:'pointer',marginBottom:8,background:'rgba(232,67,147,0.03)'}}>
+                                <span style={{fontSize:13}}>📷</span>
+                                <span style={{fontSize:11,color:'#E84393'}}>{converting?'변환 중...':'사진 변경'}</span>
+                                <input type="file" accept="image/*" style={{display:'none'}} disabled={converting}
+                                  onChange={e=>{ const f=e.target.files?.[0]; if(f) handleEditImage(f) }}/>
+                              </label>
+                            )}
+                            <div style={{display:'flex',gap:6}}>
+                              <button onClick={()=>saveEdit(week)} style={{flex:1,padding:'8px 0',borderRadius:8,border:'none',background:'#E84393',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>✓ 저장</button>
+                              <button onClick={()=>{setEditingIssue(null);setEditText('');setEditBase64('');setEditPreview('')}}
+                                style={{flex:1,padding:'8px 0',borderRadius:8,border:'1px solid #E0E4E8',background:'#fff',color:'#888',fontSize:12,cursor:'pointer'}}>취소</button>
+                            </div>
                           </div>
+                        ):(
+                          // 보기 모드
+                          <div style={{background:'#fff',borderRadius:10,padding:'10px 12px',border:'1px solid rgba(232,67,147,0.15)'}}>
+                            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:imgSrc?8:0}}>
+                              <span style={{fontSize:11,color:'#E84393',fontWeight:700,flexShrink:0}}>#{idx+1}</span>
+                              <span style={{fontSize:12,color:'#1a1a2e',flex:1}}>{issue.text}</span>
+                              {isOwner&&(
+                                <div style={{display:'flex',gap:4,flexShrink:0}}>
+                                  <button onClick={e=>{e.stopPropagation();startEdit(week,issue)}}
+                                    style={{padding:'3px 8px',borderRadius:6,border:'1px solid #E0E4E8',background:'#F8F9FB',color:'#555',fontSize:11,cursor:'pointer'}}>수정</button>
+                                  <button onClick={e=>{e.stopPropagation();if(confirm('삭제할까요?'))deleteIssue(week,issue.id)}}
+                                    style={{padding:'3px 8px',borderRadius:6,border:'1px solid rgba(232,67,147,0.2)',background:'rgba(232,67,147,0.06)',color:'#E84393',fontSize:11,cursor:'pointer'}}>삭제</button>
+                                </div>
+                              )}
+                            </div>
+                            {imgSrc&&(
+                              <img src={imgSrc} alt="지적사항 사진"
+                                onClick={()=>setLightbox(imgSrc)}
+                                style={{width:'100%',maxHeight:200,objectFit:'cover',borderRadius:8,border:'1px solid #E8ECF0',cursor:'pointer',display:'block'}}/>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  {/* 새 지적사항 추가 */}
+                  {isOwner&&(
+                    <div style={{marginTop:10,background:'#fff',borderRadius:10,padding:12,border:'1px dashed rgba(232,67,147,0.25)'}}>
+                      <div style={{fontSize:10,color:'#E84393',fontWeight:600,marginBottom:8}}>+ 새 지적사항</div>
+                      <input value={newText[week]||''} onChange={e=>setNewText(p=>({...p,[week]:e.target.value}))}
+                        placeholder="지적사항 내용 입력..." style={{...singleInp,marginBottom:8}}
+                        onKeyDown={e=>{ if(e.key==='Enter') addIssue(week) }}/>
+                      {newPreview[week]?(
+                        <div style={{position:'relative',marginBottom:8}}>
+                          <img src={newPreview[week]} alt="미리보기" style={{width:'100%',maxHeight:140,objectFit:'cover',borderRadius:8,border:'1px solid #E8ECF0'}}/>
+                          <button onClick={()=>{setNewBase64(p=>({...p,[week]:''}));setNewPreview(p=>({...p,[week]:''}))}}
+                            style={{position:'absolute',top:4,right:4,background:'rgba(0,0,0,0.55)',border:'none',borderRadius:'50%',width:24,height:24,color:'#fff',fontSize:13,cursor:'pointer'}}>✕</button>
                         </div>
                       ):(
-                        <div style={{background:'#fff',borderRadius:10,padding:'10px 12px',border:'1px solid rgba(232,67,147,0.15)',display:'flex',alignItems:'center',gap:8}}>
-                          <span style={{fontSize:11,color:'#E84393',fontWeight:700,flexShrink:0}}>#{idx+1}</span>
-                          <span style={{fontSize:12,color:'#1a1a2e',flex:1}}>{issue.text}</span>
-                          {isOwner&&(
-                            <div style={{display:'flex',gap:4,flexShrink:0}}>
-                              <button onClick={e=>{e.stopPropagation();startEdit(week,issue)}} style={{padding:'3px 8px',borderRadius:6,border:'1px solid #E0E4E8',background:'#F8F9FB',color:'#555',fontSize:11,cursor:'pointer'}}>수정</button>
-                              <button onClick={e=>{e.stopPropagation();if(confirm('삭제할까요?'))deleteIssue(week,issue.id)}} style={{padding:'3px 8px',borderRadius:6,border:'1px solid rgba(232,67,147,0.2)',background:'rgba(232,67,147,0.06)',color:'#E84393',fontSize:11,cursor:'pointer'}}>삭제</button>
-                            </div>
-                          )}
-                        </div>
+                        <label style={{display:'flex',alignItems:'center',gap:6,padding:'8px 10px',borderRadius:8,border:'1px dashed #E0E4E8',cursor:'pointer',marginBottom:8,background:'#F8F9FB'}}>
+                          <span style={{fontSize:13}}>📷</span>
+                          <span style={{fontSize:11,color:'#888'}}>{converting?'변환 중...':'사진 첨부 (선택)'}</span>
+                          <input type="file" accept="image/*" style={{display:'none'}} disabled={converting}
+                            onChange={e=>{ const f=e.target.files?.[0]; if(f) handleNewImage(week,f) }}/>
+                        </label>
                       )}
-                    </div>
-                  ))}
-                  {isOwner&&(
-                    <div style={{marginTop:10,display:'flex',gap:6}}>
-                      <input value={newText[week]||''} onChange={e=>setNewText(p=>({...p,[week]:e.target.value}))}
-                        placeholder="새 지적사항 입력..." style={{...singleInp,flex:1}}
-                        onKeyDown={e=>{ if(e.key==='Enter') addIssue(week) }}/>
-                      <button onClick={()=>addIssue(week)} style={{padding:'9px 14px',borderRadius:8,border:'none',background:'#E84393',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',flexShrink:0}}>+ 추가</button>
+                      <button onClick={()=>addIssue(week)} disabled={!(newText[week]||'').trim()||converting}
+                        style={{width:'100%',padding:'9px 0',borderRadius:8,border:'none',
+                          background:!(newText[week]||'').trim()||converting?'#ddd':'#E84393',
+                          color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                        {converting?'사진 처리 중...':'+ 지적사항 추가'}
+                      </button>
                     </div>
                   )}
                 </div>
@@ -526,6 +617,7 @@ export default function GoalPage(){
                   </div>
                 )}
 
+                {/* 주간 리뷰 */}
                 <div style={{fontSize:12,fontWeight:700,color:'#555',marginBottom:10}}>📝 주간 리뷰</div>
                 {calc.goal>0&&calc.actual<calc.goal&&(
                   <div style={{marginBottom:12}}>
