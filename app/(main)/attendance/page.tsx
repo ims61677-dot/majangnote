@@ -399,10 +399,10 @@ export default function AttendancePage() {
   const [weekIssueList, setWeekIssueList] = useState<Issue[]>([])
   const [issueAcked,    setIssueAcked]    = useState(false)
 
-  // ★ 오늘 목표 매출 + 실제 매출
-  const [todayGoal,   setTodayGoal]   = useState(0)   // 오늘 목표 (평일/주말 구분)
-  const [todayActual, setTodayActual] = useState(0)   // 오늘 실제 (마감에서)
-  const [goalLoaded,  setGoalLoaded]  = useState(false)
+  // ★ 오늘 목표 매출
+  const [todayGoal,  setTodayGoal]  = useState(0)
+  const [goalLoaded, setGoalLoaded] = useState(false)
+  const [goalAcked,  setGoalAcked]  = useState(false)  // 오늘 목표 확인 체크
 
   const allTodos = [
     ...closingTodos.map(t => `c-${t.id}`),
@@ -452,8 +452,7 @@ export default function AttendancePage() {
   const canClockIn  = !attLoading && wifiOk && allChecked && (!hasIssues || issueAcked) && !attendance?.clock_in
   const canClockOut = !attLoading && wifiOk && !!attendance?.clock_in && !attendance?.clock_out
 
-  // 오늘 달성률
-  const todayRate = todayGoal > 0 ? Math.round((todayActual / todayGoal) * 100) : 0
+
 
   useEffect(() => {
     const u = JSON.parse(localStorage.getItem('mj_user')  || '{}')
@@ -564,12 +563,9 @@ export default function AttendancePage() {
       setTodayGoal(todayIsRed ? (wg.weekend || 0) : (wg.weekday || 0))
     }
 
-    // ★ 오늘 실제 매출: 오늘 날짜 마감에서 가져오기
-    const { data: closing } = await supabase.from('closings').select('id')
-      .eq('store_id', sid).eq('closing_date', today).maybeSingle()
-    if (closing) {
-      const { data: sv } = await supabase.from('closing_sales').select('amount').eq('closing_id', closing.id)
-      setTodayActual((sv || []).reduce((a: number, s: any) => a + (s.amount || 0), 0))
+    // 오늘 목표 확인 체크 복원
+    if (typeof window !== 'undefined') {
+      setGoalAcked(localStorage.getItem(`goal_ack_${today}_${sid}`) === 'true')
     }
     setGoalLoaded(true)
   }
@@ -844,70 +840,51 @@ export default function AttendancePage() {
             {/* ★ 오늘의 목표 매출 카드 — 맨 위 */}
             {goalLoaded && todayGoal > 0 && (
               <div style={{
-                borderRadius: 16, marginBottom: 12, overflow: 'hidden',
-                background: todayRate >= 100
-                  ? 'linear-gradient(135deg, #00B894, #00cec9)'
-                  : todayRate >= 60
-                  ? 'linear-gradient(135deg, #FF6B35, #E84393)'
-                  : 'linear-gradient(135deg, #E84393, #6C5CE7)',
+                borderRadius: 16, marginBottom: 12,
+                background: 'linear-gradient(135deg, #FF6B35, #E84393)',
                 boxShadow: '0 4px 20px rgba(255,107,53,0.25)'
               }}>
                 <div style={{ padding:'18px 20px' }}>
                   {/* 날짜 + 요일 */}
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-                    <div>
-                      <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)', fontWeight:600, marginBottom:2 }}>
-                        {nowDate.getMonth()+1}월 {nowDate.getDate()}일 {DOW_KR[todayDow]}
-                        {isRedDay(nowDate.getFullYear(), nowDate.getMonth()+1, nowDate.getDate()) && <span style={{ marginLeft:6, fontSize:10, background:'rgba(255,255,255,0.2)', padding:'1px 6px', borderRadius:10 }}>🔴 주말/공휴일</span>}
-                      </div>
-                      <div style={{ fontSize:14, fontWeight:800, color:'#fff' }}>🎯 오늘의 목표 매출</div>
-                    </div>
-                    <div style={{ textAlign:'right' }}>
-                      <div style={{ fontSize:30, fontWeight:900, color:'#fff', lineHeight:1 }}>
-                        {todayRate > 0 ? `${todayRate}%` : '—'}
-                      </div>
-                      {todayRate > 0 && <div style={{ fontSize:10, color:'rgba(255,255,255,0.8)', marginTop:2 }}>
-                        {todayRate >= 100 ? '🎉 달성!' : todayRate >= 80 ? '🔥 거의 다!' : todayRate >= 60 ? '⚡ 분발 필요' : '🚨 위험'}
-                      </div>}
-                    </div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)', fontWeight:600, marginBottom:4 }}>
+                    {nowDate.getMonth()+1}월 {nowDate.getDate()}일 {DOW_KR[todayDow]}
+                    {isRedDay(nowDate.getFullYear(), nowDate.getMonth()+1, nowDate.getDate()) && (
+                      <span style={{ marginLeft:6, fontSize:10, background:'rgba(255,255,255,0.2)', padding:'1px 6px', borderRadius:10 }}>🔴 주말/공휴일</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize:13, fontWeight:700, color:'rgba(255,255,255,0.85)', marginBottom:10 }}>🎯 오늘의 목표 매출</div>
+
+                  {/* 목표 금액 크게 */}
+                  <div style={{ fontSize:34, fontWeight:900, color:'#fff', marginBottom:16, letterSpacing:'-0.5px' }}>
+                    {fmtW(todayGoal)}
                   </div>
 
-                  {/* 목표 금액 강조 */}
-                  <div style={{ background:'rgba(255,255,255,0.18)', borderRadius:12, padding:'12px 16px', marginBottom:12 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div>
-                        <div style={{ fontSize:10, color:'rgba(255,255,255,0.7)', marginBottom:4 }}>오늘 목표</div>
-                        <div style={{ fontSize:24, fontWeight:900, color:'#fff' }}>{fmtW(todayGoal)}</div>
-                      </div>
-                      {todayActual > 0 && (
-                        <div style={{ textAlign:'right' }}>
-                          <div style={{ fontSize:10, color:'rgba(255,255,255,0.7)', marginBottom:4 }}>오늘 실제</div>
-                          <div style={{ fontSize:24, fontWeight:900, color:'#fff' }}>{fmtW(todayActual)}</div>
-                        </div>
-                      )}
+                  {/* 확인 체크박스 */}
+                  <div onClick={() => {
+                    const next = !goalAcked
+                    setGoalAcked(next)
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem(`goal_ack_${today}_${storeId}`, String(next))
+                    }
+                  }} style={{
+                    display:'flex', alignItems:'center', gap:10, padding:'11px 14px',
+                    background: goalAcked ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
+                    borderRadius:12, cursor:'pointer',
+                    border:`1.5px solid ${goalAcked ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'}`,
+                    transition:'all 0.15s'
+                  }}>
+                    <div style={{
+                      width:22, height:22, borderRadius:7, flexShrink:0,
+                      border:`2px solid ${goalAcked ? '#fff' : 'rgba(255,255,255,0.6)'}`,
+                      background: goalAcked ? '#fff' : 'transparent',
+                      display:'flex', alignItems:'center', justifyContent:'center'
+                    }}>
+                      {goalAcked && <span style={{ color:'#FF6B35', fontSize:13, fontWeight:900 }}>✓</span>}
                     </div>
+                    <span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>
+                      {goalAcked ? '✅ 오늘의 목표 확인 완료!' : '오늘의 목표를 확인했습니다'}
+                    </span>
                   </div>
-
-                  {/* 프로그레스 바 */}
-                  {todayActual > 0 && (
-                    <>
-                      <div style={{ width:'100%', height:8, borderRadius:8, background:'rgba(255,255,255,0.25)', overflow:'hidden', marginBottom:8 }}>
-                        <div style={{ width:`${Math.min(todayRate, 100)}%`, height:'100%', borderRadius:8, background:'rgba(255,255,255,0.9)', transition:'width 0.5s' }} />
-                      </div>
-                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'rgba(255,255,255,0.75)' }}>
-                        <span>실제 {fmtW(todayActual)}</span>
-                        {todayActual < todayGoal
-                          ? <span style={{ color:'rgba(255,255,255,0.9)', fontWeight:700 }}>-{fmtW(todayGoal - todayActual)} 남음</span>
-                          : <span style={{ color:'rgba(255,255,255,0.9)', fontWeight:700 }}>+{fmtW(todayActual - todayGoal)} 초과 🎉</span>
-                        }
-                      </div>
-                    </>
-                  )}
-                  {todayActual === 0 && (
-                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.65)', textAlign:'center', marginTop:4 }}>
-                      오늘 마감 후 실제 매출이 표시됩니다
-                    </div>
-                  )}
                 </div>
               </div>
             )}
