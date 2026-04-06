@@ -97,10 +97,12 @@ function ProgressBar({value,color='#FF6B35',height=8}:{value:number;color?:strin
   </div>
 }
 function getRateColor(rate:number){ return rate>=100?'#00B894':rate>=80?'#FF6B35':rate>=60?'#F39C12':'#E84393' }
-function getRateLabel(rate:number){ return rate>=100?'🎉 달성!':rate>=80?'🔥 거의 다 왔어요':rate>=60?'⚡ 분발 필요':rate>0?'🚨 위험':'미집계' }
+function getRateLabel(rate:number){ return rate>=100?'🎉 달성':rate>=80?'🔥 분발':rate>=60?'⚡ 주의':'🚨 위험' }
 
 const DOW=['일','월','화','수','목','금','토']
 const FAIL_CHECKS=['날씨/외부요인','인력 부족','재고 부족','서비스 문제','경쟁사 영향','마케팅 부족','시즌 비수기','기타']
+
+const STORE_COLORS = ['#FF6B35','#6C5CE7','#00B894','#E84393','#2DC6D6','#F39C12']
 
 type Issue = { id: string; text: string; imageUrl?: string; imageBase64?: string }
 function getIssueImage(issue: Issue): string { return issue.imageBase64 || issue.imageUrl || '' }
@@ -118,12 +120,12 @@ function parseWeekIssues(raw: any): Record<number, Issue[]> {
         result[weekNum] = items
       }
     }
-  } catch(e) { console.error('week_issues parse error', e) }
+  } catch(e) {}
   return result
 }
 
 // ════════════════════════════════════════
-// ★ 전지점 목표 탭 (대표 전용)
+// ★ 전지점 목표 탭 (대표 전용) - 가로 비교 형식
 // ════════════════════════════════════════
 function AllStoresGoalTab({ mainStoreId }: { mainStoreId: string }) {
   const supabase = createSupabaseBrowserClient()
@@ -132,10 +134,14 @@ function AllStoresGoalTab({ mainStoreId }: { mainStoreId: string }) {
   const [mo, setMo] = useState(now.getMonth())
   const [stores, setStores] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [storeData, setStoreData] = useState<Record<string, {
-    goal: any; weekCalc: Record<number, {goal:number;actual:number}>; monthGoal:number; monthActual:number; expectedSales:number
-  }>>({})
   const [dataLoading, setDataLoading] = useState(false)
+
+  type StoreCalc = {
+    monthGoal: number; monthActual: number; expectedSales: number
+    weekCalc: Record<number, { goal:number; actual:number; weekdays:number; redDays:number }>
+    weekGoals: Record<number, { weekday:number; weekend:number }>
+  }
+  const [storeData, setStoreData] = useState<Record<string, StoreCalc>>({})
 
   const moNum = mo + 1
   const totalWeeks = getWeeksInMonth(yr, moNum)
@@ -148,8 +154,7 @@ function AllStoresGoalTab({ mainStoreId }: { mainStoreId: string }) {
   async function loadStores() {
     setLoading(true)
     const { data: memberData } = await supabase
-      .from('store_members').select('store_id, role, stores(id, name)')
-      .eq('role', 'owner')
+      .from('store_members').select('store_id, role, stores(id, name)').eq('role', 'owner')
     let storeList = (memberData || [])
       .map((m: any) => m.stores).filter(Boolean)
       .filter((s: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === s.id) === i)
@@ -163,15 +168,13 @@ function AllStoresGoalTab({ mainStoreId }: { mainStoreId: string }) {
 
   async function loadAllData() {
     setDataLoading(true)
-    const result: typeof storeData = {}
+    const result: Record<string, StoreCalc> = {}
     await Promise.all(stores.map(async (store: any) => {
       const sid = store.id
-      // 목표 데이터
       const { data: g } = await supabase.from('goals').select('*')
         .eq('store_id', sid).eq('year', yr).eq('month', moNum).maybeSingle()
       const weekGoals: Record<number, {weekday:number;weekend:number}> = g?.weekly_goals || {}
 
-      // 실제 매출 데이터
       const from = `${yr}-${String(moNum).padStart(2,'0')}-01`
       const to = `${yr}-${String(moNum).padStart(2,'0')}-${String(getDaysInMonth(yr,moNum)).padStart(2,'0')}`
       const { data: cls } = await supabase.from('closings').select('id,closing_date')
@@ -188,8 +191,7 @@ function AllStoresGoalTab({ mainStoreId }: { mainStoreId: string }) {
         })
       }
 
-      // 주간 계산
-      const weekCalc: Record<number, {goal:number;actual:number}> = {}
+      const weekCalc: Record<number, {goal:number;actual:number;weekdays:number;redDays:number}> = {}
       let monthGoal = 0, monthActual = 0
       for (let w = 1; w <= totalWeeks; w++) {
         const days = getWeekDays(yr, moNum, w)
@@ -200,29 +202,24 @@ function AllStoresGoalTab({ mainStoreId }: { mainStoreId: string }) {
         })
         const wg = weekGoals[w] || { weekday: 0, weekend: 0 }
         const goal = wg.weekday * weekdays + wg.weekend * redDays
-        weekCalc[w] = { goal, actual }
-        monthGoal += goal
-        monthActual += actual
+        weekCalc[w] = { goal, actual, weekdays, redDays }
+        monthGoal += goal; monthActual += actual
       }
 
-      // 예상 매출 계산
       let expectedSales = 0
       for (let w = 1; w <= totalWeeks; w++) {
-        const calc = weekCalc[w] || { goal: 0, actual: 0 }
-        if (w < currentWeek) {
-          expectedSales += calc.actual
-        } else if (w === currentWeek) {
+        const calc = weekCalc[w] || { goal:0, actual:0 }
+        if (w < currentWeek) { expectedSales += calc.actual }
+        else if (w === currentWeek) {
           const days = getWeekDays(yr, moNum, w)
-          const wg = weekGoals[w] || { weekday: 0, weekend: 0 }
+          const wg = weekGoals[w] || { weekday:0, weekend:0 }
           let futureGoal = 0
           days.forEach(d => { if (d > now.getDate()) futureGoal += isRedDay(yr,moNum,d) ? wg.weekend : wg.weekday })
           expectedSales += calc.actual + futureGoal
-        } else {
-          expectedSales += calc.goal
-        }
+        } else { expectedSales += calc.goal }
       }
 
-      result[sid] = { goal: g, weekCalc, monthGoal, monthActual, expectedSales }
+      result[sid] = { monthGoal, monthActual, expectedSales, weekCalc, weekGoals }
     }))
     setStoreData(result)
     setDataLoading(false)
@@ -235,212 +232,236 @@ function AllStoresGoalTab({ mainStoreId }: { mainStoreId: string }) {
     </div>
   )
 
-  // 전체 합산
-  const totalMonthGoal = Object.values(storeData).reduce((a, b) => a + b.monthGoal, 0)
-  const totalMonthActual = Object.values(storeData).reduce((a, b) => a + b.monthActual, 0)
-  const totalExpected = Object.values(storeData).reduce((a, b) => a + b.expectedSales, 0)
-  const totalRate = totalMonthGoal > 0 ? Math.round((totalMonthActual / totalMonthGoal) * 100) : 0
-  const totalExpectedRate = totalMonthGoal > 0 ? Math.round((totalExpected / totalMonthGoal) * 100) : 0
+  const weeks = Array.from({length: totalWeeks}, (_, i) => i + 1)
 
   return (
     <div>
       <div style={{ marginBottom:16 }}>
         <YearMonthPicker year={yr} month={mo} onChange={(y,m)=>{setYr(y);setMo(m)}} color="#6C5CE7"/>
       </div>
+      {dataLoading && (
+        <div style={{ textAlign:'center', padding:'10px', fontSize:12, color:'#aaa', marginBottom:8 }}>🔄 데이터 업데이트 중...</div>
+      )}
 
-      {/* 전 지점 합산 현황 */}
-      <div style={{...bx, background:'linear-gradient(135deg,rgba(108,92,231,0.07),rgba(232,67,147,0.07))', border:'1px solid rgba(108,92,231,0.25)', marginBottom:16}}>
-        <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>
-          🏪 전 지점 합산 현황
-          {dataLoading && <span style={{ fontSize:10, color:'#bbb', marginLeft:8 }}>업데이트 중...</span>}
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:12 }}>
-          {[
-            { label:'전체 실매출', value: fmtW(totalMonthActual), color:'#FF6B35', bg:'rgba(255,107,53,0.08)' },
-            { label:'전체 목표', value: totalMonthGoal>0?fmtW(totalMonthGoal):'미설정', color:'#1a1a2e', bg:'#F8F9FB' },
-            { label:'전체 달성률', value: totalMonthGoal>0?`${totalRate}%`:'—', color:getRateColor(totalRate), bg:`rgba(${totalRate>=100?'0,184,148':totalRate>=80?'255,107,53':totalRate>=60?'243,156,18':'232,67,147'},0.08)` },
-          ].map(item => (
-            <div key={item.label} style={{ textAlign:'center', padding:'12px 6px', background:item.bg, borderRadius:12 }}>
-              <div style={{ fontSize:15, fontWeight:800, color:item.color }}>{item.value}</div>
-              <div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>{item.label}</div>
-            </div>
-          ))}
-        </div>
-        {totalMonthGoal>0&&(
-          <>
-            <ProgressBar value={totalRate} color="#6C5CE7" height={10}/>
-            {isCurrentMonth&&(
-              <div style={{ marginTop:12, padding:'10px 14px', borderRadius:12, background:'rgba(108,92,231,0.06)', border:'1px solid rgba(108,92,231,0.2)' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
-                  <span style={{ fontSize:11, fontWeight:700, color:'#6C5CE7' }}>🔮 전 지점 예상 합산</span>
-                  <span style={{ fontSize:13, fontWeight:800, color:getRateColor(totalExpectedRate) }}>{totalExpectedRate}%</span>
+      {/* ── 월 달성률 가로 비교 카드 ── */}
+      <div style={{ overflowX:'auto', marginBottom:12 }}>
+        <div style={{ display:'flex', gap:10, minWidth: stores.length > 2 ? stores.length * 160 : 'auto' }}>
+          {stores.map((store: any, si: number) => {
+            const d = storeData[store.id]
+            const color = STORE_COLORS[si % STORE_COLORS.length]
+            const monthRate = d && d.monthGoal > 0 ? Math.round((d.monthActual / d.monthGoal) * 100) : 0
+            const expectedRate = d && d.monthGoal > 0 ? Math.round((d.expectedSales / d.monthGoal) * 100) : 0
+            const monthRemaining = d ? Math.max(d.monthGoal - d.monthActual, 0) : 0
+            const monthRemainDays = getMonthRemainingDays(yr, moNum, now)
+
+            return (
+              <div key={store.id} style={{ flex:1, minWidth:150, background:'#fff', borderRadius:16, border:`2px solid ${color}30`, padding:14, boxShadow:`0 2px 12px ${color}15` }}>
+                {/* 지점명 */}
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:12 }}>
+                  <div style={{ width:10, height:10, borderRadius:'50%', background:color, flexShrink:0 }}/>
+                  <span style={{ fontSize:13, fontWeight:800, color:'#1a1a2e' }}>{store.name}</span>
                 </div>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
-                  <div style={{ textAlign:'center', background:'#fff', borderRadius:8, padding:'6px' }}>
-                    <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>예상 달성</div>
-                    <div style={{ fontSize:12, fontWeight:800, color:'#6C5CE7' }}>{fmtW(totalExpected)}</div>
-                  </div>
-                  <div style={{ textAlign:'center', background:totalMonthGoal>totalExpected?'rgba(232,67,147,0.06)':'rgba(0,184,148,0.06)', borderRadius:8, padding:'6px', border:`1px solid ${totalMonthGoal>totalExpected?'rgba(232,67,147,0.2)':'rgba(0,184,148,0.2)'}` }}>
-                    <div style={{ fontSize:9, color:totalMonthGoal>totalExpected?'#E84393':'#00B894', marginBottom:2 }}>예상 간극</div>
-                    <div style={{ fontSize:12, fontWeight:800, color:totalMonthGoal>totalExpected?'#E84393':'#00B894' }}>
-                      {totalMonthGoal>totalExpected?`-${fmtW(totalMonthGoal-totalExpected)}`:`+${fmtW(totalExpected-totalMonthGoal)}`}
+
+                {d && d.monthGoal > 0 ? (
+                  <>
+                    {/* 달성률 크게 */}
+                    <div style={{ textAlign:'center', marginBottom:10 }}>
+                      <div style={{ fontSize:32, fontWeight:900, color:getRateColor(monthRate), lineHeight:1 }}>{monthRate}%</div>
+                      <div style={{ fontSize:11, fontWeight:700, color:getRateColor(monthRate), marginTop:3 }}>{getRateLabel(monthRate)}</div>
                     </div>
+                    <ProgressBar value={monthRate} color={color} height={8}/>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginTop:6, marginBottom:10 }}>
+                      <div>
+                        <div style={{ fontSize:9, color:'#aaa' }}>실제 매출</div>
+                        <div style={{ fontSize:12, fontWeight:800, color }}>{ fmtW(d.monthActual)}</div>
+                      </div>
+                      <div style={{ textAlign:'right' }}>
+                        <div style={{ fontSize:9, color:'#aaa' }}>월 목표</div>
+                        <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>{fmtW(d.monthGoal)}</div>
+                      </div>
+                    </div>
+
+                    {/* 남은 매출 */}
+                    {monthRemaining > 0 ? (
+                      <div style={{ padding:'8px 10px', borderRadius:10, background:`${color}08`, border:`1px dashed ${color}40`, marginBottom:8 }}>
+                        <div style={{ fontSize:9, color:'#aaa', marginBottom:3 }}>
+                          달성까지 {isCurrentMonth&&monthRemainDays>0?`(${monthRemainDays}일 남음)`:''}
+                        </div>
+                        <div style={{ fontSize:14, fontWeight:900, color }}>-{fmtW(monthRemaining)}</div>
+                        {isCurrentMonth&&monthRemainDays>0&&(
+                          <div style={{ fontSize:9, color:'#aaa', marginTop:2 }}>
+                            하루 {fmtW(Math.ceil(monthRemaining/monthRemainDays))} 필요
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ padding:'7px 10px', borderRadius:10, background:'rgba(0,184,148,0.08)', marginBottom:8, textAlign:'center' }}>
+                        <span style={{ fontSize:11, fontWeight:700, color:'#00B894' }}>🎉 달성!</span>
+                      </div>
+                    )}
+
+                    {/* 예상 */}
+                    {isCurrentMonth && (
+                      <div style={{ padding:'7px 10px', borderRadius:10, background:'rgba(108,92,231,0.06)', border:'1px solid rgba(108,92,231,0.15)' }}>
+                        <div style={{ fontSize:9, color:'#6C5CE7', marginBottom:3 }}>🔮 예상 달성률</div>
+                        <div style={{ fontSize:16, fontWeight:800, color:'#6C5CE7' }}>{expectedRate}%</div>
+                        <div style={{ fontSize:9, color:'#aaa', marginTop:1 }}>
+                          {d.monthGoal > d.expectedSales
+                            ? `-${fmtW(d.monthGoal - d.expectedSales)} 부족 예상`
+                            : `+${fmtW(d.expectedSales - d.monthGoal)} 초과 예상`}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ textAlign:'center', padding:'20px 0', color:'#ccc', fontSize:12 }}>
+                    목표 미설정
                   </div>
-                  <div style={{ textAlign:'center', background:'#F8F9FB', borderRadius:8, padding:'6px' }}>
-                    <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>전체 목표</div>
-                    <div style={{ fontSize:12, fontWeight:800, color:'#1a1a2e' }}>{fmtW(totalMonthGoal)}</div>
-                  </div>
-                </div>
+                )}
               </div>
-            )}
-          </>
-        )}
+            )
+          })}
+        </div>
       </div>
 
-      {/* 지점별 카드 */}
-      {stores.map((store: any) => {
-        const d = storeData[store.id]
-        if (!d) return (
-          <div key={store.id} style={{...bx, textAlign:'center', color:'#bbb', padding:20}}>
-            ⏳ {store.name} 로딩 중...
-          </div>
-        )
-        const { monthGoal, monthActual, weekCalc, expectedSales } = d
-        const monthRate = monthGoal > 0 ? Math.round((monthActual / monthGoal) * 100) : 0
-        const monthRemaining = monthGoal > monthActual ? monthGoal - monthActual : 0
-        const expectedGap = monthGoal - expectedSales
-        const expectedRate = monthGoal > 0 ? Math.round((expectedSales / monthGoal) * 100) : 0
-        const monthRemainDays = getMonthRemainingDays(yr, moNum, now)
-
-        return (
-          <div key={store.id} style={{...bx, border:`1px solid ${monthRate>=100?'rgba(0,184,148,0.3)':monthRate>=60?'rgba(255,107,53,0.25)':'rgba(232,67,147,0.3)'}`}}>
-            {/* 지점명 헤더 */}
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-              <div style={{ fontSize:14, fontWeight:800, color:'#1a1a2e' }}>🏪 {store.name}</div>
-              <div style={{ fontSize:20, fontWeight:900, color:getRateColor(monthRate) }}>
-                {monthGoal>0?`${monthRate}%`:'미설정'}
-              </div>
-            </div>
-
-            {monthGoal>0 ? (
-              <>
-                <ProgressBar value={monthRate} color={getRateColor(monthRate)} height={10}/>
-                {/* 실매출 / 목표 */}
-                <div style={{ display:'flex', justifyContent:'space-between', marginTop:8, marginBottom:10 }}>
-                  <div>
-                    <div style={{ fontSize:10, color:'#aaa' }}>실제 매출</div>
-                    <div style={{ fontSize:15, fontWeight:800, color:'#FF6B35' }}>{fmtW(monthActual)}</div>
-                  </div>
-                  <div style={{ textAlign:'right' }}>
-                    <div style={{ fontSize:10, color:'#aaa' }}>월 목표</div>
-                    <div style={{ fontSize:15, fontWeight:800, color:'#1a1a2e' }}>{fmtW(monthGoal)}</div>
-                  </div>
-                </div>
-
-                {/* 남은 매출 */}
-                {monthRemaining>0&&(
-                  <div style={{ marginBottom:10, padding:'10px 12px', borderRadius:10,
-                    background:monthRate<60?'rgba(232,67,147,0.07)':'rgba(255,107,53,0.06)',
-                    border:`1px dashed ${monthRate<60?'rgba(232,67,147,0.3)':'rgba(255,107,53,0.25)'}`}}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div>
-                        <div style={{ fontSize:10, color:'#888', marginBottom:3 }}>
-                          🏁 달성까지
-                          {isCurrentMonth&&monthRemainDays>0&&<span style={{ color:'#bbb' }}> (남은 {monthRemainDays}일)</span>}
-                        </div>
-                        <div style={{ fontSize:16, fontWeight:900, color:monthRate<60?'#E84393':'#FF6B35' }}>{fmtW(monthRemaining)} 부족</div>
-                      </div>
-                      {isCurrentMonth&&monthRemainDays>0&&(
-                        <div style={{ textAlign:'right', background:'#fff', borderRadius:8, padding:'6px 10px', border:'1px solid #E8ECF0' }}>
-                          <div style={{ fontSize:9, color:'#aaa', marginBottom:2 }}>하루 평균</div>
-                          <div style={{ fontSize:13, fontWeight:800, color:monthRate<60?'#E84393':'#FF6B35' }}>
-                            {fmtW(Math.ceil(monthRemaining/monthRemainDays))}
-                          </div>
-                        </div>
-                      )}
+      {/* ── 주차별 가로 비교표 ── */}
+      <div style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
+        <div style={{ padding:'12px 16px', borderBottom:'1px solid #F0F2F5', fontSize:12, fontWeight:700, color:'#1a1a2e' }}>
+          📅 주차별 비교
+        </div>
+        <div style={{ overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+            <thead>
+              <tr style={{ background:'#F8F9FB' }}>
+                <th style={{ padding:'10px 14px', textAlign:'left', color:'#888', fontWeight:700, fontSize:11, borderBottom:'1px solid #E8ECF0', whiteSpace:'nowrap', minWidth:80 }}>주차</th>
+                {stores.map((store: any, si: number) => (
+                  <th key={store.id} style={{ padding:'10px 12px', textAlign:'center', borderBottom:'1px solid #E8ECF0', minWidth:140 }}>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:5 }}>
+                      <div style={{ width:8, height:8, borderRadius:'50%', background:STORE_COLORS[si % STORE_COLORS.length] }}/>
+                      <span style={{ fontSize:12, fontWeight:700, color:'#1a1a2e' }}>{store.name}</span>
                     </div>
-                  </div>
-                )}
-                {monthRemaining===0&&(
-                  <div style={{ marginBottom:10, padding:'8px', borderRadius:10, background:'rgba(0,184,148,0.08)', textAlign:'center' }}>
-                    <span style={{ fontSize:12, fontWeight:700, color:'#00B894' }}>🎉 이번 달 목표 달성!</span>
-                  </div>
-                )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {weeks.map(week => {
+                const days = getWeekDays(yr, moNum, week)
+                const isCurrent = yr===now.getFullYear()&&moNum===now.getMonth()+1&&days.includes(now.getDate())
+                const isPast = isCurrentMonth && week < currentWeek
 
-                {/* 예상 매출 */}
-                {isCurrentMonth&&(
-                  <div style={{ padding:'10px 12px', borderRadius:10, background:'rgba(108,92,231,0.06)', border:'1px solid rgba(108,92,231,0.18)' }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
-                      <span style={{ fontSize:11, fontWeight:700, color:'#6C5CE7' }}>🔮 예상 달성</span>
-                      <span style={{ fontSize:13, fontWeight:800, color:getRateColor(expectedRate) }}>{expectedRate}%</span>
-                    </div>
-                    <div style={{ display:'flex', gap:6 }}>
-                      <div style={{ flex:1, textAlign:'center', background:'#fff', borderRadius:8, padding:'5px' }}>
-                        <div style={{ fontSize:9, color:'#6C5CE7', marginBottom:2 }}>예상 달성액</div>
-                        <div style={{ fontSize:12, fontWeight:800, color:'#6C5CE7' }}>{fmtW(expectedSales)}</div>
+                return (
+                  <tr key={week} style={{ background: isCurrent ? 'rgba(255,107,53,0.03)' : '#fff', borderBottom:'1px solid #F4F6F9' }}>
+                    {/* 주차 라벨 */}
+                    <td style={{ padding:'12px 14px', verticalAlign:'middle' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        {isCurrent && (
+                          <span style={{ fontSize:9, background:'rgba(255,107,53,0.15)', color:'#FF6B35', padding:'1px 5px', borderRadius:4, fontWeight:700, whiteSpace:'nowrap' }}>이번 주</span>
+                        )}
+                        {isPast && (
+                          <span style={{ fontSize:9, background:'#F0F2F5', color:'#aaa', padding:'1px 5px', borderRadius:4, fontWeight:600, whiteSpace:'nowrap' }}>지난 주</span>
+                        )}
+                        {!isCurrent && !isPast && isCurrentMonth && (
+                          <span style={{ fontSize:9, background:'rgba(108,92,231,0.1)', color:'#6C5CE7', padding:'1px 5px', borderRadius:4, fontWeight:600, whiteSpace:'nowrap' }}>예정</span>
+                        )}
                       </div>
-                      <div style={{ flex:1, textAlign:'center', background:expectedGap>0?'rgba(232,67,147,0.06)':'rgba(0,184,148,0.06)', borderRadius:8, padding:'5px', border:`1px solid ${expectedGap>0?'rgba(232,67,147,0.15)':'rgba(0,184,148,0.15)'}` }}>
-                        <div style={{ fontSize:9, color:expectedGap>0?'#E84393':'#00B894', marginBottom:2 }}>예상 간극</div>
-                        <div style={{ fontSize:12, fontWeight:800, color:expectedGap>0?'#E84393':'#00B894' }}>
-                          {expectedGap>0?`-${fmtW(expectedGap)}`:`+${fmtW(-expectedGap)}`}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                      <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginTop:2 }}>{week}주차</div>
+                      <div style={{ fontSize:10, color:'#aaa' }}>{moNum}/{days[0]}~{moNum}/{days[days.length-1]}</div>
+                    </td>
 
-                {/* 주간 요약 */}
-                <div style={{ marginTop:12 }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:'#555', marginBottom:8 }}>📅 주차별 현황</div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                    {Array.from({length:getWeeksInMonth(yr,moNum)},(_,i)=>i+1).map(week=>{
-                      const days = getWeekDays(yr, moNum, week)
-                      const calc = weekCalc[week] || { goal:0, actual:0 }
-                      const wRate = calc.goal>0 ? Math.round((calc.actual/calc.goal)*100) : 0
-                      const isCurrent = yr===now.getFullYear()&&moNum===now.getMonth()+1&&days.includes(now.getDate())
+                    {/* 지점별 주간 데이터 */}
+                    {stores.map((store: any, si: number) => {
+                      const d = storeData[store.id]
+                      const color = STORE_COLORS[si % STORE_COLORS.length]
+                      const calc = d?.weekCalc[week] || { goal:0, actual:0 }
+                      const rate = calc.goal > 0 ? Math.round((calc.actual / calc.goal) * 100) : 0
+                      const remaining = Math.max(calc.goal - calc.actual, 0)
+                      const remainDays = getRemainingDays(yr, moNum, week, now)
+
                       return (
-                        <div key={week} style={{ padding:'8px 12px', borderRadius:10,
-                          background:isCurrent?'rgba(255,107,53,0.05)':'#F8F9FB',
-                          border:isCurrent?'1px solid rgba(255,107,53,0.2)':'1px solid transparent' }}>
-                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                              {isCurrent&&<span style={{ fontSize:9, background:'rgba(255,107,53,0.15)', color:'#FF6B35', padding:'1px 5px', borderRadius:4, fontWeight:700 }}>이번 주</span>}
-                              <span style={{ fontSize:11, fontWeight:700, color:'#555' }}>{week}주차</span>
-                              <span style={{ fontSize:10, color:'#aaa' }}>{moNum}/{days[0]}~{moNum}/{days[days.length-1]}</span>
-                            </div>
-                            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                              {calc.goal>0&&<span style={{ fontSize:11, fontWeight:800, color:getRateColor(wRate) }}>{wRate}%</span>}
-                              {calc.goal===0&&<span style={{ fontSize:10, color:'#ccc' }}>미설정</span>}
-                            </div>
-                          </div>
-                          {calc.goal>0&&(
-                            <>
-                              <ProgressBar value={wRate} color={getRateColor(wRate)} height={5}/>
-                              <div style={{ display:'flex', justifyContent:'space-between', marginTop:3 }}>
-                                <span style={{ fontSize:10, color:'#aaa' }}>실제 {fmtW(calc.actual)}</span>
-                                <span style={{ fontSize:10, color:'#aaa' }}>목표 {fmtW(calc.goal)}</span>
+                        <td key={store.id} style={{ padding:'12px', verticalAlign:'middle', borderLeft:'1px solid #F4F6F9' }}>
+                          {calc.goal > 0 ? (
+                            <div>
+                              {/* 달성률 + 라벨 */}
+                              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:5 }}>
+                                <span style={{ fontSize:11, fontWeight:700, color:getRateColor(rate) }}>{getRateLabel(rate)}</span>
+                                <span style={{ fontSize:16, fontWeight:900, color:getRateColor(rate) }}>{rate}%</span>
                               </div>
-                              {calc.actual<calc.goal&&(
-                                <div style={{ fontSize:10, color:wRate<60?'#E84393':'#FF6B35', fontWeight:600, marginTop:2 }}>
-                                  -{fmtW(calc.goal-calc.actual)} 부족
+                              <ProgressBar value={rate} color={color} height={6}/>
+                              {/* 실제/목표 */}
+                              <div style={{ display:'flex', justifyContent:'space-between', marginTop:4 }}>
+                                <span style={{ fontSize:10, color:color, fontWeight:700 }}>{fmtW(calc.actual)}</span>
+                                <span style={{ fontSize:10, color:'#aaa' }}>{fmtW(calc.goal)}</span>
+                              </div>
+                              {/* 남은 매출 */}
+                              {remaining > 0 && (
+                                <div style={{ marginTop:5, padding:'4px 8px', borderRadius:7, background:`${getRateColor(rate)}10`, border:`1px solid ${getRateColor(rate)}25` }}>
+                                  <div style={{ fontSize:9, color:'#aaa' }}>
+                                    {remainDays > 0 ? `${remainDays}일 남음` : '마감'}
+                                  </div>
+                                  <div style={{ fontSize:11, fontWeight:800, color:getRateColor(rate) }}>-{fmtW(remaining)}</div>
+                                  {remainDays > 0 && (
+                                    <div style={{ fontSize:9, color:'#aaa' }}>하루 {fmtW(Math.ceil(remaining/remainDays))}</div>
+                                  )}
                                 </div>
                               )}
-                            </>
+                              {remaining === 0 && (
+                                <div style={{ marginTop:5, padding:'4px 8px', borderRadius:7, background:'rgba(0,184,148,0.08)', textAlign:'center' }}>
+                                  <span style={{ fontSize:10, fontWeight:700, color:'#00B894' }}>🎉 달성!</span>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ textAlign:'center', color:'#ddd', fontSize:11 }}>미설정</div>
                           )}
-                        </div>
+                        </td>
                       )
                     })}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div style={{ textAlign:'center', padding:'20px 0', color:'#ccc', fontSize:12 }}>
-                📊 이번 달 목표가 설정되지 않았습니다
-              </div>
-            )}
-          </div>
-        )
-      })}
+                  </tr>
+                )
+              })}
+
+              {/* 월 합계 행 */}
+              <tr style={{ background:'#F8F9FB', borderTop:'2px solid #E8ECF0' }}>
+                <td style={{ padding:'12px 14px' }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:'#1a1a2e' }}>📊 월 합계</div>
+                </td>
+                {stores.map((store: any, si: number) => {
+                  const d = storeData[store.id]
+                  const color = STORE_COLORS[si % STORE_COLORS.length]
+                  const monthRate = d && d.monthGoal > 0 ? Math.round((d.monthActual / d.monthGoal) * 100) : 0
+                  return (
+                    <td key={store.id} style={{ padding:'12px', borderLeft:'1px solid #E8ECF0' }}>
+                      {d && d.monthGoal > 0 ? (
+                        <div>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                            <span style={{ fontSize:11, fontWeight:700, color:getRateColor(monthRate) }}>{monthRate}%</span>
+                          </div>
+                          <ProgressBar value={monthRate} color={color} height={6}/>
+                          <div style={{ display:'flex', justifyContent:'space-between', marginTop:4 }}>
+                            <span style={{ fontSize:10, color, fontWeight:700 }}>{fmtW(d.monthActual)}</span>
+                            <span style={{ fontSize:10, color:'#aaa' }}>{fmtW(d.monthGoal)}</span>
+                          </div>
+                          {isCurrentMonth && (
+                            <div style={{ marginTop:5, padding:'4px 8px', borderRadius:7, background:'rgba(108,92,231,0.08)' }}>
+                              <div style={{ fontSize:9, color:'#6C5CE7' }}>🔮 예상</div>
+                              <div style={{ fontSize:11, fontWeight:800, color:'#6C5CE7' }}>
+                                {d.monthGoal > 0 ? Math.round((d.expectedSales / d.monthGoal) * 100) : 0}%
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ textAlign:'center', color:'#ddd', fontSize:11 }}>미설정</div>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   )
 }
@@ -455,21 +476,17 @@ export default function GoalPage(){
   const [mo,setMo] = useState(now.getMonth())
   const [storeId,setStoreId] = useState('')
   const [myRole,setMyRole] = useState('')
-
-  // 탭: 내 매장 / 전지점 (대표만)
   const [tab, setTab] = useState<'my'|'all'>('my')
 
   const [weekGoals,setWeekGoals] = useState<Record<number,{weekday:number;weekend:number}>>({})
   const [weekReviews,setWeekReviews] = useState<Record<number,{failReasons:string[];comment:string;action:string}>>({})
   const [weekIssues,setWeekIssues] = useState<Record<number,Issue[]>>({})
 
-  // 새 지적사항
   const [newText,setNewText] = useState<Record<number,string>>({})
   const [newPreview,setNewPreview] = useState<Record<number,string>>({})
   const [newBase64,setNewBase64] = useState<Record<number,string>>({})
   const [converting,setConverting] = useState(false)
 
-  // 수정
   const [editingIssue,setEditingIssue] = useState<{week:number;id:string}|null>(null)
   const [editText,setEditText] = useState('')
   const [editBase64,setEditBase64] = useState('')
@@ -517,7 +534,6 @@ export default function GoalPage(){
     } else setDailySales({})
   }
 
-  // 사진 처리
   async function handleNewImage(week:number, file:File){
     setConverting(true)
     try { const b64=await fileToBase64(file); setNewBase64(p=>({...p,[week]:b64})); setNewPreview(p=>({...p,[week]:b64})) }
@@ -531,7 +547,6 @@ export default function GoalPage(){
     setConverting(false)
   }
 
-  // 지적사항 CRUD
   function addIssue(week:number){
     const text=(newText[week]||'').trim(); if(!text) return
     const item:Issue={ id:Date.now().toString(), text, ...(newBase64[week]?{imageBase64:newBase64[week]}:{}) }
@@ -615,7 +630,6 @@ export default function GoalPage(){
 
   return(
     <div>
-      {/* 라이트박스 */}
       {lightbox&&(
         <div onClick={()=>setLightbox(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.88)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
           <img src={lightbox} alt="확대" style={{maxWidth:'100%',maxHeight:'90vh',borderRadius:12,objectFit:'contain'}}/>
@@ -623,19 +637,12 @@ export default function GoalPage(){
         </div>
       )}
 
-      {/* 탭 (대표만 전지점 탭 노출) */}
+      {/* 탭 (대표만) */}
       {isOwner && (
         <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16 }}>
-          {[
-            { v:'my' as const, l:'📊 내 매장' },
-            { v:'all' as const, l:'🏪 전 지점' },
-          ].map(t => (
+          {[{v:'my' as const,l:'📊 내 매장'},{v:'all' as const,l:'🏪 전 지점'}].map(t=>(
             <button key={t.v} onClick={()=>setTab(t.v)}
-              style={{ flex:1, padding:'9px 0', borderRadius:10, border:'none', cursor:'pointer',
-                fontSize:13, fontWeight:tab===t.v?700:400,
-                background:tab===t.v?'#fff':'transparent',
-                color:tab===t.v?'#1a1a2e':'#aaa',
-                boxShadow:tab===t.v?'0 1px 4px rgba(0,0,0,0.08)':'none' }}>
+              style={{flex:1,padding:'9px 0',borderRadius:10,border:'none',cursor:'pointer',fontSize:13,fontWeight:tab===t.v?700:400,background:tab===t.v?'#fff':'transparent',color:tab===t.v?'#1a1a2e':'#aaa',boxShadow:tab===t.v?'0 1px 4px rgba(0,0,0,0.08)':'none'}}>
               {t.l}
             </button>
           ))}
@@ -643,9 +650,7 @@ export default function GoalPage(){
       )}
 
       {/* 전지점 탭 */}
-      {tab==='all' && isOwner && storeId && (
-        <AllStoresGoalTab mainStoreId={storeId} />
-      )}
+      {tab==='all' && isOwner && storeId && <AllStoresGoalTab mainStoreId={storeId}/>}
 
       {/* 내 매장 탭 */}
       {tab==='my' && (
@@ -673,7 +678,7 @@ export default function GoalPage(){
               </div>
               <div style={{textAlign:'right'}}>
                 <div style={{fontSize:28,fontWeight:900,color:getRateColor(monthRate)}}>{monthRate}%</div>
-                <div style={{fontSize:10,fontWeight:600,color:getRateColor(monthRate)}}>{getRateLabel(monthRate)}</div>
+                <div style={{fontSize:10,fontWeight:600,color:getRateColor(monthRate)}}>{monthRate>=100?'🎉 달성!':monthRate>=80?'🔥 거의 다 왔어요':monthRate>=60?'⚡ 분발 필요':monthRate>0?'🚨 위험':'미집계'}</div>
               </div>
             </div>
             <ProgressBar value={monthRate} color="#FF6B35" height={12}/>
@@ -681,7 +686,6 @@ export default function GoalPage(){
               <div><div style={{fontSize:10,color:'#aaa'}}>실제 매출</div><div style={{fontSize:16,fontWeight:800,color:'#FF6B35'}}>{fmtW(monthActualTotal)}</div></div>
               <div style={{textAlign:'right'}}><div style={{fontSize:10,color:'#aaa'}}>월 목표</div><div style={{fontSize:16,fontWeight:800,color:'#1a1a2e'}}>{monthGoalTotal>0?fmtW(monthGoalTotal):'미설정'}</div></div>
             </div>
-
             {monthGoalTotal>0&&(monthRemaining>0?(
               <div style={{borderRadius:12,padding:'12px 14px',marginBottom:12,background:monthRate<60?'rgba(232,67,147,0.08)':'rgba(255,107,53,0.07)',border:`1px dashed ${monthRate<60?'rgba(232,67,147,0.35)':'rgba(255,107,53,0.3)'}`}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
@@ -705,7 +709,6 @@ export default function GoalPage(){
                 <div style={{fontSize:11,color:'#00B894',marginTop:2}}>{fmtW(monthActualTotal-monthGoalTotal)} 초과 달성</div>
               </div>
             ))}
-
             {monthGoalTotal>0&&isCurrentMonth&&(
               <div style={{borderRadius:12,padding:'14px',background:'rgba(108,92,231,0.06)',border:'1px solid rgba(108,92,231,0.2)'}}>
                 <div style={{fontSize:11,fontWeight:700,color:'#6C5CE7',marginBottom:6}}>🔮 이번 달 예상 매출</div>
@@ -781,7 +784,7 @@ export default function GoalPage(){
                   {calc.goal>0&&(
                     <div style={{background:rate>=100?'rgba(0,184,148,0.07)':rate>=80?'rgba(255,107,53,0.07)':'rgba(232,67,147,0.07)',borderRadius:10,padding:'10px 12px',marginBottom:10,border:`1px solid ${rate>=100?'rgba(0,184,148,0.2)':rate>=80?'rgba(255,107,53,0.2)':'rgba(232,67,147,0.2)'}`}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-                        <span style={{fontSize:11,fontWeight:700,color:getRateColor(rate)}}>{getRateLabel(rate)}</span>
+                        <span style={{fontSize:11,fontWeight:700,color:getRateColor(rate)}}>{rate>=100?'🎉 달성!':rate>=80?'🔥 거의 다 왔어요':rate>=60?'⚡ 분발 필요':'🚨 위험'}</span>
                         <span style={{fontSize:20,fontWeight:900,color:getRateColor(rate)}}>{rate}%</span>
                       </div>
                       <ProgressBar value={rate} color={getRateColor(rate)} height={10}/>
@@ -837,8 +840,7 @@ export default function GoalPage(){
 
                 {isExpanded&&(
                   <div style={{marginTop:16,borderTop:'1px solid #F4F6F9',paddingTop:16}}>
-
-                    {/* 주간 지적사항 */}
+                    {/* 지적사항 */}
                     <div style={{marginBottom:16,background:'rgba(232,67,147,0.04)',borderRadius:12,padding:14,border:'1px solid rgba(232,67,147,0.15)'}}>
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
                         <div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -941,7 +943,6 @@ export default function GoalPage(){
                       </div>
                     )}
 
-                    {/* 리뷰 */}
                     <div style={{fontSize:12,fontWeight:700,color:'#555',marginBottom:10}}>📝 주간 리뷰</div>
                     {calc.goal>0&&calc.actual<calc.goal&&(
                       <div style={{marginBottom:12}}>
