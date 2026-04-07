@@ -18,6 +18,7 @@ const PC_NAV = [
   { href: '/goal',        ic: '🎯', l: '목표매출' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
   { href: '/advance',     ic: '💸', l: '선입금' },
+  { href: '/settlement',  ic: '💹', l: '결산', ownerOnly: true },
   { href: '/mypage',      ic: '👤', l: '마이페이지' },
 ]
 
@@ -204,7 +205,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           <div style={{ width: 1, height: 28, background: '#E8ECF0', marginRight: 20, flexShrink: 0 }} />
 
           <nav style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, overflowX: 'auto', scrollbarWidth: 'none' }}>
-            {PC_NAV.map(item => {
+            {PC_NAV.filter(item => !(item as any).ownerOnly || isOwner).map(item => {
               const active = pathname.startsWith(item.href)
               const isSuggestions = item.href === '/suggestions'
               return (

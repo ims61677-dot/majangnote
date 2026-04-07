@@ -29,6 +29,7 @@ const MORE_ITEMS = [
   { href: '/goal',        ic: '🎯', l: '목표매출' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
   { href: '/advance',     ic: '💸', l: '선입금' },
+  { href: '/settlement',  ic: '💹', l: '결산', ownerOnly: true },
   { href: '/mypage',      ic: '👤', l: '마이페이지' },
 ]
 
@@ -45,6 +46,7 @@ export default function BottomNav({ current }: { current: string }) {
   const [badge, setBadge] = useState(0)
   const [screen, setScreen] = useState<ScreenType>('mobile')
   const [mounted, setMounted] = useState(false)
+  const [isOwner, setIsOwner] = useState(false)
   const isMore = MORE_PATHS.some(p => current.startsWith(p))
 
   useEffect(() => {
@@ -57,6 +59,13 @@ export default function BottomNav({ current }: { current: string }) {
     updateScreen()
     setMounted(true)
     window.addEventListener('resize', updateScreen)
+
+    // 대표 여부 확인
+    try {
+      const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
+      setIsOwner(u.role === 'owner')
+    } catch {}
+
     return () => window.removeEventListener('resize', updateScreen)
   }, [])
 
@@ -81,7 +90,9 @@ export default function BottomNav({ current }: { current: string }) {
   if (!mounted || screen === 'pc') return null
 
   const tabs = screen === 'tablet' ? TABLET_TABS : MOBILE_TABS
-  const moreItems = screen === 'tablet' ? TABLET_MORE_ITEMS : MORE_ITEMS
+  const allMoreItems = screen === 'tablet' ? TABLET_MORE_ITEMS : MORE_ITEMS
+  // 대표만 보이는 메뉴 필터링
+  const moreItems = allMoreItems.filter(item => !(item as any).ownerOnly || isOwner)
   const barMaxWidth = screen === 'tablet' ? 900 : 480
   const iconSize = screen === 'tablet' ? 20 : 18
   const labelSize = screen === 'tablet' ? 11 : 10
