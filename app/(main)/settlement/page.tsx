@@ -66,9 +66,7 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
       await supabase.from('settlement_settings').insert(data)
     }
     const { data: updated } = await supabase.from('settlement_settings').select('*').eq('store_id', storeId).maybeSingle()
-    setSaving(false)
-    onSave(updated)
-    onClose()
+    setSaving(false); onSave(updated); onClose()
   }
 
   async function togglePermission(member: any) {
@@ -98,9 +96,8 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
           <span style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>⚙️ 결산 설정</span>
           <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
         </div>
-
         <div style={{ display:'flex', background:'#F4F6F9', borderRadius:10, padding:3, marginBottom:20, gap:2 }}>
-          {[{ key:'settings', label:'💳 카드수수료 설정' }, { key:'permissions', label:'👥 관리자 권한' }].map(t => (
+          {[{ key:'settings', label:'💳 카드수수료 설정' },{ key:'permissions', label:'👥 관리자 권한' }].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as any)}
               style={{ flex:1, padding:'8px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:12, fontWeight: tab===t.key?700:400, background: tab===t.key?'#fff':'transparent', color: tab===t.key?'#1a1a2e':'#aaa', boxShadow: tab===t.key?'0 1px 4px rgba(0,0,0,0.08)':'none' }}>
               {t.label}
@@ -113,7 +110,7 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
             <div style={{ marginBottom:16 }}>
               <span style={lbl}>사업자 유형</span>
               <div style={{ display:'flex', gap:8 }}>
-                {[{ key:'individual', label:'👤 개인사업자' }, { key:'corporation', label:'🏢 법인' }].map(b => (
+                {[{ key:'individual', label:'👤 개인사업자' },{ key:'corporation', label:'🏢 법인' }].map(b => (
                   <button key={b.key} onClick={() => setBizType(b.key)}
                     style={{ flex:1, padding:'10px 0', borderRadius:10, border: bizType===b.key?'2px solid #6C5CE7':'1px solid #E8ECF0', background: bizType===b.key?'rgba(108,92,231,0.1)':'#F8F9FB', color: bizType===b.key?'#6C5CE7':'#888', fontSize:13, fontWeight: bizType===b.key?700:400, cursor:'pointer' }}>
                     {b.label}
@@ -121,7 +118,6 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
                 ))}
               </div>
             </div>
-
             <div style={{ marginBottom:8 }}>
               <span style={lbl}>카드 수수료율 (%)</span>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -131,19 +127,17 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
                 <span style={{ fontSize:14, color:'#888', flexShrink:0 }}>%</span>
               </div>
             </div>
-
             <div style={{ background:'rgba(108,92,231,0.05)', borderRadius:12, padding:14, marginBottom:20 }}>
               <div style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>💡 카드수수료율 참고표 (탭하면 자동입력)</div>
               {CARD_RATE_GUIDE.map(g => (
                 <div key={g.label} onClick={() => setCardRate(g.rate)}
-                  style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 12px', borderRadius:9, marginBottom:4, cursor:'pointer', background: cardRate===g.rate?'rgba(108,92,231,0.12)':'transparent', border: cardRate===g.rate?'1px solid rgba(108,92,231,0.3)':'1px solid transparent', transition:'all 0.15s' }}>
+                  style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 12px', borderRadius:9, marginBottom:4, cursor:'pointer', background: cardRate===g.rate?'rgba(108,92,231,0.12)':'transparent', border: cardRate===g.rate?'1px solid rgba(108,92,231,0.3)':'1px solid transparent' }}>
                   <span style={{ fontSize:12, color: cardRate===g.rate?'#6C5CE7':'#555', fontWeight: cardRate===g.rate?700:400 }}>{g.label}</span>
                   <span style={{ fontSize:14, fontWeight:800, color: cardRate===g.rate?'#6C5CE7':'#888' }}>{g.rate}%</span>
                 </div>
               ))}
               <div style={{ fontSize:10, color:'#bbb', marginTop:8 }}>※ 정확한 요율은 카드단말기 계약서 또는 VAN사에 확인하세요</div>
             </div>
-
             <button onClick={handleSaveSettings} disabled={saving||!cardRate}
               style={{ width:'100%', padding:'13px 0', borderRadius:12, background: cardRate?'linear-gradient(135deg,#6C5CE7,#a29bfe)':'#E8ECF0', border:'none', color: cardRate?'#fff':'#aaa', fontSize:14, fontWeight:700, cursor: cardRate?'pointer':'default' }}>
               {saving ? '저장 중...' : '설정 저장'}
@@ -154,17 +148,12 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
         {tab === 'permissions' && (
           <div>
             <div style={{ padding:'10px 14px', background:'rgba(255,107,53,0.06)', borderRadius:10, border:'1px solid rgba(255,107,53,0.2)', marginBottom:16, fontSize:12, color:'#FF6B35', lineHeight:1.7 }}>
-              💡 결산 메뉴는 기본적으로 대표만 볼 수 있어요.<br/>
-              아래에서 관리자에게 결산 열람 권한을 부여할 수 있어요.
+              💡 결산 메뉴는 기본적으로 대표만 볼 수 있어요.<br/>아래에서 관리자에게 결산 열람 권한을 부여할 수 있어요.
             </div>
-
             {loadingPerms ? (
               <div style={{ textAlign:'center', padding:32, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
             ) : members.length === 0 ? (
-              <div style={{ textAlign:'center', padding:32, color:'#bbb', fontSize:13 }}>
-                <div style={{ fontSize:32, marginBottom:8 }}>👥</div>
-                등록된 직원이 없어요
-              </div>
+              <div style={{ textAlign:'center', padding:32, color:'#bbb', fontSize:13 }}><div style={{ fontSize:32, marginBottom:8 }}>👥</div>등록된 직원이 없어요</div>
             ) : (
               <div>
                 {members.map(member => {
@@ -172,7 +161,7 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
                   const roleLabel = member.role === 'manager' ? '관리자' : member.role === 'pt' ? 'PT' : '사원'
                   const name = member.profiles?.name || member.profiles?.nm || '이름없음'
                   return (
-                    <div key={member.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 14px', background: hasPermi?'rgba(0,184,148,0.05)':'#F8F9FB', borderRadius:12, marginBottom:8, border:`1px solid ${hasPermi?'rgba(0,184,148,0.25)':'#E8ECF0'}`, transition:'all 0.2s' }}>
+                    <div key={member.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 14px', background: hasPermi?'rgba(0,184,148,0.05)':'#F8F9FB', borderRadius:12, marginBottom:8, border:`1px solid ${hasPermi?'rgba(0,184,148,0.25)':'#E8ECF0'}` }}>
                       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                         <div style={{ width:38, height:38, borderRadius:10, background: hasPermi?'linear-gradient(135deg,#00B894,#2DC6D6)':'#E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, color: hasPermi?'#fff':'#aaa', flexShrink:0 }}>
                           {name.charAt(0)}
@@ -183,7 +172,7 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
                         </div>
                       </div>
                       <button onClick={() => togglePermission(member)}
-                        style={{ padding:'8px 16px', borderRadius:10, border:'none', cursor:'pointer', fontSize:12, fontWeight:700, background: hasPermi?'linear-gradient(135deg,#00B894,#2DC6D6)':'#F4F6F9', color: hasPermi?'#fff':'#888', transition:'all 0.2s', minWidth:80 }}>
+                        style={{ padding:'8px 16px', borderRadius:10, border:'none', cursor:'pointer', fontSize:12, fontWeight:700, background: hasPermi?'linear-gradient(135deg,#00B894,#2DC6D6)':'#F4F6F9', color: hasPermi?'#fff':'#888', minWidth:80 }}>
                         {hasPermi ? '✅ 허용됨' : '권한 부여'}
                       </button>
                     </div>
@@ -210,7 +199,6 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
   const supabase = createSupabaseBrowserClient()
   const pad = (n: number) => String(n).padStart(2,'0')
   const opt = sheet.optional_fields || DEFAULT_OPT
-
   const [date, setDate] = useState(entry?.entry_date || `${year}-${pad(month)}-01`)
   const [itemName, setItemName] = useState(entry?.item_name || '')
   const [amount, setAmount] = useState<number|''>(entry?.amount || '')
@@ -248,9 +236,7 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
       if (fav) {
         await supabase.from('settlement_favorites').update({ use_count: (fav.use_count||0)+1, default_amount: Number(amount), default_payment: payment }).eq('id', fav.id)
       } else {
-        try {
-          await supabase.from('settlement_favorites').insert({ store_id: storeId, sheet_id: sheet.id, name: itemName.trim(), default_amount: Number(amount), default_payment: payment, use_count: 1 })
-        } catch {}
+        try { await supabase.from('settlement_favorites').insert({ store_id: storeId, sheet_id: sheet.id, name: itemName.trim(), default_amount: Number(amount), default_payment: payment, use_count: 1 }) } catch {}
       }
     }
     setSaving(false); onSave(); onClose()
@@ -269,7 +255,6 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
           <span style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{sheet.icon} {entry?'항목 수정':'항목 추가'} — {sheet.name}</span>
           <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
         </div>
-
         {!entry && favorites.length > 0 && (
           <div style={{ marginBottom:14 }}>
             <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>⭐ 자주쓰는 품목 (탭하면 자동입력)</div>
@@ -283,7 +268,6 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
             </div>
           </div>
         )}
-
         <div style={{ marginBottom:10 }}><span style={lbl}>날짜</span><input type="date" value={date} onChange={e => setDate(e.target.value)} style={inp} /></div>
         {opt.deposit_date && <div style={{ marginBottom:10 }}><span style={lbl}>입금일자</span><input type="date" value={depositDate} onChange={e => setDepositDate(e.target.value)} style={inp} /></div>}
         <div style={{ marginBottom:10 }}><span style={lbl}>품목명 (선택)</span><input value={itemName} onChange={e => setItemName(e.target.value)} placeholder={`예: ${sheet.name} 구매`} style={inp} /></div>
@@ -356,9 +340,7 @@ function SheetManageModal({ sheets, storeId, onSave, onClose }: {
     await supabase.from('settlement_sheets').update({ optional_fields: { ...current, [field]: !current[field] } }).eq('id', sheet.id)
     onSave()
   }
-  async function handleToggle(sheet: any) {
-    await supabase.from('settlement_sheets').update({ is_active: !sheet.is_active }).eq('id', sheet.id); onSave()
-  }
+  async function handleToggle(sheet: any) { await supabase.from('settlement_sheets').update({ is_active: !sheet.is_active }).eq('id', sheet.id); onSave() }
   async function handleRename(id: string) {
     if (!editName.trim()) return
     await supabase.from('settlement_sheets').update({ name: editName.trim() }).eq('id', id)
@@ -479,7 +461,9 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
   const baemin = salesByPlatform['배달의민족'] || salesByPlatform['배민'] || 0
   const coupang = salesByPlatform['쿠팡이츠'] || salesByPlatform['쿠팡'] || 0
   const yogiyo = salesByPlatform['요기요'] || 0
+  // ✅ 카드수수료 자동계산 (POS/현금 매출의 %)
   const cardFeeAuto = Math.round(pos * (cardRate / 100))
+
   function getFeeForPlatform(keywords: string[]) { return feeEntries.filter(e => keywords.some(kw => e.item_name?.includes(kw))).reduce((s, e) => s + (e.amount||0), 0) }
   const baeminFee = getFeeForPlatform(['배민','배달의민족'])
   const coupangFee = getFeeForPlatform(['쿠팡'])
@@ -488,10 +472,14 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
   const totalFee = cardFeeAuto + feeSheetTotal
   const totalSales = Object.values(salesByPlatform).reduce((s,v) => s+v, 0)
   const netSales = totalSales - totalFee
+
   const expenseSheets = sheets.filter(s => s.sheet_type === 'expense' && s.is_active)
-  const totalExpense = expenseSheets.reduce((s, sheet) => s + (entrySums[sheet.id]||0), 0)
+  const sheetExpense = expenseSheets.reduce((s, sheet) => s + (entrySums[sheet.id]||0), 0)
+  // ✅ 카드수수료를 총지출에 포함
+  const totalExpense = sheetExpense + cardFeeAuto
   const netProfit = totalSales - totalExpense
   const profitRate = totalSales > 0 ? Math.round((netProfit / totalSales) * 1000) / 10 : 0
+
   const materialNames = ['인터넷발주','마트발주','육류','수산물','주류','음료','기타재료']
   const fixedNames = ['인건비','임대료','공과금','기타관리비']
   const materialTotal = expenseSheets.filter(s => materialNames.includes(s.name)).reduce((s,sh) => s+(entrySums[sh.id]||0), 0)
@@ -502,6 +490,7 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
 
   return (
     <div>
+      {/* 순수익 카드 */}
       <div style={{ ...bx, border:`1.5px solid ${netProfit>=0?'rgba(0,184,148,0.4)':'rgba(232,67,147,0.4)'}` }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
           <div>
@@ -524,7 +513,11 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
           <span style={{ fontSize:10, color:'#aaa' }}>50%</span>
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
-          {[{ l:'총 매출', v:totalSales, c:'#00B894', bg:'rgba(0,184,148,0.08)' },{ l:'총 지출', v:totalExpense, c:'#E84393', bg:'rgba(232,67,147,0.06)' },{ l:'순수익', v:netProfit, c: netProfit>=0?'#00B894':'#E84393', bg: netProfit>=0?'rgba(0,184,148,0.08)':'rgba(232,67,147,0.06)' }].map(item => (
+          {[
+            { l:'총 매출', v:totalSales, c:'#00B894', bg:'rgba(0,184,148,0.08)' },
+            { l:'총 지출', v:totalExpense, c:'#E84393', bg:'rgba(232,67,147,0.06)' },
+            { l:'순수익', v:netProfit, c: netProfit>=0?'#00B894':'#E84393', bg: netProfit>=0?'rgba(0,184,148,0.08)':'rgba(232,67,147,0.06)' },
+          ].map(item => (
             <div key={item.l} style={{ padding:'10px 8px', background:item.bg, borderRadius:10, textAlign:'center' }}>
               <div style={{ fontSize:10, color:'#aaa', marginBottom:3 }}>{item.l}</div>
               <div style={{ fontSize:13, fontWeight:800, color:item.c }}>{Math.abs(item.v)>=10000?`${(item.v/10000).toFixed(0)}만`:`${numFmt(item.v)}`}원</div>
@@ -533,6 +526,7 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
         </div>
       </div>
 
+      {/* 매출 상세 */}
       <div style={bx}>
         <div style={{ fontSize:13, fontWeight:800, color:'#1a1a2e', marginBottom:14 }}>💰 매출 상세</div>
         {pos > 0 && (
@@ -540,10 +534,6 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
             <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
               <span style={{ fontSize:12, fontWeight:700, color:'#555' }}>🏪 매장 매출 (POS/현금 등)</span>
               <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{numFmt(pos)}원</span>
-            </div>
-            <div style={{ display:'flex', justifyContent:'space-between', padding:'6px 12px', background:'rgba(232,67,147,0.05)', borderRadius:8, border:'1px solid rgba(232,67,147,0.15)' }}>
-              <span style={{ fontSize:11, color:'#E84393' }}>카드수수료 자동계산 ({cardRate}%)</span>
-              <span style={{ fontSize:11, fontWeight:700, color:'#E84393' }}>-{numFmt(cardFeeAuto)}원</span>
             </div>
           </div>
         )}
@@ -553,29 +543,57 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
               <span style={{ fontSize:12, fontWeight:700, color:'#555' }}>{p.icon} {p.name}</span>
               <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{numFmt(p.sales)}원</span>
             </div>
-            {p.fee > 0 && (<>
+            {p.fee > 0 && (
               <div style={{ display:'flex', justifyContent:'space-between', padding:'6px 12px', background:'rgba(232,67,147,0.05)', borderRadius:8, border:'1px solid rgba(232,67,147,0.15)', marginBottom:4 }}>
                 <span style={{ fontSize:11, color:'#E84393' }}>수수료 (수수료 시트 기준)</span>
                 <span style={{ fontSize:11, fontWeight:700, color:'#E84393' }}>-{numFmt(p.fee)}원</span>
               </div>
-              <div style={{ display:'flex', justifyContent:'flex-end' }}><span style={{ fontSize:10, color:'#aaa' }}>순수령: </span><span style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginLeft:4 }}>{numFmt(p.sales - p.fee)}원</span></div>
-            </>)}
+            )}
           </div>
         ))}
         {Object.entries(salesByPlatform).filter(([k]) => !DELIVERY_PLATFORMS.includes(k)).map(([k,v]) => v > 0 && (
-          <div key={k} style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:12, color:'#888' }}>📱 {k}</span><span style={{ fontSize:12, fontWeight:600, color:'#1a1a2e' }}>{numFmt(v)}원</span></div>
+          <div key={k} style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+            <span style={{ fontSize:12, color:'#888' }}>📱 {k}</span>
+            <span style={{ fontSize:12, fontWeight:600, color:'#1a1a2e' }}>{numFmt(v)}원</span>
+          </div>
         ))}
         {totalSales === 0 && <div style={{ textAlign:'center', padding:'16px 0', color:'#bbb', fontSize:12 }}>마감일지에서 매출 입력 시 자동 연동됩니다</div>}
         {totalSales > 0 && (
           <div style={{ borderTop:'2px dashed #E8ECF0', paddingTop:10, marginTop:8 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}><span style={{ fontSize:12, color:'#555' }}>총 수수료</span><span style={{ fontSize:12, fontWeight:700, color:'#E84393' }}>-{numFmt(totalFee)}원 ({pct(totalFee, totalSales)}%)</span></div>
-            <div style={{ display:'flex', justifyContent:'space-between' }}><span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>수수료 차감 후 실수령</span><span style={{ fontSize:15, fontWeight:800, color:'#6C5CE7' }}>{numFmt(netSales)}원</span></div>
+            <div style={{ display:'flex', justifyContent:'space-between' }}>
+              <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>총 매출</span>
+              <span style={{ fontSize:15, fontWeight:800, color:'#00B894' }}>{numFmt(totalSales)}원</span>
+            </div>
           </div>
         )}
       </div>
 
+      {/* 지출 상세 */}
       <div style={bx}>
         <div style={{ fontSize:13, fontWeight:800, color:'#1a1a2e', marginBottom:14 }}>💸 지출 상세 분석</div>
+
+        {/* ✅ 카드수수료 자동계산 - 지출 항목으로 표시 */}
+        {cardFeeAuto > 0 && (
+          <div style={{ marginBottom:14 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                <span style={{ fontSize:16 }}>💳</span>
+                <span style={{ fontSize:12, color:'#555', fontWeight:600 }}>카드수수료 (자동계산 {cardRate}%)</span>
+                <span style={{ fontSize:9, background:'rgba(108,92,231,0.12)', color:'#6C5CE7', padding:'1px 6px', borderRadius:5, fontWeight:700 }}>자동</span>
+              </div>
+              <div style={{ textAlign:'right' }}>
+                <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{numFmt(cardFeeAuto)}원</span>
+                {totalSales>0 && <span style={{ fontSize:10, color:'#aaa', marginLeft:5 }}>매출대비 {pct(cardFeeAuto, totalSales)}%</span>}
+              </div>
+            </div>
+            <div style={{ height:7, background:'#F0F2F5', borderRadius:4 }}>
+              <div style={{ height:7, borderRadius:4, background:'linear-gradient(90deg,#6C5CE7,#a29bfe)', width:`${Math.min(pct(cardFeeAuto,totalSales)*2, 100)}%`, transition:'width 0.3s' }} />
+            </div>
+            {totalExpense>0 && <div style={{ fontSize:9, color:'#bbb', marginTop:2, textAlign:'right' }}>지출 내 비중 {pct(cardFeeAuto, totalExpense)}%</div>}
+          </div>
+        )}
+
+        {/* 각 시트 지출 */}
         {expenseSheets.map(sheet => {
           const amt = entrySums[sheet.id] || 0
           const ratio = pct(amt, totalSales)
@@ -594,20 +612,29 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
                 </div>
               </div>
               {amt > 0 && (<>
-                <div style={{ height:7, background:'#F0F2F5', borderRadius:4 }}><div style={{ height:7, borderRadius:4, background: isHigh?'linear-gradient(90deg,#E84393,#FF6B35)':'linear-gradient(90deg,#FF6B35,#FDC400)', width:`${Math.min(ratio*2, 100)}%`, transition:'width 0.3s' }} /></div>
+                <div style={{ height:7, background:'#F0F2F5', borderRadius:4 }}>
+                  <div style={{ height:7, borderRadius:4, background: isHigh?'linear-gradient(90deg,#E84393,#FF6B35)':'linear-gradient(90deg,#FF6B35,#FDC400)', width:`${Math.min(ratio*2, 100)}%`, transition:'width 0.3s' }} />
+                </div>
                 {totalExpense>0 && <div style={{ fontSize:9, color:'#bbb', marginTop:2, textAlign:'right' }}>지출 내 비중 {ofExpense}%</div>}
               </>)}
             </div>
           )
         })}
-        <div style={{ display:'flex', justifyContent:'space-between', paddingTop:12, borderTop:'2px solid #E8ECF0' }}><span style={{ fontSize:13, fontWeight:700 }}>지출 합계</span><span style={{ fontSize:18, fontWeight:800, color:'#E84393' }}>{numFmt(totalExpense)}원</span></div>
+        <div style={{ display:'flex', justifyContent:'space-between', paddingTop:12, borderTop:'2px solid #E8ECF0' }}>
+          <span style={{ fontSize:13, fontWeight:700 }}>지출 합계</span>
+          <span style={{ fontSize:18, fontWeight:800, color:'#E84393' }}>{numFmt(totalExpense)}원</span>
+        </div>
       </div>
 
+      {/* 결산 분석 */}
       {totalExpense > 0 && (
         <div style={bx}>
           <div style={{ fontSize:13, fontWeight:800, color:'#1a1a2e', marginBottom:14 }}>🔍 결산 분석</div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:14 }}>
-            {[{ l:'재료비 합계', v:materialTotal, pv:pct(materialTotal,totalSales), color:'#6C5CE7', warn: pct(materialTotal,totalSales)>35, note:'권장 35% 이하' },{ l:'인건비+고정비', v:fixedTotal, pv:pct(fixedTotal,totalSales), color:'#E84393', warn: pct(fixedTotal,totalSales)>30, note:'권장 30% 이하' }].map(item => (
+            {[
+              { l:'재료비 합계', v:materialTotal, pv:pct(materialTotal,totalSales), color:'#6C5CE7', warn: pct(materialTotal,totalSales)>35, note:'권장 35% 이하' },
+              { l:'인건비+고정비', v:fixedTotal, pv:pct(fixedTotal,totalSales), color:'#E84393', warn: pct(fixedTotal,totalSales)>30, note:'권장 30% 이하' },
+            ].map(item => (
               <div key={item.l} style={{ padding:'12px', background:'#F8F9FB', borderRadius:12, border:`1px solid ${item.warn&&totalSales>0?'rgba(232,67,147,0.3)':'#E8ECF0'}` }}>
                 <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>{item.l}</div>
                 <div style={{ fontSize:16, fontWeight:800, color:item.color }}>{numFmt(item.v)}원</div>
@@ -665,7 +692,6 @@ function SheetView({ sheet, storeId, userName, year, month }: { sheet: any; stor
         </div>
         <button onClick={() => { setEditEntry(null); setShowModal(true) }} style={{ padding:'12px 18px', borderRadius:12, background:'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>+ 항목 추가</button>
       </div>
-
       {favorites.length > 0 && (
         <div style={{ ...bx }}>
           <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:8 }}>⭐ 자주쓰는 품목 ({favorites.length}개)</div>
@@ -677,7 +703,6 @@ function SheetView({ sheet, storeId, userName, year, month }: { sheet: any; stor
           ))}
         </div>
       )}
-
       {entries.length === 0 ? (
         <div style={{ textAlign:'center', padding:'60px 0', color:'#bbb' }}>
           <div style={{ fontSize:40, marginBottom:10 }}>{sheet.icon}</div>
@@ -685,9 +710,7 @@ function SheetView({ sheet, storeId, userName, year, month }: { sheet: any; stor
           <div style={{ fontSize:11, color:'#ddd' }}>+ 항목 추가를 눌러 시작하세요</div>
         </div>
       ) : grouped.map(([date, items]) => {
-        const d = new Date(date+'T00:00:00')
-        const dow = ['일','월','화','수','목','금','토'][d.getDay()]
-        const isSun = d.getDay()===0; const isSat = d.getDay()===6
+        const d = new Date(date+'T00:00:00'); const dow = ['일','월','화','수','목','금','토'][d.getDay()]; const isSun = d.getDay()===0; const isSat = d.getDay()===6
         const dayTotal = items.reduce((s,e) => s+(e.amount||0), 0)
         return (
           <div key={date} style={{ marginBottom:16 }}>
@@ -716,7 +739,6 @@ function SheetView({ sheet, storeId, userName, year, month }: { sheet: any; stor
           </div>
         )
       })}
-
       {showModal && (
         <EntryModal sheet={sheet} entry={editEntry} storeId={storeId} userName={userName} year={year} month={month} favorites={favorites}
           onSave={() => { loadEntries(); loadFavorites() }}
@@ -878,17 +900,22 @@ export default function SettlementPage() {
   const [sheets, setSheets] = useState<any[]>([])
   const [settings, setSettings] = useState<any>(null)
   const [selectedSheet, setSelectedSheet] = useState<string>('analysis')
+  const [viewMode, setViewMode] = useState<'store'|'all'>('store')
   const [hasPermission, setHasPermission] = useState(false)
   const [permChecked, setPermChecked] = useState(false)
   const [showSheetMgr, setShowSheetMgr] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [loading, setLoading] = useState(true)
+
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth()+1)
   const isOwner = userRole === 'owner'
 
-  useEffect(() => { const check = () => setIsPC(window.innerWidth >= 768); check(); window.addEventListener('resize', check); return () => window.removeEventListener('resize', check) }, [])
+  useEffect(() => {
+    const check = () => setIsPC(window.innerWidth >= 768)
+    check(); window.addEventListener('resize', check); return () => window.removeEventListener('resize', check)
+  }, [])
 
   useEffect(() => {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
@@ -943,42 +970,75 @@ export default function SettlementPage() {
         </div>
       </div>
 
-      {/* 카드수수료 배너 */}
-      {isOwner && settings && (
-        <div style={{ padding:'8px 14px', background:'rgba(108,92,231,0.05)', borderRadius:10, border:'1px solid rgba(108,92,231,0.15)', marginBottom:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <span style={{ fontSize:11, color:'#6C5CE7', fontWeight:600 }}>💳 카드수수료 {settings.card_fee_rate}% · {settings.business_type==='corporation'?'법인':'개인사업자'}</span>
-          <button onClick={() => setShowSettings(true)} style={{ background:'none', border:'none', fontSize:11, color:'#aaa', cursor:'pointer' }}>변경 →</button>
+      {/* ── 내 지점 / 전지점 상단 탭 (대표만) ── */}
+      {isOwner && (
+        <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:14, gap:3 }}>
+          <button onClick={() => setViewMode('store')}
+            style={{ flex:1, padding:'11px 0', borderRadius:9, border:'none', cursor:'pointer', fontSize:13, fontWeight: viewMode==='store'?700:400, background: viewMode==='store'?'#fff':'transparent', color: viewMode==='store'?'#1a1a2e':'#aaa', boxShadow: viewMode==='store'?'0 1px 6px rgba(0,0,0,0.09)':'none', transition:'all 0.18s' }}>
+            🏪 내 지점
+          </button>
+          <button onClick={() => setViewMode('all')}
+            style={{ flex:1, padding:'11px 0', borderRadius:9, border:'none', cursor:'pointer', fontSize:13, fontWeight: viewMode==='all'?700:400, background: viewMode==='all'?'linear-gradient(135deg,#6C5CE7,#a29bfe)':'transparent', color: viewMode==='all'?'#fff':'#aaa', boxShadow: viewMode==='all'?'0 2px 8px rgba(108,92,231,0.3)':'none', transition:'all 0.18s' }}>
+            👑 전지점
+          </button>
         </div>
       )}
-      {isOwner && !settings && (
-        <div onClick={() => setShowSettings(true)} style={{ padding:'10px 14px', background:'rgba(255,107,53,0.06)', borderRadius:10, border:'1px dashed rgba(255,107,53,0.3)', marginBottom:12, cursor:'pointer', textAlign:'center', fontSize:12, color:'#FF6B35', fontWeight:600 }}>
-          ⚙️ 카드수수료율을 설정해주세요 (현재 기본값 1.1% 적용 중)
-        </div>
+
+      {/* 전지점 뷰 */}
+      {viewMode === 'all' && isOwner && (
+        <>
+          <div style={{ ...bx, padding:'12px 16px', marginBottom:14 }}>
+            <YearMonthPicker year={year} month={month-1} onChange={(y: number, m: number) => { setYear(y); setMonth(m+1) }} color="#6C5CE7" />
+          </div>
+          <AdminView profileId={profileId} year={year} month={month} />
+        </>
       )}
 
-      {/* 월 선택 */}
-      <div style={{ ...bx, padding:'12px 16px', marginBottom:14 }}>
-        <YearMonthPicker year={year} month={month-1} onChange={(y,m) => { setYear(y); setMonth(m+1) }} color="#FF6B35" />
-      </div>
+      {/* 내 지점 뷰 */}
+      {viewMode === 'store' && (
+        <>
+          {isOwner && settings && (
+            <div style={{ padding:'8px 14px', background:'rgba(108,92,231,0.05)', borderRadius:10, border:'1px solid rgba(108,92,231,0.15)', marginBottom:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <span style={{ fontSize:11, color:'#6C5CE7', fontWeight:600 }}>💳 카드수수료 {settings.card_fee_rate}% · {settings.business_type==='corporation'?'법인':'개인사업자'}</span>
+              <button onClick={() => setShowSettings(true)} style={{ background:'none', border:'none', fontSize:11, color:'#aaa', cursor:'pointer' }}>변경 →</button>
+            </div>
+          )}
+          {isOwner && !settings && (
+            <div onClick={() => setShowSettings(true)} style={{ padding:'10px 14px', background:'rgba(255,107,53,0.06)', borderRadius:10, border:'1px dashed rgba(255,107,53,0.3)', marginBottom:12, cursor:'pointer', textAlign:'center', fontSize:12, color:'#FF6B35', fontWeight:600 }}>
+              ⚙️ 카드수수료율을 설정해주세요 (현재 기본값 1.1% 적용 중)
+            </div>
+          )}
 
-      {/* 탭 */}
-      <div style={{ overflowX:'auto', marginBottom:16, scrollbarWidth:'none' as const }}>
-        <div style={{ display:'flex', gap:6, paddingBottom:4, minWidth:'max-content' }}>
-          <button onClick={() => setSelectedSheet('analysis')} style={{ padding:'8px 16px', borderRadius:20, border: selectedSheet==='analysis'?'2px solid #FF6B35':'1px solid #E8ECF0', background: selectedSheet==='analysis'?'rgba(255,107,53,0.1)':'#fff', color: selectedSheet==='analysis'?'#FF6B35':'#888', fontSize:12, fontWeight: selectedSheet==='analysis'?700:500, cursor:'pointer', flexShrink:0 }}>📊 수익분석</button>
-          {activeSheets.filter(s=>s.sheet_type==='expense').map(sheet => (
-            <button key={sheet.id} onClick={() => setSelectedSheet(sheet.id)} style={{ padding:'8px 14px', borderRadius:20, border: selectedSheet===sheet.id?'2px solid #6C5CE7':'1px solid #E8ECF0', background: selectedSheet===sheet.id?'rgba(108,92,231,0.1)':'#fff', color: selectedSheet===sheet.id?'#6C5CE7':'#888', fontSize:12, fontWeight: selectedSheet===sheet.id?700:500, cursor:'pointer', flexShrink:0 }}>
-              {sheet.icon} {sheet.name}
-            </button>
-          ))}
-          <button onClick={() => setSelectedSheet('sales')} style={{ padding:'8px 14px', borderRadius:20, border: selectedSheet==='sales'?'2px solid #00B894':'1px solid #E8ECF0', background: selectedSheet==='sales'?'rgba(0,184,148,0.1)':'#fff', color: selectedSheet==='sales'?'#00B894':'#888', fontSize:12, fontWeight: selectedSheet==='sales'?700:500, cursor:'pointer', flexShrink:0 }}>💰 매출</button>
-          {isOwner && <button onClick={() => setSelectedSheet('admin')} style={{ padding:'8px 14px', borderRadius:20, border: selectedSheet==='admin'?'2px solid #6C5CE7':'1px solid #E8ECF0', background: selectedSheet==='admin'?'rgba(108,92,231,0.1)':'#fff', color: selectedSheet==='admin'?'#6C5CE7':'#888', fontSize:12, fontWeight: selectedSheet==='admin'?700:500, cursor:'pointer', flexShrink:0 }}>👑 전지점</button>}
-        </div>
-      </div>
+          {/* 월 선택 */}
+          <div style={{ ...bx, padding:'12px 16px', marginBottom:14 }}>
+            <YearMonthPicker year={year} month={month-1} onChange={(y: number, m: number) => { setYear(y); setMonth(m+1) }} color="#FF6B35" />
+          </div>
 
-      {selectedSheet==='analysis' && <ProfitAnalysisView sheets={activeSheets} storeId={storeId} year={year} month={month} settings={settings} />}
-      {selectedSheet==='sales' && <SalesView storeId={storeId} year={year} month={month} />}
-      {selectedSheet==='admin' && isOwner && <AdminView profileId={profileId} year={year} month={month} />}
-      {currentSheet && <SheetView sheet={currentSheet} storeId={storeId} userName={userName} year={year} month={month} />}
+          {/* 시트 탭 */}
+          <div style={{ overflowX:'auto', marginBottom:16, scrollbarWidth:'none' as const }}>
+            <div style={{ display:'flex', gap:6, paddingBottom:4, minWidth:'max-content' }}>
+              <button onClick={() => setSelectedSheet('analysis')}
+                style={{ padding:'8px 16px', borderRadius:20, border: selectedSheet==='analysis'?'2px solid #FF6B35':'1px solid #E8ECF0', background: selectedSheet==='analysis'?'rgba(255,107,53,0.1)':'#fff', color: selectedSheet==='analysis'?'#FF6B35':'#888', fontSize:12, fontWeight: selectedSheet==='analysis'?700:500, cursor:'pointer', flexShrink:0 }}>
+                📊 수익분석
+              </button>
+              {activeSheets.filter(s => s.sheet_type==='expense').map(sheet => (
+                <button key={sheet.id} onClick={() => setSelectedSheet(sheet.id)}
+                  style={{ padding:'8px 14px', borderRadius:20, border: selectedSheet===sheet.id?'2px solid #6C5CE7':'1px solid #E8ECF0', background: selectedSheet===sheet.id?'rgba(108,92,231,0.1)':'#fff', color: selectedSheet===sheet.id?'#6C5CE7':'#888', fontSize:12, fontWeight: selectedSheet===sheet.id?700:500, cursor:'pointer', flexShrink:0 }}>
+                  {sheet.icon} {sheet.name}
+                </button>
+              ))}
+              <button onClick={() => setSelectedSheet('sales')}
+                style={{ padding:'8px 14px', borderRadius:20, border: selectedSheet==='sales'?'2px solid #00B894':'1px solid #E8ECF0', background: selectedSheet==='sales'?'rgba(0,184,148,0.1)':'#fff', color: selectedSheet==='sales'?'#00B894':'#888', fontSize:12, fontWeight: selectedSheet==='sales'?700:500, cursor:'pointer', flexShrink:0 }}>
+                💰 매출
+              </button>
+            </div>
+          </div>
+
+          {selectedSheet==='analysis' && <ProfitAnalysisView sheets={activeSheets} storeId={storeId} year={year} month={month} settings={settings} />}
+          {selectedSheet==='sales' && <SalesView storeId={storeId} year={year} month={month} />}
+          {currentSheet && <SheetView sheet={currentSheet} storeId={storeId} userName={userName} year={year} month={month} />}
+        </>
+      )}
     </div>
   )
 }
