@@ -10,8 +10,11 @@ const lbl = { fontSize:11, color:'#888', marginBottom:4, display:'block' as cons
 function numFmt(n: number) { return n.toLocaleString() }
 function pct(v: number, total: number) { if (!total) return 0; return Math.round((v/total)*1000)/10 }
 
-const PAYMENT_METHODS = ['카드','현금','계좌이체','기타']
-const PAYMENT_COLORS: Record<string,string> = { '카드':'#6C5CE7','현금':'#00B894','계좌이체':'#2DC6D6','기타':'#aaa' }
+// 기본 결제방법 / 단위
+const DEFAULT_PAYMENT_METHODS = ['카드','계좌이체','현금','어음','기타']
+const DEFAULT_UNITS = ['ea','box','kg','g','L','개','병','팩','봉']
+
+const PAYMENT_COLORS: Record<string,string> = { '카드':'#6C5CE7','현금':'#00B894','계좌이체':'#2DC6D6','어음':'#FF6B35','기타':'#aaa' }
 const ICONS = ['📋','🌐','🛒','🥩','🐟','🍺','🥤','📦','👤','⚡','💳','🧾','💰','🏠','🚗','📱','🔧','✂️','🎯','💬']
 
 const DEFAULT_SHEETS = [
@@ -29,89 +32,73 @@ const DEFAULT_SHEETS = [
   { name:'세금',       icon:'🧾', sheet_type:'expense', sort_order:12 },
 ]
 
-// ── 시트별 엑셀 ──────────────────────────────────────────
+// ── 엑셀 (시트별) ─────────────────────────────────────────
 async function exportSheetExcel(sheet: any, entries: any[], linkedOrders: any[], year: number, month: number) {
   try {
     const ExcelJS = (await import('exceljs')).default
-    const pad = (n: number) => String(n).padStart(2,'0')
+    const pad = (n:number)=>String(n).padStart(2,'0')
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet(`${sheet.name}_${year}년${pad(month)}월`)
-    ws.addRow(['구분','날짜','품목명','금액','결제방법','수량','단가','입금일','세금계산서','세금계산서날짜','메모','구매처'])
-    ws.getRow(1).eachCell(cell => { cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1A1A2E'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
-    entries.forEach(e => ws.addRow(['직접입력',e.entry_date,e.item_name||'',e.amount||0,e.payment_method||'',e.quantity||'',e.unit_price||'',e.deposit_date||'',e.has_tax_invoice?'O':'',e.tax_invoice_date||'',e.memo||'','']))
-    linkedOrders.forEach(o => { const d=new Date(o.confirmed_at||o.ordered_at); ws.addRow(['발주연동',`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,o.item_name||'',o.settlement_amount||0,'',o.quantity||'',o.settlement_unit_price||'','','','',o.memo||'',o.supplier_name||'']) })
+    ws.addRow(['구분','날짜','품목명','금액','결제방법','수량','단가','단위','배송비','입금일','세금계산서','세금계산서날짜','메모','구매처'])
+    ws.getRow(1).eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1A1A2E'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
+    entries.forEach(e=>ws.addRow(['직접입력',e.entry_date,e.item_name||'',e.amount||0,e.payment_method||'',e.quantity||'',e.unit_price||'','',0,e.deposit_date||'',e.has_tax_invoice?'O':'',e.tax_invoice_date||'',e.memo||'','']))
+    linkedOrders.forEach(o=>{ const d=new Date(o.confirmed_at||o.ordered_at); ws.addRow(['발주연동',`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,o.item_name||'',o.settlement_amount||0,o.payment_method||'',o.quantity||'',o.settlement_unit_price||'',o.price_unit||'',o.delivery_fee||0,'','','',o.memo||'',o.supplier_name||'']) })
     ws.getColumn(4).numFmt='#,##0'; ws.columns.forEach(col=>{col.width=14})
     const buf = await wb.xlsx.writeBuffer()
     const blob = new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
-    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download=`${sheet.icon}${sheet.name}_${year}년${pad(month)}월.xlsx`; a.click(); URL.revokeObjectURL(url)
+    const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${sheet.icon}${sheet.name}_${year}년${pad(month)}월.xlsx`; a.click(); URL.revokeObjectURL(url)
   } catch(e:any) { alert('엑셀 오류: '+(e?.message||'')) }
 }
 
 // ── 전체 엑셀 ────────────────────────────────────────────
-async function exportAllExcel(storeId: string, year: number, month: number, sheets: any[], settings: any) {
+async function exportAllExcel(storeId:string, year:number, month:number, sheets:any[], settings:any) {
   try {
     const supabase = createSupabaseBrowserClient()
     const ExcelJS = (await import('exceljs')).default
-    const pad = (n: number) => String(n).padStart(2,'0')
+    const pad=(n:number)=>String(n).padStart(2,'0')
     const wb = new ExcelJS.Workbook()
-    const from = `${year}-${pad(month)}-01`
-    const to = `${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}`
-
+    const from=`${year}-${pad(month)}-01`; const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}`
     const wsSummary = wb.addWorksheet('📊 수익분석 요약')
-    wsSummary.addRow([`${year}년 ${month}월 결산 요약`])
-    wsSummary.getRow(1).font = { bold:true, size:14 }
-    wsSummary.addRow([])
-
+    wsSummary.addRow([`${year}년 ${month}월 결산 요약`]); wsSummary.getRow(1).font={bold:true,size:14}; wsSummary.addRow([])
     const { data: cls } = await supabase.from('closings').select('id').eq('store_id',storeId).gte('closing_date',from).lte('closing_date',to)
-    let salesByPlatform: Record<string,number> = {}
-    if (cls?.length) {
-      const { data: sv } = await supabase.from('closing_sales').select('platform,amount').in('closing_id',cls.map((c:any)=>c.id))
-      ;(sv||[]).forEach((s:any)=>{ salesByPlatform[s.platform]=(salesByPlatform[s.platform]||0)+s.amount })
-    }
-    const totalSales = Object.values(salesByPlatform).reduce((s,v)=>s+v,0)
+    let salesByPlatform: Record<string,number>={}
+    if (cls?.length) { const { data: sv } = await supabase.from('closing_sales').select('platform,amount').in('closing_id',cls.map((c:any)=>c.id)); ;(sv||[]).forEach((s:any)=>{ salesByPlatform[s.platform]=(salesByPlatform[s.platform]||0)+s.amount }) }
+    const totalSales=Object.values(salesByPlatform).reduce((s,v)=>s+v,0)
     const { data: entries } = await supabase.from('settlement_entries').select('sheet_id,amount').eq('store_id',storeId).eq('year',year).eq('month',month)
     const { data: linked } = await supabase.from('orders').select('settlement_sheet_id,settlement_amount').eq('store_id',storeId).eq('settlement_year',year).eq('settlement_month',month).not('settlement_sheet_id','is',null)
-    const entrySums: Record<string,number> = {}
+    const entrySums: Record<string,number>={}
     ;(entries||[]).forEach((e:any)=>{ entrySums[e.sheet_id]=(entrySums[e.sheet_id]||0)+e.amount })
     ;(linked||[]).forEach((o:any)=>{ if(o.settlement_sheet_id&&o.settlement_amount) entrySums[o.settlement_sheet_id]=(entrySums[o.settlement_sheet_id]||0)+o.settlement_amount })
-    const cardRate = settings?.card_fee_rate??1.1
-    const DELIVERY = ['배달의민족','배민','쿠팡이츠','쿠팡','요기요']
-    const pos = Object.entries(salesByPlatform).filter(([k])=>!DELIVERY.includes(k)).reduce((s,[,v])=>s+v,0)
-    const cardFeeAuto = Math.round(pos*(cardRate/100))
-    const expenseSheets = sheets.filter(s=>s.sheet_type==='expense'&&s.is_active)
-    const totalExpense = expenseSheets.reduce((s,sh)=>s+(entrySums[sh.id]||0),0)+cardFeeAuto
-    const netProfit = totalSales-totalExpense
-    const profitRate = totalSales>0?Math.round((netProfit/totalSales)*1000)/10:0
-
-    wsSummary.addRow(['항목','금액(원)','비고'])
-    wsSummary.getRow(3).eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF2C3E50'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
+    const cardRate=settings?.card_fee_rate??1.1
+    const DELIVERY=['배달의민족','배민','쿠팡이츠','쿠팡','요기요']
+    const pos=Object.entries(salesByPlatform).filter(([k])=>!DELIVERY.includes(k)).reduce((s,[,v])=>s+v,0)
+    const cardFeeAuto=Math.round(pos*(cardRate/100))
+    const expenseSheets=sheets.filter(s=>s.sheet_type==='expense'&&s.is_active)
+    const totalExpense=expenseSheets.reduce((s,sh)=>s+(entrySums[sh.id]||0),0)+cardFeeAuto
+    const netProfit=totalSales-totalExpense
+    const profitRate=totalSales>0?Math.round((netProfit/totalSales)*1000)/10:0
+    wsSummary.addRow(['항목','금액(원)','비고']); wsSummary.getRow(3).eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF2C3E50'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
     wsSummary.addRow(['▶ 총 매출',totalSales,''])
-    Object.entries(salesByPlatform).forEach(([platform,amount])=>wsSummary.addRow([`   └ ${platform}`,amount,'']))
-    wsSummary.addRow([])
-    wsSummary.addRow(['▶ 총 지출',totalExpense,''])
-    wsSummary.addRow([`   └ 💳 카드수수료 (${cardRate}% 자동)`,cardFeeAuto,'자동계산'])
+    Object.entries(salesByPlatform).forEach(([p,a])=>wsSummary.addRow([`   └ ${p}`,a,'']))
+    wsSummary.addRow([]); wsSummary.addRow(['▶ 총 지출',totalExpense,'']); wsSummary.addRow([`   └ 💳 카드수수료 (${cardRate}% 자동)`,cardFeeAuto,'자동계산'])
     expenseSheets.forEach(sh=>{ const amt=(entrySums[sh.id]||0); wsSummary.addRow([`   └ ${sh.icon} ${sh.name}`,amt,amt===0?'미입력':'']) })
     wsSummary.addRow([])
-    const netRow = wsSummary.addRow(['▶ 순수익',netProfit,`수익률 ${profitRate}%`])
-    netRow.font={bold:true,size:13,color:{argb:netProfit>=0?'FF00B894':'FFE84393'}}
+    const netRow=wsSummary.addRow(['▶ 순수익',netProfit,`수익률 ${profitRate}%`]); netRow.font={bold:true,size:13,color:{argb:netProfit>=0?'FF00B894':'FFE84393'}}
     wsSummary.getColumn(1).width=32; wsSummary.getColumn(2).numFmt='#,##0'; wsSummary.getColumn(2).width=18; wsSummary.getColumn(3).width=16
-
     for (const sheet of expenseSheets) {
       const { data: se } = await supabase.from('settlement_entries').select('*').eq('sheet_id',sheet.id).eq('year',year).eq('month',month).order('entry_date')
       const { data: so } = await supabase.from('orders').select('*').eq('settlement_sheet_id',sheet.id).eq('settlement_year',year).eq('settlement_month',month).order('confirmed_at')
-      const ws = wb.addWorksheet(`${sheet.icon}${sheet.name}`)
-      ws.addRow(['구분','날짜','품목명','금액','결제방법','수량','단가','입금일','세금계산서','세금계산서날짜','메모','구매처'])
+      const ws=wb.addWorksheet(`${sheet.icon}${sheet.name}`)
+      ws.addRow(['구분','날짜','품목명','금액','결제방법','수량','단가','단위','배송비','세금계산서','메모','구매처'])
       ws.getRow(1).eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1A1A2E'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
-      ;(se||[]).forEach((e:any)=>ws.addRow(['직접입력',e.entry_date,e.item_name||'',e.amount||0,e.payment_method||'',e.quantity||'',e.unit_price||'',e.deposit_date||'',e.has_tax_invoice?'O':'',e.tax_invoice_date||'',e.memo||'','']))
-      ;(so||[]).forEach((o:any)=>{ const d=new Date(o.confirmed_at||o.ordered_at); ws.addRow(['발주연동',`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,o.item_name||'',o.settlement_amount||0,'',o.quantity||'',o.settlement_unit_price||'','','','',o.memo||'',o.supplier_name||'']) })
+      ;(se||[]).forEach((e:any)=>ws.addRow(['직접입력',e.entry_date,e.item_name||'',e.amount||0,e.payment_method||'',e.quantity||'',e.unit_price||'','','',e.has_tax_invoice?'O':'',e.memo||'','']))
+      ;(so||[]).forEach((o:any)=>{ const d=new Date(o.confirmed_at||o.ordered_at); ws.addRow(['발주연동',`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,o.item_name||'',o.settlement_amount||0,o.payment_method||'',o.quantity||'',o.settlement_unit_price||'',o.price_unit||'',o.delivery_fee||0,'',o.memo||'',o.supplier_name||'']) })
       ws.addRow([])
       const total=(se||[]).reduce((s:number,e:any)=>s+(e.amount||0),0)+(so||[]).reduce((s:number,o:any)=>s+(o.settlement_amount||0),0)
       const tRow=ws.addRow(['합계','','',total]); tRow.font={bold:true}
       ws.getColumn(4).numFmt='#,##0'; ws.columns.forEach(col=>{col.width=14})
     }
-
-    const wsSales = wb.addWorksheet('💰 매출')
-    wsSales.addRow(['날짜','플랫폼','금액'])
+    const wsSales=wb.addWorksheet('💰 매출'); wsSales.addRow(['날짜','플랫폼','금액'])
     wsSales.getRow(1).eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF00B894'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
     if (cls?.length) {
       const { data: cd } = await supabase.from('closings').select('id,closing_date').eq('store_id',storeId).gte('closing_date',from).lte('closing_date',to).order('closing_date')
@@ -119,16 +106,177 @@ async function exportAllExcel(storeId: string, year: number, month: number, shee
       ;(cd||[]).forEach((cl:any)=>{ const ps=(sv||[]).filter((s:any)=>s.closing_id===cl.id&&s.amount>0); ps.forEach((p:any)=>wsSales.addRow([cl.closing_date,p.platform,p.amount])) })
     }
     wsSales.getColumn(3).numFmt='#,##0'; wsSales.columns.forEach(col=>{col.width=16})
-
-    const buf = await wb.xlsx.writeBuffer()
-    const blob = new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
-    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download=`결산_전체_${year}년${pad(month)}월.xlsx`; a.click(); URL.revokeObjectURL(url)
+    const buf=await wb.xlsx.writeBuffer()
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
+    const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`결산_전체_${year}년${pad(month)}월.xlsx`; a.click(); URL.revokeObjectURL(url)
   } catch(e:any) { alert('엑셀 오류: '+(e?.message||'')) }
 }
 
+// ── 발주 연동 항목 수정 모달 ✅ (모든 시트에서 사용) ──────
+function OrderEditModal({ order, onSave, onClose }: {
+  order: any; onSave: ()=>void; onClose: ()=>void
+}) {
+  const supabase = createSupabaseBrowserClient()
+  const [amount, setAmount] = useState<number|''>(order.settlement_amount||'')
+  const [unitPrice, setUnitPrice] = useState<number|''>(order.settlement_unit_price||'')
+  const [priceUnit, setPriceUnit] = useState(order.price_unit||'ea')
+  const [deliveryFee, setDeliveryFee] = useState<number|''>(order.delivery_fee||'')
+  const [hasDelivery, setHasDelivery] = useState(!!(order.delivery_fee && order.delivery_fee>0))
+  const [paymentMethod, setPaymentMethod] = useState(order.payment_method||'카드')
+  const [taxInv, setTaxInv] = useState(order.has_tax_invoice||false)
+  const [taxInvDate, setTaxInvDate] = useState(order.tax_invoice_date||'')
+  const [memo, setMemo] = useState(order.memo||'')
+  const [saving, setSaving] = useState(false)
+
+  // 커스텀 결제방법/단위 관리
+  const [payMethods, setPayMethods] = useState<string[]>(DEFAULT_PAYMENT_METHODS)
+  const [units, setUnits] = useState<string[]>(DEFAULT_UNITS)
+  const [newPayMethod, setNewPayMethod] = useState('')
+  const [newUnit, setNewUnit] = useState('')
+
+  function addPayMethod() {
+    const v=newPayMethod.trim(); if(!v||payMethods.includes(v)) return
+    setPayMethods(p=>[...p,v]); setNewPayMethod('')
+  }
+  function removePayMethod(m:string) { if(DEFAULT_PAYMENT_METHODS.includes(m)) return; setPayMethods(p=>p.filter(x=>x!==m)); if(paymentMethod===m) setPaymentMethod('카드') }
+  function addUnit() {
+    const v=newUnit.trim(); if(!v||units.includes(v)) return
+    setUnits(p=>[...p,v]); setNewUnit('')
+  }
+  function removeUnit(u:string) { if(DEFAULT_UNITS.slice(0,4).includes(u)) return; setUnits(p=>p.filter(x=>x!==u)); if(priceUnit===u) setPriceUnit('ea') }
+
+  async function handleSave() {
+    if (!amount) { alert('금액을 입력해주세요'); return }
+    setSaving(true)
+    await supabase.from('orders').update({
+      settlement_amount: Number(amount),
+      settlement_unit_price: unitPrice?Number(unitPrice):null,
+      price_unit: priceUnit||null,
+      delivery_fee: hasDelivery&&deliveryFee?Number(deliveryFee):null,
+      payment_method: paymentMethod||null,
+      has_tax_invoice: taxInv,
+      tax_invoice_date: taxInv&&taxInvDate?taxInvDate:null,
+      memo: memo.trim()||null,
+    }).eq('id', order.id)
+    setSaving(false); onSave(); onClose()
+  }
+
+  const d = new Date(order.confirmed_at||order.ordered_at)
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:400, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
+      <div style={{ background:'#fff', width:'100%', maxWidth:520, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'92vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+          <span style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>📦 발주 수정</span>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
+        </div>
+
+        {/* 발주 기본 정보 */}
+        <div style={{ padding:'10px 14px', background:'rgba(0,184,148,0.06)', borderRadius:10, border:'1px solid rgba(0,184,148,0.2)', marginBottom:16 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e', marginBottom:4 }}>{order.item_name}</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+            <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'#F4F6F9', color:'#666' }}>📅 {d.getMonth()+1}월 {d.getDate()}일 주문확인</span>
+            <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'#F4F6F9', color:'#666' }}>📦 {order.quantity}{order.unit}</span>
+            {order.supplier_name&&<span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(0,184,148,0.08)', color:'#00B894' }}>🏪 {order.supplier_name}</span>}
+          </div>
+        </div>
+
+        {/* 금액 */}
+        <div style={{ marginBottom:12 }}>
+          <span style={lbl}>결제 금액 *</span>
+          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+            <input type="number" value={amount} onChange={e=>setAmount(e.target.value===''?'':Number(e.target.value))} placeholder="0" style={inp} />
+            <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
+          </div>
+          {Number(amount)>0&&<div style={{ fontSize:11, color:'#FF6B35', marginTop:3, fontWeight:600 }}>{numFmt(Number(amount))}원</div>}
+        </div>
+
+        {/* 단가 + 단위 */}
+        <div style={{ marginBottom:12 }}>
+          <span style={lbl}>단가 (선택, 통계용)</span>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:6, marginBottom:6 }}>
+            <input type="number" value={unitPrice} onChange={e=>setUnitPrice(e.target.value===''?'':Number(e.target.value))} placeholder="개당 가격" style={inp} />
+            <select value={priceUnit} onChange={e=>setPriceUnit(e.target.value)} style={{ ...inp, width:'auto', minWidth:70 }}>
+              {units.map(u=><option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          {/* 단위 커스텀 추가/삭제 */}
+          <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:4 }}>
+            {units.map(u=>(
+              <span key={u} style={{ display:'flex', alignItems:'center', gap:2, padding:'2px 8px', borderRadius:20, background: priceUnit===u?'rgba(108,92,231,0.15)':'#F4F6F9', border:`1px solid ${priceUnit===u?'rgba(108,92,231,0.3)':'#E8ECF0'}`, fontSize:11, color: priceUnit===u?'#6C5CE7':'#888' }}>
+                <button onClick={()=>setPriceUnit(u)} style={{ background:'none', border:'none', cursor:'pointer', color:'inherit', fontSize:11, padding:0 }}>{u}</button>
+                {!DEFAULT_UNITS.slice(0,4).includes(u)&&<button onClick={()=>removeUnit(u)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E84393', fontSize:10, padding:0, marginLeft:2 }}>✕</button>}
+              </span>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:4 }}>
+            <input value={newUnit} onChange={e=>setNewUnit(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addUnit()} placeholder="단위 추가 (예: 묶음)" style={{ ...inp, flex:1, fontSize:12, padding:'5px 8px' }} />
+            <button onClick={addUnit} style={{ padding:'5px 12px', borderRadius:8, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:12, cursor:'pointer', flexShrink:0 }}>+ 추가</button>
+          </div>
+        </div>
+
+        {/* 배송비 ✅ */}
+        <div style={{ marginBottom:12 }}>
+          <span style={lbl}>배송비</span>
+          <div style={{ display:'flex', gap:6, marginBottom: hasDelivery?8:0 }}>
+            <button onClick={()=>setHasDelivery(false)} style={{ flex:1, padding:'9px 0', borderRadius:8, border:!hasDelivery?'2px solid #6C5CE7':'1px solid #E8ECF0', background:!hasDelivery?'rgba(108,92,231,0.1)':'#F8F9FB', color:!hasDelivery?'#6C5CE7':'#888', fontSize:13, fontWeight:!hasDelivery?700:400, cursor:'pointer' }}>없음</button>
+            <button onClick={()=>setHasDelivery(true)} style={{ flex:1, padding:'9px 0', borderRadius:8, border:hasDelivery?'2px solid #FF6B35':'1px solid #E8ECF0', background:hasDelivery?'rgba(255,107,53,0.1)':'#F8F9FB', color:hasDelivery?'#FF6B35':'#888', fontSize:13, fontWeight:hasDelivery?700:400, cursor:'pointer' }}>있음</button>
+          </div>
+          {hasDelivery&&(
+            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+              <input type="number" value={deliveryFee} onChange={e=>setDeliveryFee(e.target.value===''?'':Number(e.target.value))} placeholder="배송비 금액" style={inp} />
+              <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
+            </div>
+          )}
+        </div>
+
+        {/* 결제방법 ✅ */}
+        <div style={{ marginBottom:12 }}>
+          <span style={lbl}>결제방법</span>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:6 }}>
+            {payMethods.map(m=>(
+              <div key={m} style={{ display:'flex', alignItems:'center', gap:2 }}>
+                <button onClick={()=>setPaymentMethod(m)}
+                  style={{ padding:'6px 12px', borderRadius:8, border:paymentMethod===m?`2px solid ${PAYMENT_COLORS[m]||'#6C5CE7'}`:'1px solid #E8ECF0', background:paymentMethod===m?`${PAYMENT_COLORS[m]||'#6C5CE7'}18`:'#F8F9FB', color:paymentMethod===m?PAYMENT_COLORS[m]||'#6C5CE7':'#888', fontSize:12, fontWeight:paymentMethod===m?700:400, cursor:'pointer' }}>
+                  {m}
+                </button>
+                {!DEFAULT_PAYMENT_METHODS.includes(m)&&<button onClick={()=>removePayMethod(m)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E84393', fontSize:11, padding:'0 2px' }}>✕</button>}
+              </div>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:4 }}>
+            <input value={newPayMethod} onChange={e=>setNewPayMethod(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addPayMethod()} placeholder="결제방법 추가 (예: 법인카드)" style={{ ...inp, flex:1, fontSize:12, padding:'5px 8px' }} />
+            <button onClick={addPayMethod} style={{ padding:'5px 12px', borderRadius:8, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:12, cursor:'pointer', flexShrink:0 }}>+ 추가</button>
+          </div>
+        </div>
+
+        {/* 세금계산서 */}
+        <div style={{ marginBottom:12 }}>
+          <span style={lbl}>세금계산서</span>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <button onClick={()=>setTaxInv((v:boolean)=>!v)} style={{ flex:1, padding:'9px 0', borderRadius:8, border:taxInv?'2px solid #00B894':'1px solid #E8ECF0', background:taxInv?'rgba(0,184,148,0.1)':'#F8F9FB', color:taxInv?'#00B894':'#aaa', fontSize:13, fontWeight:taxInv?700:400, cursor:'pointer' }}>
+              {taxInv?'✅ 발행됨':'⬜ 미발행'}
+            </button>
+            {taxInv&&<input type="date" value={taxInvDate} onChange={e=>setTaxInvDate(e.target.value)} style={{ ...inp, flex:1 }} placeholder="발행일" />}
+          </div>
+        </div>
+
+        {/* 메모 */}
+        <div style={{ marginBottom:16 }}>
+          <span style={lbl}>메모</span>
+          <input value={memo} onChange={e=>setMemo(e.target.value)} placeholder="메모" style={inp} />
+        </div>
+
+        <button onClick={handleSave} disabled={saving||!amount}
+          style={{ width:'100%', padding:'13px 0', borderRadius:12, background:amount?'linear-gradient(135deg,#FF6B35,#E84393)':'#E8ECF0', border:'none', color:amount?'#fff':'#aaa', fontSize:14, fontWeight:700, cursor:amount?'pointer':'default' }}>
+          {saving?'저장 중...':'수정 저장'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── 📦 미분류 탭 ─────────────────────────────────────────
-// ✅ 핵심: confirmed_at 기준 (주문확인된 것) + settlement_sheet_id 없는 것
-//    status 필터 없음 → 수령처리 돼도 분류 안 했으면 계속 표시
 function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
   storeId:string; year:number; month:number; sheets:any[]; onRefresh:()=>void
 }) {
@@ -137,41 +285,77 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
   const [loading, setLoading] = useState(true)
   const [amounts, setAmounts] = useState<Record<string,number|''>>({})
   const [unitPrices, setUnitPrices] = useState<Record<string,number|''>>({})
+  const [priceUnits, setPriceUnits] = useState<Record<string,string>>({})
+  const [deliveryFees, setDeliveryFees] = useState<Record<string,number|''>>({})
+  const [hasDelivery, setHasDelivery] = useState<Record<string,boolean>>({})
+  const [payMethods, setPayMethods] = useState<Record<string,string>>({})
   const [sheetIds, setSheetIds] = useState<Record<string,string>>({})
   const [saving, setSaving] = useState<Record<string,boolean>>({})
+
+  // 전역 결제방법/단위 (미분류 탭 전체에서 공유)
+  const [globalPayMethods, setGlobalPayMethods] = useState<string[]>(DEFAULT_PAYMENT_METHODS)
+  const [globalUnits, setGlobalUnits] = useState<string[]>(DEFAULT_UNITS)
+  const [newPayMethod, setNewPayMethod] = useState('')
+  const [newUnit, setNewUnit] = useState('')
+  const [showPayMethodMgr, setShowPayMethodMgr] = useState(false)
+  const [showUnitMgr, setShowUnitMgr] = useState(false)
+
   const expenseSheets = sheets.filter(s=>s.sheet_type==='expense'&&s.is_active)
 
   useEffect(()=>{ loadOrders() },[storeId,year,month])
 
   async function loadOrders() {
     setLoading(true)
-    const pad = (n: number) => String(n).padStart(2,'0')
-    const from = `${year}-${pad(month)}-01`
-    const to = `${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`
-    // ✅ status 필터 없음 — 주문확인(confirmed_at 있는 것) + 미분류만
-    // 수령처리 돼도 분류 안 했으면 계속 표시
-    const { data } = await supabase.from('orders')
-      .select('*')
-      .eq('store_id', storeId)
-      .is('settlement_sheet_id', null)
-      .not('confirmed_at', 'is', null)   // 주문확인 된 것만 (confirmed_at이 있는 것)
-      .gte('confirmed_at', from)
-      .lte('confirmed_at', to)
-      .order('confirmed_at', { ascending:false })
+    const pad=(n:number)=>String(n).padStart(2,'0')
+    const from=`${year}-${pad(month)}-01`
+    const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`
+    const { data } = await supabase.from('orders').select('*').eq('store_id',storeId).is('settlement_sheet_id',null).not('confirmed_at','is',null).gte('confirmed_at',from).lte('confirmed_at',to).order('confirmed_at',{ascending:false})
     setOrders(data||[])
+    // 기존값 세팅
+    const initPriceUnits: Record<string,string> = {}
+    const initPayMethods: Record<string,string> = {}
+    ;(data||[]).forEach((o:any) => {
+      if (o.price_unit) initPriceUnits[o.id] = o.price_unit
+      if (o.payment_method) initPayMethods[o.id] = o.payment_method
+    })
+    setPriceUnits(initPriceUnits)
+    setPayMethods(initPayMethods)
     setLoading(false)
   }
 
+  function addGlobalPayMethod() {
+    const v=newPayMethod.trim(); if(!v||globalPayMethods.includes(v)) return
+    setGlobalPayMethods(p=>[...p,v]); setNewPayMethod('')
+  }
+  function removeGlobalPayMethod(m:string) {
+    if(DEFAULT_PAYMENT_METHODS.includes(m)) return
+    setGlobalPayMethods(p=>p.filter(x=>x!==m))
+    setPayMethods(prev=>{ const n={...prev}; Object.keys(n).forEach(k=>{ if(n[k]===m) delete n[k] }); return n })
+  }
+  function addGlobalUnit() {
+    const v=newUnit.trim(); if(!v||globalUnits.includes(v)) return
+    setGlobalUnits(p=>[...p,v]); setNewUnit('')
+  }
+  function removeGlobalUnit(u:string) {
+    if(DEFAULT_UNITS.slice(0,4).includes(u)) return
+    setGlobalUnits(p=>p.filter(x=>x!==u))
+    setPriceUnits(prev=>{ const n={...prev}; Object.keys(n).forEach(k=>{ if(n[k]===u) n[k]='ea' }); return n })
+  }
+
   async function classifyOrder(orderId: string) {
-    const sheetId=sheetIds[orderId]; const amount=amounts[orderId]; const unitPrice=unitPrices[orderId]
+    const sheetId=sheetIds[orderId]; const amount=amounts[orderId]
     if (!sheetId) { alert('분류할 시트를 선택해주세요'); return }
     if (!amount) { alert('금액을 입력해주세요'); return }
     setSaving(p=>({...p,[orderId]:true}))
     await supabase.from('orders').update({
-      settlement_sheet_id:sheetId, settlement_amount:Number(amount),
-      settlement_unit_price:unitPrice?Number(unitPrice):null,
-      settlement_classified_at:new Date().toISOString(),
-      settlement_year:year, settlement_month:month,
+      settlement_sheet_id: sheetId,
+      settlement_amount: Number(amount),
+      settlement_unit_price: unitPrices[orderId]?Number(unitPrices[orderId]):null,
+      price_unit: priceUnits[orderId]||null,
+      delivery_fee: hasDelivery[orderId]&&deliveryFees[orderId]?Number(deliveryFees[orderId]):null,
+      payment_method: payMethods[orderId]||null,
+      settlement_classified_at: new Date().toISOString(),
+      settlement_year: year, settlement_month: month,
     }).eq('id',orderId)
     setSaving(p=>({...p,[orderId]:false}))
     setOrders(prev=>prev.filter(o=>o.id!==orderId))
@@ -183,10 +367,14 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
     if (ready.length===0) { alert('시트와 금액을 입력한 항목이 없어요'); return }
     if (!confirm(`${ready.length}건을 한번에 분류할까요?`)) return
     await Promise.all(ready.map(o=>supabase.from('orders').update({
-      settlement_sheet_id:sheetIds[o.id], settlement_amount:Number(amounts[o.id]),
-      settlement_unit_price:unitPrices[o.id]?Number(unitPrices[o.id]):null,
-      settlement_classified_at:new Date().toISOString(),
-      settlement_year:year, settlement_month:month,
+      settlement_sheet_id: sheetIds[o.id],
+      settlement_amount: Number(amounts[o.id]),
+      settlement_unit_price: unitPrices[o.id]?Number(unitPrices[o.id]):null,
+      price_unit: priceUnits[o.id]||null,
+      delivery_fee: hasDelivery[o.id]&&deliveryFees[o.id]?Number(deliveryFees[o.id]):null,
+      payment_method: payMethods[o.id]||null,
+      settlement_classified_at: new Date().toISOString(),
+      settlement_year: year, settlement_month: month,
     }).eq('id',o.id)))
     setOrders(prev=>prev.filter(o=>!ready.find(r=>r.id===o.id)))
     onRefresh()
@@ -208,11 +396,58 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
     <div>
       <div style={{ padding:'12px 14px', background:'rgba(108,92,231,0.06)', borderRadius:12, border:'1px solid rgba(108,92,231,0.2)', marginBottom:14 }}>
         <div style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', marginBottom:4 }}>📦 {year}년 {month}월 발주 결산 분류</div>
-        <div style={{ fontSize:11, color:'#888', lineHeight:1.6 }}>
-          {month}월 미분류 발주 {orders.length}건이 있어요.<br/>
-          시트 선택 + 금액 입력 후 분류 버튼을 누르세요.
-        </div>
+        <div style={{ fontSize:11, color:'#888', lineHeight:1.6 }}>{month}월 미분류 발주 {orders.length}건이 있어요.<br/>시트 선택 + 금액 입력 후 분류 버튼을 누르세요.</div>
       </div>
+
+      {/* 결제방법/단위 전역 관리 버튼 */}
+      <div style={{ display:'flex', gap:6, marginBottom:12 }}>
+        <button onClick={()=>setShowPayMethodMgr(v=>!v)}
+          style={{ padding:'6px 12px', borderRadius:9, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:11, fontWeight:600, cursor:'pointer' }}>
+          💳 결제방법 관리
+        </button>
+        <button onClick={()=>setShowUnitMgr(v=>!v)}
+          style={{ padding:'6px 12px', borderRadius:9, background:'rgba(45,198,214,0.08)', border:'1px solid rgba(45,198,214,0.2)', color:'#2DC6D6', fontSize:11, fontWeight:600, cursor:'pointer' }}>
+          📐 단위 관리
+        </button>
+      </div>
+
+      {/* 결제방법 관리 패널 */}
+      {showPayMethodMgr&&(
+        <div style={{ ...bx, border:'1px solid rgba(108,92,231,0.2)', background:'rgba(108,92,231,0.03)', marginBottom:12 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>💳 결제방법 관리</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:8 }}>
+            {globalPayMethods.map(m=>(
+              <span key={m} style={{ display:'flex', alignItems:'center', gap:3, padding:'4px 10px', borderRadius:20, background: DEFAULT_PAYMENT_METHODS.includes(m)?'rgba(108,92,231,0.1)':'rgba(255,107,53,0.1)', border:`1px solid ${DEFAULT_PAYMENT_METHODS.includes(m)?'rgba(108,92,231,0.25)':'rgba(255,107,53,0.25)'}`, fontSize:12, color: DEFAULT_PAYMENT_METHODS.includes(m)?'#6C5CE7':'#FF6B35' }}>
+                {m}
+                {!DEFAULT_PAYMENT_METHODS.includes(m)&&<button onClick={()=>removeGlobalPayMethod(m)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E84393', fontSize:12, padding:0, marginLeft:3 }}>✕</button>}
+              </span>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:6 }}>
+            <input value={newPayMethod} onChange={e=>setNewPayMethod(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addGlobalPayMethod()} placeholder="예: 법인카드, 외상" style={{ ...inp, flex:1, fontSize:12 }} />
+            <button onClick={addGlobalPayMethod} style={{ padding:'8px 14px', borderRadius:8, background:'linear-gradient(135deg,#6C5CE7,#a29bfe)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>추가</button>
+          </div>
+        </div>
+      )}
+
+      {/* 단위 관리 패널 */}
+      {showUnitMgr&&(
+        <div style={{ ...bx, border:'1px solid rgba(45,198,214,0.2)', background:'rgba(45,198,214,0.03)', marginBottom:12 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#2DC6D6', marginBottom:10 }}>📐 단위 관리</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginBottom:8 }}>
+            {globalUnits.map(u=>(
+              <span key={u} style={{ display:'flex', alignItems:'center', gap:3, padding:'4px 10px', borderRadius:20, background: DEFAULT_UNITS.slice(0,4).includes(u)?'rgba(45,198,214,0.1)':'rgba(255,107,53,0.1)', border:`1px solid ${DEFAULT_UNITS.slice(0,4).includes(u)?'rgba(45,198,214,0.25)':'rgba(255,107,53,0.25)'}`, fontSize:12, color: DEFAULT_UNITS.slice(0,4).includes(u)?'#2DC6D6':'#FF6B35' }}>
+                {u}
+                {!DEFAULT_UNITS.slice(0,4).includes(u)&&<button onClick={()=>removeGlobalUnit(u)} style={{ background:'none', border:'none', cursor:'pointer', color:'#E84393', fontSize:12, padding:0, marginLeft:3 }}>✕</button>}
+              </span>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:6 }}>
+            <input value={newUnit} onChange={e=>setNewUnit(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addGlobalUnit()} placeholder="예: 묶음, 세트, 롤" style={{ ...inp, flex:1, fontSize:12 }} />
+            <button onClick={addGlobalUnit} style={{ padding:'8px 14px', borderRadius:8, background:'linear-gradient(135deg,#2DC6D6,#6C5CE7)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>추가</button>
+          </div>
+        </div>
+      )}
 
       {readyCount>0&&(
         <button onClick={classifyAll} style={{ width:'100%', padding:'12px 0', borderRadius:12, background:'linear-gradient(135deg,#6C5CE7,#a29bfe)', border:'none', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer', marginBottom:14 }}>
@@ -226,23 +461,21 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
         const isReady=!!(sheetIds[order.id]&&amounts[order.id])
         return (
           <div key={order.id} style={{ ...bx, border:isReady?'1.5px solid rgba(108,92,231,0.35)':'1px solid #E8ECF0', background:isReady?'rgba(108,92,231,0.02)':'#fff' }}>
+            {/* 발주 정보 */}
             <div style={{ marginBottom:12 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
-                <div>
-                  <span style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{order.item_name}</span>
-                </div>
+                <span style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{order.item_name}</span>
                 <span style={{ fontSize:14, fontWeight:700, color:'#888', flexShrink:0 }}>{order.quantity}{order.unit}</span>
               </div>
               <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'#F4F6F9', color:'#666' }}>
-                  📅 {d.getMonth()+1}월 {d.getDate()}일 주문확인
-                </span>
+                <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'#F4F6F9', color:'#666' }}>📅 {d.getMonth()+1}월 {d.getDate()}일 주문확인</span>
                 {order.supplier_name&&<span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(0,184,148,0.08)', color:'#00B894' }}>🏪 {order.supplier_name}</span>}
                 {order.ordered_by&&<span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(108,92,231,0.07)', color:'#6C5CE7' }}>👤 {order.ordered_by}</span>}
                 {order.memo&&<span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(255,107,53,0.07)', color:'#FF6B35' }}>📝 {order.memo}</span>}
               </div>
             </div>
 
+            {/* 시트 선택 */}
             <div style={{ marginBottom:10 }}>
               <span style={lbl}>어느 항목으로 분류? *</span>
               <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
@@ -255,7 +488,8 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
               </div>
             </div>
 
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12 }}>
+            {/* 금액 + 단가/단위 */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
               <div>
                 <span style={lbl}>결제 금액 * (원)</span>
                 <input type="number" placeholder="실제 결제 금액" value={amounts[order.id]??''} onChange={e=>setAmounts(p=>({...p,[order.id]:e.target.value===''?'':Number(e.target.value)}))} style={inp} />
@@ -263,8 +497,42 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
               </div>
               <div>
                 <span style={lbl}>단가 (선택, 통계용)</span>
-                <input type="number" placeholder="개당 가격" value={unitPrices[order.id]??''} onChange={e=>setUnitPrices(p=>({...p,[order.id]:e.target.value===''?'':Number(e.target.value)}))} style={inp} />
-                {(unitPrices[order.id]||0)>0&&<div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>{numFmt(Number(unitPrices[order.id]))}원/{order.unit}</div>}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:4 }}>
+                  <input type="number" placeholder="개당 가격" value={unitPrices[order.id]??''} onChange={e=>setUnitPrices(p=>({...p,[order.id]:e.target.value===''?'':Number(e.target.value)}))} style={inp} />
+                  <select value={priceUnits[order.id]||'ea'} onChange={e=>setPriceUnits(p=>({...p,[order.id]:e.target.value}))} style={{ ...inp, width:'auto', minWidth:56, fontSize:12 }}>
+                    {globalUnits.map(u=><option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* 배송비 ✅ */}
+            <div style={{ marginBottom:10 }}>
+              <span style={lbl}>배송비</span>
+              <div style={{ display:'flex', gap:6, marginBottom: hasDelivery[order.id]?6:0 }}>
+                <button onClick={()=>setHasDelivery(p=>({...p,[order.id]:false}))}
+                  style={{ flex:1, padding:'7px 0', borderRadius:8, border:!hasDelivery[order.id]?'2px solid #6C5CE7':'1px solid #E8ECF0', background:!hasDelivery[order.id]?'rgba(108,92,231,0.1)':'#F8F9FB', color:!hasDelivery[order.id]?'#6C5CE7':'#888', fontSize:12, fontWeight:!hasDelivery[order.id]?700:400, cursor:'pointer' }}>없음</button>
+                <button onClick={()=>setHasDelivery(p=>({...p,[order.id]:true}))}
+                  style={{ flex:1, padding:'7px 0', borderRadius:8, border:hasDelivery[order.id]?'2px solid #FF6B35':'1px solid #E8ECF0', background:hasDelivery[order.id]?'rgba(255,107,53,0.1)':'#F8F9FB', color:hasDelivery[order.id]?'#FF6B35':'#888', fontSize:12, fontWeight:hasDelivery[order.id]?700:400, cursor:'pointer' }}>있음</button>
+              </div>
+              {hasDelivery[order.id]&&(
+                <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                  <input type="number" placeholder="배송비 금액" value={deliveryFees[order.id]??''} onChange={e=>setDeliveryFees(p=>({...p,[order.id]:e.target.value===''?'':Number(e.target.value)}))} style={inp} />
+                  <span style={{ fontSize:11, color:'#aaa', flexShrink:0 }}>원</span>
+                </div>
+              )}
+            </div>
+
+            {/* 결제방법 ✅ */}
+            <div style={{ marginBottom:12 }}>
+              <span style={lbl}>결제방법</span>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
+                {globalPayMethods.map(m=>(
+                  <button key={m} onClick={()=>setPayMethods(p=>({...p,[order.id]:m}))}
+                    style={{ padding:'5px 10px', borderRadius:8, border:payMethods[order.id]===m?`2px solid ${PAYMENT_COLORS[m]||'#6C5CE7'}`:'1px solid #E8ECF0', background:payMethods[order.id]===m?`${PAYMENT_COLORS[m]||'#6C5CE7'}18`:'#F8F9FB', color:payMethods[order.id]===m?PAYMENT_COLORS[m]||'#6C5CE7':'#888', fontSize:11, fontWeight:payMethods[order.id]===m?700:400, cursor:'pointer' }}>
+                    {m}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -442,6 +710,8 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
     await supabase.from('settlement_entries').delete().eq('id',entry.id); onSave(); onClose()
   }
 
+  const PAYMENT_METHODS_ENTRY = ['카드','현금','계좌이체','어음','기타']
+
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
       <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'92vh', overflowY:'auto' }} onClick={e=>e.stopPropagation()}>
@@ -475,8 +745,8 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
         <div style={{ marginBottom:10 }}>
           <span style={lbl}>결제방법</span>
           <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-            {PAYMENT_METHODS.map(m=>(
-              <button key={m} onClick={()=>setPayment(m)} style={{ padding:'6px 12px', borderRadius:8, border:payment===m?`2px solid ${PAYMENT_COLORS[m]}`:'1px solid #E8ECF0', background:payment===m?`${PAYMENT_COLORS[m]}18`:'#F8F9FB', color:payment===m?PAYMENT_COLORS[m]:'#888', fontSize:12, fontWeight:payment===m?700:400, cursor:'pointer' }}>{m}</button>
+            {PAYMENT_METHODS_ENTRY.map(m=>(
+              <button key={m} onClick={()=>setPayment(m)} style={{ padding:'6px 12px', borderRadius:8, border:payment===m?`2px solid ${PAYMENT_COLORS[m]||'#6C5CE7'}`:'1px solid #E8ECF0', background:payment===m?`${PAYMENT_COLORS[m]||'#6C5CE7'}18`:'#F8F9FB', color:payment===m?PAYMENT_COLORS[m]||'#6C5CE7':'#888', fontSize:12, fontWeight:payment===m?700:400, cursor:'pointer' }}>{m}</button>
             ))}
           </div>
         </div>
@@ -645,12 +915,10 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
-        <button onClick={handleExportAll} disabled={exporting}
-          style={{ padding:'9px 18px', borderRadius:11, background:exporting?'#F0F2F5':'linear-gradient(135deg,#00B894,#2DC6D6)', border:'none', color:exporting?'#bbb':'#fff', fontSize:13, fontWeight:700, cursor:exporting?'default':'pointer' }}>
+        <button onClick={handleExportAll} disabled={exporting} style={{ padding:'9px 18px', borderRadius:11, background:exporting?'#F0F2F5':'linear-gradient(135deg,#00B894,#2DC6D6)', border:'none', color:exporting?'#bbb':'#fff', fontSize:13, fontWeight:700, cursor:exporting?'default':'pointer' }}>
           {exporting?'📊 엑셀 생성 중...':'📥 전체 엑셀 다운로드'}
         </button>
       </div>
-
       <div style={{ ...bx, border:`1.5px solid ${netProfit>=0?'rgba(0,184,148,0.4)':'rgba(232,67,147,0.4)'}` }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
           <div>
@@ -674,7 +942,6 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
           ))}
         </div>
       </div>
-
       <div style={bx}>
         <div style={{ fontSize:13, fontWeight:800, color:'#1a1a2e', marginBottom:14 }}>💰 매출 상세</div>
         {pos>0&&<div style={{ display:'flex', justifyContent:'space-between', marginBottom:10 }}><span style={{ fontSize:12, fontWeight:700, color:'#555' }}>🏪 매장 매출</span><span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{numFmt(pos)}원</span></div>}
@@ -687,7 +954,6 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
         {totalSales===0&&<div style={{ textAlign:'center', padding:'16px 0', color:'#bbb', fontSize:12 }}>마감일지에서 매출 입력 시 자동 연동됩니다</div>}
         {totalSales>0&&<div style={{ borderTop:'2px dashed #E8ECF0', paddingTop:10, marginTop:8 }}><div style={{ display:'flex', justifyContent:'space-between' }}><span style={{ fontSize:13, fontWeight:700 }}>총 매출</span><span style={{ fontSize:15, fontWeight:800, color:'#00B894' }}>{numFmt(totalSales)}원</span></div></div>}
       </div>
-
       <div style={bx}>
         <div style={{ fontSize:13, fontWeight:800, color:'#1a1a2e', marginBottom:14 }}>💸 지출 상세 분석</div>
         {cardFeeAuto>0&&(
@@ -729,7 +995,7 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
   )
 }
 
-// ── 시트 뷰 ────────────────────────────────────────────────
+// ── 시트 뷰 (✅ 발주 연동 항목 수정 가능 — 모든 시트) ────
 function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
   sheet:any; allSheets:any[]; storeId:string; userName:string; year:number; month:number
 }) {
@@ -740,6 +1006,7 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editEntry, setEditEntry] = useState<any>(null)
+  const [editOrder, setEditOrder] = useState<any>(null) // ✅ 발주 수정용
   const [searchQ, setSearchQ] = useState('')
   const [reclassifyId, setReclassifyId] = useState<string|null>(null)
 
@@ -761,7 +1028,7 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
   }
   async function unclassifyOrder(orderId: string) {
     if (!confirm('미분류 탭으로 이동할까요?')) return
-    await supabase.from('orders').update({ settlement_sheet_id:null, settlement_amount:null, settlement_unit_price:null, settlement_classified_at:null, settlement_year:null, settlement_month:null }).eq('id',orderId)
+    await supabase.from('orders').update({ settlement_sheet_id:null, settlement_amount:null, settlement_unit_price:null, price_unit:null, delivery_fee:null, payment_method:null, settlement_classified_at:null, settlement_year:null, settlement_month:null }).eq('id',orderId)
     loadAll()
   }
   async function deleteFavorite(id:string) { await supabase.from('settlement_favorites').delete().eq('id',id); loadAll() }
@@ -782,6 +1049,9 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
 
   return (
     <div>
+      {/* ✅ 발주 수정 모달 */}
+      {editOrder&&<OrderEditModal order={editOrder} onSave={()=>{ loadAll() }} onClose={()=>setEditOrder(null)} />}
+
       <div style={{ ...bx, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div>
           <div style={{ fontSize:11, color:'#aaa' }}>{year}년 {month}월 합계</div>
@@ -792,14 +1062,8 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
           </div>
         </div>
         <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-          <button onClick={()=>exportSheetExcel(sheet,entries,linkedOrders,year,month)}
-            style={{ padding:'7px 12px', borderRadius:10, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.25)', color:'#00B894', fontSize:11, fontWeight:700, cursor:'pointer' }}>
-            📥 엑셀
-          </button>
-          <button onClick={()=>{ setEditEntry(null); setShowModal(true) }}
-            style={{ padding:'10px 14px', borderRadius:12, background:'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>
-            + 추가
-          </button>
+          <button onClick={()=>exportSheetExcel(sheet,entries,linkedOrders,year,month)} style={{ padding:'7px 12px', borderRadius:10, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.25)', color:'#00B894', fontSize:11, fontWeight:700, cursor:'pointer' }}>📥 엑셀</button>
+          <button onClick={()=>{ setEditEntry(null); setShowModal(true) }} style={{ padding:'10px 14px', borderRadius:12, background:'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer' }}>+ 추가</button>
         </div>
       </div>
 
@@ -809,42 +1073,50 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
         {searchQ&&<button onClick={()=>setSearchQ('')} style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', color:'#bbb', cursor:'pointer', fontSize:14 }}>✕</button>}
       </div>
 
+      {/* ✅ 발주 연동 항목 — 클릭하면 수정 모달 */}
       {filteredOrders.length>0&&(
         <div style={{ ...bx, border:'1px solid rgba(0,184,148,0.25)', background:'rgba(0,184,148,0.02)' }}>
-          <div style={{ fontSize:12, fontWeight:700, color:'#00B894', marginBottom:10 }}>📦 발주 연동 ({filteredOrders.length}건)</div>
+          <div style={{ fontSize:12, fontWeight:700, color:'#00B894', marginBottom:4 }}>📦 발주 연동 ({filteredOrders.length}건)</div>
+          <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>품목을 누르면 수정할 수 있어요</div>
           {filteredOrders.map(order=>{
             const d=new Date(order.confirmed_at||order.ordered_at)
             const isReclassify=reclassifyId===order.id
             return (
               <div key={order.id} style={{ padding:'10px 12px', background:'rgba(0,184,148,0.06)', borderRadius:10, marginBottom:6, border:'1px solid rgba(0,184,148,0.15)' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                {/* ✅ 품목명 클릭 → 수정 모달 */}
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', cursor:'pointer' }} onClick={()=>setEditOrder(order)}>
                   <div>
                     <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
                       <span style={{ fontSize:9, background:'rgba(0,184,148,0.2)', color:'#00B894', padding:'1px 6px', borderRadius:4, fontWeight:700 }}>📦</span>
                       <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{order.item_name}</span>
+                      <span style={{ fontSize:10, color:'#6C5CE7', fontWeight:600 }}>✏️ 수정</span>
                     </div>
                     <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
                       <span style={{ fontSize:10, color:'#aaa' }}>📅 {d.getMonth()+1}월 {d.getDate()}일</span>
                       {order.quantity&&<span style={{ fontSize:10, color:'#aaa' }}>· {order.quantity}{order.unit}</span>}
                       {order.supplier_name&&<span style={{ fontSize:10, color:'#6C5CE7' }}>· 🏪 {order.supplier_name}</span>}
-                      {order.settlement_unit_price&&<span style={{ fontSize:10, color:'#FF6B35' }}>· 단가 {numFmt(order.settlement_unit_price)}원</span>}
+                      {order.payment_method&&<span style={{ fontSize:10, color:PAYMENT_COLORS[order.payment_method]||'#888' }}>· 💳 {order.payment_method}</span>}
+                      {order.settlement_unit_price&&<span style={{ fontSize:10, color:'#FF6B35' }}>· 단가 {numFmt(order.settlement_unit_price)}원/{order.price_unit||''}</span>}
+                      {order.delivery_fee>0&&<span style={{ fontSize:10, color:'#FF6B35' }}>· 배송비 {numFmt(order.delivery_fee)}원</span>}
+                      {order.has_tax_invoice&&<span style={{ fontSize:10, color:'#00B894', fontWeight:700 }}>· ✅ 세금계산서</span>}
                     </div>
                   </div>
                   <div style={{ textAlign:'right', flexShrink:0, marginLeft:8 }}>
                     {order.settlement_amount?<span style={{ fontSize:15, fontWeight:800, color:'#1a1a2e' }}>{numFmt(order.settlement_amount)}원</span>:<span style={{ fontSize:11, color:'#bbb' }}>금액없음</span>}
                   </div>
                 </div>
-                <div style={{ display:'flex', gap:6, marginTop:8 }}>
+                {/* 시트 변경 / 미분류 이동 */}
+                <div style={{ display:'flex', gap:6, marginTop:8 }} onClick={e=>e.stopPropagation()}>
                   <button onClick={()=>setReclassifyId(isReclassify?null:order.id)}
                     style={{ padding:'4px 10px', borderRadius:7, background:isReclassify?'rgba(108,92,231,0.15)':'rgba(108,92,231,0.07)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:10, fontWeight:700, cursor:'pointer' }}>
-                    {isReclassify?'✕ 취소':'✏️ 시트 변경'}
+                    {isReclassify?'✕ 취소':'🔀 시트 변경'}
                   </button>
                   <button onClick={()=>unclassifyOrder(order.id)} style={{ padding:'4px 10px', borderRadius:7, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:10, cursor:'pointer' }}>
                     미분류로 이동
                   </button>
                 </div>
                 {isReclassify&&(
-                  <div style={{ marginTop:8, padding:'10px 12px', background:'rgba(108,92,231,0.05)', borderRadius:9, border:'1px solid rgba(108,92,231,0.15)' }}>
+                  <div style={{ marginTop:8, padding:'10px 12px', background:'rgba(108,92,231,0.05)', borderRadius:9, border:'1px solid rgba(108,92,231,0.15)' }} onClick={e=>e.stopPropagation()}>
                     <div style={{ fontSize:11, color:'#6C5CE7', fontWeight:700, marginBottom:8 }}>어느 시트로 이동할까요?</div>
                     <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
                       {expenseSheets.map(s=>(
@@ -1011,9 +1283,7 @@ function AdminView({ profileId, year, month }: { profileId:string; year:number; 
         const d=storeData[store.id]; if(!d) return
         const wsD=wb.addWorksheet(store.name.slice(0,31))
         wsD.addRow(['항목','금액(원)']); wsD.getRow(1).eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF2C3E50'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
-        wsD.addRow(['총 매출',d.sales])
-        d.sheets.forEach((sh:any)=>wsD.addRow([`${sh.icon} ${sh.name}`,sh.amount]))
-        wsD.addRow(['순수익',d.sales-d.expense])
+        wsD.addRow(['총 매출',d.sales]); d.sheets.forEach((sh:any)=>wsD.addRow([`${sh.icon} ${sh.name}`,sh.amount])); wsD.addRow(['순수익',d.sales-d.expense])
         wsD.getColumn(2).numFmt='#,##0'; wsD.columns.forEach(col=>{col.width=20})
       })
       const buf=await wb.xlsx.writeBuffer()
@@ -1097,17 +1367,11 @@ export default function SettlementPage() {
 
   useEffect(()=>{ if(storeId) loadUnclassifiedCount() },[storeId, year, month])
 
-  // ✅ 미분류 카운트 — confirmed_at 기준, status 무관
   async function loadUnclassifiedCount() {
     const pad=(n:number)=>String(n).padStart(2,'0')
     const from=`${year}-${pad(month)}-01`
     const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`
-    const { count } = await supabase.from('orders').select('*',{count:'exact',head:true})
-      .eq('store_id',storeId)
-      .is('settlement_sheet_id',null)
-      .not('confirmed_at','is',null)
-      .gte('confirmed_at',from)
-      .lte('confirmed_at',to)
+    const { count } = await supabase.from('orders').select('*',{count:'exact',head:true}).eq('store_id',storeId).is('settlement_sheet_id',null).not('confirmed_at','is',null).gte('confirmed_at',from).lte('confirmed_at',to)
     setUnclassifiedCount(count||0)
   }
 
