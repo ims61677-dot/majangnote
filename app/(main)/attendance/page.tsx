@@ -756,7 +756,203 @@ export default function AttendancePage() {
   function prevMonth() { if (histMonth===0) { setHistYear(y=>y-1); setHistMonth(11) } else setHistMonth(m=>m-1) }
   function nextMonth() { if (histMonth===11) { setHistYear(y=>y+1); setHistMonth(0) } else setHistMonth(m=>m+1) }
 
-  // ★ 출퇴근 기록 엑셀 내보내기 (대표 전용)
+  // ★ 전지점 출퇴근 엑셀 내보내기
+  const [allExporting, setAllExporting] = useState(false)
+  async function exportAllStoresExcel() {
+    if (allExporting || allStores.length === 0) return
+    setAllExporting(true)
+    try {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      const y = allMonthYear, m = allMonthMonth
+      const lastDay = new Date(y, m+1, 0).getDate()
+      const DOW_KR = ['일','월','화','수','목','금','토']
+      const STATUS_LABEL: Record<string,string> = {
+        normal:'정상', late:'지각', early:'조기퇴근', late_early:'지각+조기퇴근',
+        absent:'결근', no_clockout:'퇴근누락', no_clockin:'출근누락', working:'근무중',
+      }
+      const STATUS_BG: Record<string,string> = {
+        normal:'FFE0FAF4', late:'FFFCE4F0', early:'FFF0EEFF', late_early:'FFFCE4F0',
+        absent:'FFF5F5F5', no_clockout:'FFFFF9E0', no_clockin:'FFFFEEE6', working:'FFFFEEE6',
+      }
+      const STATUS_CLR: Record<string,string> = {
+        normal:'FF00B894', late:'FFE84393', early:'FF6C5CE7', late_early:'FFE84393',
+        absent:'FFb2bec3', no_clockout:'FFb8860b', no_clockin:'FFFF6B35', working:'FFFF6B35',
+      }
+      const STORE_COLORS = ['FF1D3557','FF4A148C','FF1B5E20','FF7B2D00','FF37474F']
+      const thin = () => ({ style:'thin' as const, color:{ argb:'FFE0E4E8' } })
+      const med  = () => ({ style:'medium' as const, color:{ argb:'FFaaaaaa' } })
+
+      for (let si = 0; si < allStores.length; si++) {
+        const store = allStores[si]
+        const d = allMonthData[store.id]
+        if (!d) continue
+        const { staff, att } = d
+        if (staff.length === 0) continue
+
+        const sheetName = (store.name || `지점${si+1}`).slice(0, 31)
+        const ws = wb.addWorksheet(sheetName)
+        const storeColor = STORE_COLORS[si % STORE_COLORS.length]
+
+        // 출퇴근 맵
+        const am: Record<string, Record<string, any>> = {}
+        staff.forEach((s: any) => { am[s.id] = {} })
+        att.forEach((a: any) => { if (am[a.profile_id]) am[a.profile_id][a.work_date] = a })
+
+        const totalCols = 2 + staff.length + 1
+
+        // 제목 행
+        const titleRow = ws.addRow(new Array(totalCols).fill(''))
+        ws.mergeCells(1, 1, 1, totalCols)
+        const tc = titleRow.getCell(1)
+        tc.value = `🏪 ${store.name}  |  ${y}년 ${m+1}월 출퇴근 기록`
+        tc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: storeColor } }
+        tc.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:13 }
+        tc.alignment = { horizontal:'center', vertical:'middle' }
+        titleRow.height = 28
+
+        // 직원명 헤더
+        const hRow = ws.addRow(['날짜','요일',...staff.map((s:any)=>s.nm),'출근수'])
+        hRow.eachCell((cell, ci) => {
+          cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: ci <= 2 ? 'FF2C3E50' : storeColor } }
+          cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 }
+          cell.alignment = { horizontal:'center', vertical:'middle' }
+          cell.border = { bottom:med(), right:thin() }
+        })
+        ws.getRow(2).height = 20
+
+        // 기준시간 행
+        const bRow = ws.addRow(['기준','',...staff.map((s:any)=>`${s.expected_in||'--'} ~ ${s.expected_out||'--'}`),''])
+        bRow.eachCell(cell => {
+          cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF8F0FF' } }
+          cell.font = { color:{ argb:'FF6C5CE7' }, size:9 }
+          cell.alignment = { horizontal:'center', vertical:'middle' }
+          cell.border = { bottom:med(), right:thin() }
+        })
+        ws.getRow(3).height = 15
+
+        // 열 너비
+        ws.getColumn(1).width = 12; ws.getColumn(2).width = 5
+        staff.forEach((_:any, i:number) => { ws.getColumn(i+3).width = 15 })
+        ws.getColumn(staff.length+3).width = 7
+
+        // 날짜별 행
+        for (let day = 1; day <= lastDay; day++) {
+          const ds = `${y}-${pad(m+1)}-${pad(day)}`
+          const dow = new Date(ds).getDay()
+          const isSun = dow===0, isSat = dow===6
+          const dateBg = isSun?'FFFCE4F0':isSat?'FFF0EEFF':'FFFAFAFA'
+          const dateClr = isSun?'FFE84393':isSat?'FF6C5CE7':'FF333333'
+          const isMonday = dow===1 && day!==1
+
+          let workCnt = 0
+          const rowData: any[] = [`${m+1}/${day}`, DOW_KR[dow]]
+          const cellInfos: { status:string }[] = []
+
+          staff.forEach((s:any) => {
+            const r = am[s.id]?.[ds]
+            if (!r) { rowData.push(''); cellInfos.push({ status:'' }); return }
+            const isPast = ds < today
+            const isLate  = s.expected_in  && r.clock_in  ? tsToMinutes(r.clock_in)  > timeToMinutes(s.expected_in)  : false
+            const isEarly = s.expected_out && r.clock_out ? tsToMinutes(r.clock_out) < timeToMinutes(s.expected_out) : false
+            let st = r.status || 'normal'
+            if (!['absent','no_clockin'].includes(st)) {
+              if (isPast && r.clock_in && !r.clock_out) st = 'no_clockout'
+              else if (r.clock_out) {
+                if (isLate&&isEarly) st='late_early'
+                else if (isLate)  st='late'
+                else if (isEarly) st='early'
+                else st='normal'
+              } else if (r.clock_in) st='working'
+            }
+            const ci = fmtTime(r.clock_in)||'', co = fmtTime(r.clock_out)||''
+            let val = STATUS_LABEL[st]||st
+            if (ci) val += `\n${ci}${co?` → ${co}`:' ~'}`
+            if (r.late_minutes > 0) val += `\n지각 ${r.late_minutes}분`
+            rowData.push(val)
+            cellInfos.push({ status: st })
+            if (['normal','late','early','late_early','working'].includes(st)) workCnt++
+          })
+          rowData.push(workCnt||'')
+
+          const row = ws.addRow(rowData)
+          row.height = 34
+          const dc = row.getCell(1)
+          dc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
+          dc.font = { color:{ argb:dateClr }, size:10 }
+          dc.alignment = { horizontal:'left', vertical:'middle' }
+          const dw = row.getCell(2)
+          dw.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:dateBg } }
+          dw.font = { bold:true, color:{ argb:dateClr }, size:10 }
+          dw.alignment = { horizontal:'center', vertical:'middle' }
+          cellInfos.forEach((info, i) => {
+            const cell = row.getCell(i+3)
+            cell.alignment = { horizontal:'center', vertical:'middle', wrapText:true }
+            if (!info.status) return
+            cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:STATUS_BG[info.status]||'FFFFFFFF' } }
+            cell.font = { bold:true, color:{ argb:STATUS_CLR[info.status]||'FF333333' }, size:10 }
+          })
+          const cc = row.getCell(staff.length+3)
+          cc.font = { bold:true, color:{ argb:workCnt<2?'FFE84393':'FF6C5CE7' }, size:11 }
+          cc.alignment = { horizontal:'center', vertical:'middle' }
+          if (isMonday) row.eachCell(cell => { cell.border = { ...cell.border, top:med() } })
+          else row.eachCell(cell => { cell.border = { top:thin(), bottom:thin(), left:thin(), right:thin() } })
+        }
+
+        // 합계 행
+        const sumData: any[] = ['합계','']
+        staff.forEach((s: any) => {
+          const recs = att.filter((a:any) => a.profile_id === s.id)
+          let normal=0,late=0,early=0,late_early=0,absent=0,no_clockout=0,no_clockin=0
+          recs.forEach((r:any) => {
+            const isPast = r.work_date < today
+            const isLate  = s.expected_in  && r.clock_in  ? tsToMinutes(r.clock_in)  > timeToMinutes(s.expected_in)  : false
+            const isEarly = s.expected_out && r.clock_out ? tsToMinutes(r.clock_out) < timeToMinutes(s.expected_out) : false
+            const st = r.status||'normal'
+            if (st==='absent'||st==='no_clockin') { absent++; no_clockin++; return }
+            if (isPast && r.clock_in && !r.clock_out) { no_clockout++; return }
+            if (isLate&&isEarly) late_early++
+            else if (isLate)  late++
+            else if (isEarly) early++
+            else normal++
+          })
+          const totalWork = normal+late+early+late_early
+          let summary = `출근 ${totalWork}일`
+          if (late+late_early>0)  summary += ` / 지각 ${late+late_early}회`
+          if (early+late_early>0) summary += ` / 조퇴 ${early+late_early}회`
+          if (absent>0)      summary += ` / 결근 ${absent}일`
+          if (no_clockout>0) summary += ` / 퇴근누락 ${no_clockout}회`
+          sumData.push(summary)
+        })
+        sumData.push('')
+        const sumRow = ws.addRow(sumData)
+        ws.mergeCells(ws.rowCount, 1, ws.rowCount, 2)
+        sumRow.height = 22
+        sumRow.eachCell(cell => {
+          cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFE8CC' } }
+          cell.font = { bold:true, size:9, color:{ argb:'FF1A1A2E' } }
+          cell.alignment = { horizontal:'center', vertical:'middle', wrapText:true }
+          cell.border = { top:med(), bottom:thin(), left:thin(), right:thin() }
+        })
+        ws.views = [{ state:'frozen', xSplit:2, ySplit:3 }]
+      }
+
+      const buf = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `전지점_출퇴근_${y}년${m+1}월.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch(e: any) {
+      alert('내보내기 실패: ' + (e?.message || '다시 시도해주세요'))
+    } finally {
+      setAllExporting(false)
+    }
+  }
+
+  // ★ 지점별 출퇴근 기록 엑셀 내보내기 (대표 전용)
   const [exporting, setExporting] = useState(false)
   async function exportAttendanceExcel() {
     if (exporting) return
@@ -1403,6 +1599,10 @@ export default function AttendancePage() {
                   <div style={{ fontSize:13, fontWeight:700, color:'#888' }}>📅</div>
                   <select value={allMonthYear} onChange={e=>setAllMonthYear(Number(e.target.value))} style={{ flex:1, padding:'9px 12px', borderRadius:10, border:'1px solid #E8ECF0', background:'#fff', fontSize:14, fontWeight:700, color:'#1a1a2e', outline:'none', cursor:'pointer', appearance:'auto' }}>{Array.from({length:5},(_,i)=>nowDate.getFullYear()-2+i).map(y=><option key={y} value={y}>{y}년</option>)}</select>
                   <select value={allMonthMonth} onChange={e=>setAllMonthMonth(Number(e.target.value))} style={{ flex:1, padding:'9px 12px', borderRadius:10, border:'1px solid #E8ECF0', background:'#fff', fontSize:14, fontWeight:700, color:'#1a1a2e', outline:'none', cursor:'pointer', appearance:'auto' }}>{Array.from({length:12},(_,i)=>i).map(m=><option key={m} value={m}>{m+1}월</option>)}</select>
+                  <button onClick={exportAllStoresExcel} disabled={allExporting || allMonthLoading || Object.keys(allMonthData).length===0}
+                    style={{ padding:'9px 14px', borderRadius:10, border:'1px solid rgba(0,184,148,0.3)', background:'rgba(0,184,148,0.08)', color: (allExporting||allMonthLoading||Object.keys(allMonthData).length===0)?'#aaa':'#00B894', fontSize:12, fontWeight:700, cursor:(allExporting||allMonthLoading||Object.keys(allMonthData).length===0)?'not-allowed':'pointer', flexShrink:0, whiteSpace:'nowrap' }}>
+                    {allExporting ? '⏳...' : '📥 엑셀'}
+                  </button>
                 </div>
                 {allMonthLoading?<div style={{ textAlign:'center', padding:40, color:'#aaa', fontSize:14 }}>불러오는 중...</div>
                 :allStores.map((store:any)=>{
