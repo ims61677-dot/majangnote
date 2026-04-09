@@ -30,33 +30,119 @@ const DEFAULT_SHEETS = [
   { name:'세금',       icon:'🧾', sheet_type:'expense', sort_order:12 },
 ]
 
-// ── 엑셀 내보내기 (시트별) ───────────────────────────────
+// ── 시트별 엑셀 내보내기 ─────────────────────────────────
 async function exportSheetExcel(sheet: any, entries: any[], linkedOrders: any[], year: number, month: number) {
   try {
     const ExcelJS = (await import('exceljs')).default
+    const pad = (n: number) => String(n).padStart(2,'0')
     const wb = new ExcelJS.Workbook()
-    const ws = wb.addWorksheet(`${sheet.name}_${year}년${String(month).padStart(2,'0')}월`)
-    ws.addRow(['구분','날짜','품목명','금액','결제방법','수량','단가','입금일','세금계산서','세금계산서날짜','메모','수량(발주)','구매처'])
+    const ws = wb.addWorksheet(`${sheet.name}_${year}년${pad(month)}월`)
+    ws.addRow(['구분','날짜','품목명','금액','결제방법','수량','단가','입금일','세금계산서','세금계산서날짜','메모','구매처'])
     ws.getRow(1).eachCell(cell => { cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1A1A2E'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
-    entries.forEach(e => {
-      ws.addRow(['직접입력', e.entry_date, e.item_name||'', e.amount||0, e.payment_method||'', e.quantity||'', e.unit_price||'', e.deposit_date||'', e.has_tax_invoice?'O':'', e.tax_invoice_date||'', e.memo||'', '', ''])
-    })
-    linkedOrders.forEach(o => {
-      const d = new Date(o.confirmed_at||o.ordered_at)
-      ws.addRow(['발주연동', `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`, o.item_name||'', o.settlement_amount||0, '', o.quantity||'', o.settlement_unit_price||'', '', '', '', o.memo||'', o.quantity||'', o.supplier_name||''])
-    })
-    ws.getColumn(4).numFmt='#,##0'
-    ws.columns.forEach(col => { col.width = 14 })
+    entries.forEach(e => ws.addRow(['직접입력',e.entry_date,e.item_name||'',e.amount||0,e.payment_method||'',e.quantity||'',e.unit_price||'',e.deposit_date||'',e.has_tax_invoice?'O':'',e.tax_invoice_date||'',e.memo||'','']))
+    linkedOrders.forEach(o => { const d=new Date(o.confirmed_at||o.ordered_at); ws.addRow(['발주연동',`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,o.item_name||'',o.settlement_amount||0,'',o.quantity||'',o.settlement_unit_price||'','','','',o.memo||'',o.supplier_name||'']) })
+    ws.getColumn(4).numFmt='#,##0'; ws.columns.forEach(col=>{col.width=14})
     const buf = await wb.xlsx.writeBuffer()
-    const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const blob = new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download=`${sheet.icon}${sheet.name}_${year}년${pad(month)}월.xlsx`; a.click(); URL.revokeObjectURL(url)
+  } catch(e:any) { alert('엑셀 오류: '+(e?.message||'')) }
+}
+
+// ── 전체 엑셀 내보내기 (수익분석 탭) ───────────────────────
+async function exportAllExcel(storeId: string, year: number, month: number, sheets: any[], settings: any) {
+  try {
+    const supabase = createSupabaseBrowserClient()
+    const ExcelJS = (await import('exceljs')).default
+    const pad = (n: number) => String(n).padStart(2,'0')
+    const wb = new ExcelJS.Workbook()
+    const from = `${year}-${pad(month)}-01`
+    const to = `${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}`
+
+    // ── 1. 수익분석 요약 시트 ──
+    const wsSummary = wb.addWorksheet('📊 수익분석 요약')
+    wsSummary.addRow([`${year}년 ${month}월 결산 요약`])
+    wsSummary.getRow(1).font = { bold:true, size:14 }
+    wsSummary.addRow([])
+
+    const { data: cls } = await supabase.from('closings').select('id').eq('store_id',storeId).gte('closing_date',from).lte('closing_date',to)
+    let salesByPlatform: Record<string,number> = {}
+    if (cls?.length) {
+      const { data: sv } = await supabase.from('closing_sales').select('platform,amount').in('closing_id',cls.map((c:any)=>c.id))
+      ;(sv||[]).forEach((s:any)=>{ salesByPlatform[s.platform]=(salesByPlatform[s.platform]||0)+s.amount })
+    }
+    const totalSales = Object.values(salesByPlatform).reduce((s,v)=>s+v,0)
+
+    const { data: entries } = await supabase.from('settlement_entries').select('sheet_id,amount').eq('store_id',storeId).eq('year',year).eq('month',month)
+    const { data: linked } = await supabase.from('orders').select('settlement_sheet_id,settlement_amount').eq('store_id',storeId).eq('settlement_year',year).eq('settlement_month',month).not('settlement_sheet_id','is',null)
+    const entrySums: Record<string,number> = {}
+    ;(entries||[]).forEach((e:any)=>{ entrySums[e.sheet_id]=(entrySums[e.sheet_id]||0)+e.amount })
+    ;(linked||[]).forEach((o:any)=>{ if(o.settlement_sheet_id&&o.settlement_amount) entrySums[o.settlement_sheet_id]=(entrySums[o.settlement_sheet_id]||0)+o.settlement_amount })
+
+    const cardRate = settings?.card_fee_rate??1.1
+    const DELIVERY = ['배달의민족','배민','쿠팡이츠','쿠팡','요기요']
+    const pos = Object.entries(salesByPlatform).filter(([k])=>!DELIVERY.includes(k)).reduce((s,[,v])=>s+v,0)
+    const cardFeeAuto = Math.round(pos*(cardRate/100))
+    const expenseSheets = sheets.filter(s=>s.sheet_type==='expense'&&s.is_active)
+    const totalExpense = expenseSheets.reduce((s,sh)=>s+(entrySums[sh.id]||0),0)+cardFeeAuto
+    const netProfit = totalSales-totalExpense
+    const profitRate = totalSales>0?Math.round((netProfit/totalSales)*1000)/10:0
+
+    const headerStyle = { type:'pattern' as const, pattern:'solid' as const, fgColor:{argb:'FF2C3E50'} }
+    wsSummary.addRow(['항목','금액(원)','비고'])
+    const hRow = wsSummary.getRow(3)
+    hRow.eachCell(cell=>{ cell.fill=headerStyle; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
+
+    wsSummary.addRow(['▶ 총 매출',totalSales,''])
+    Object.entries(salesByPlatform).forEach(([platform,amount])=>wsSummary.addRow([`   └ ${platform}`,amount,'']))
+    wsSummary.addRow([])
+    wsSummary.addRow(['▶ 총 지출',totalExpense,''])
+    wsSummary.addRow([`   └ 💳 카드수수료 (${cardRate}% 자동)`,cardFeeAuto,'자동계산'])
+    expenseSheets.forEach(sh=>{ const amt=(entrySums[sh.id]||0); wsSummary.addRow([`   └ ${sh.icon} ${sh.name}`,amt,amt===0?'미입력':'']) })
+    wsSummary.addRow([])
+    const netRow = wsSummary.addRow(['▶ 순수익',netProfit,`수익률 ${profitRate}%`])
+    netRow.font={bold:true,size:13,color:{argb:netProfit>=0?'FF00B894':'FFE84393'}}
+    wsSummary.getColumn(1).width=32; wsSummary.getColumn(2).numFmt='#,##0'; wsSummary.getColumn(2).width=18; wsSummary.getColumn(3).width=16
+
+    // ── 2. 각 시트별 탭 ──
+    for (const sheet of expenseSheets) {
+      const { data: sheetEntries } = await supabase.from('settlement_entries').select('*').eq('sheet_id',sheet.id).eq('year',year).eq('month',month).order('entry_date')
+      const { data: sheetOrders } = await supabase.from('orders').select('*').eq('settlement_sheet_id',sheet.id).eq('settlement_year',year).eq('settlement_month',month).order('confirmed_at')
+      const ws = wb.addWorksheet(`${sheet.icon}${sheet.name}`)
+      ws.addRow(['구분','날짜','품목명','금액','결제방법','수량','단가','입금일','세금계산서','세금계산서날짜','메모','구매처'])
+      ws.getRow(1).eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1A1A2E'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
+      ;(sheetEntries||[]).forEach((e:any)=>ws.addRow(['직접입력',e.entry_date,e.item_name||'',e.amount||0,e.payment_method||'',e.quantity||'',e.unit_price||'',e.deposit_date||'',e.has_tax_invoice?'O':'',e.tax_invoice_date||'',e.memo||'','']))
+      ;(sheetOrders||[]).forEach((o:any)=>{ const d=new Date(o.confirmed_at||o.ordered_at); ws.addRow(['발주연동',`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,o.item_name||'',o.settlement_amount||0,'',o.quantity||'',o.settlement_unit_price||'','','','',o.memo||'',o.supplier_name||'']) })
+      ws.addRow([])
+      const total=(sheetEntries||[]).reduce((s:number,e:any)=>s+(e.amount||0),0)+(sheetOrders||[]).reduce((s:number,o:any)=>s+(o.settlement_amount||0),0)
+      const tRow=ws.addRow(['합계','','',total]); tRow.font={bold:true}
+      ws.getColumn(4).numFmt='#,##0'; ws.columns.forEach(col=>{col.width=14})
+    }
+
+    // ── 3. 매출 탭 ──
+    const wsSales = wb.addWorksheet('💰 매출')
+    wsSales.addRow(['날짜','플랫폼','금액'])
+    wsSales.getRow(1).eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF00B894'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
+    if (cls?.length) {
+      const { data: clsDetail } = await supabase.from('closings').select('id,closing_date').eq('store_id',storeId).gte('closing_date',from).lte('closing_date',to).order('closing_date')
+      const { data: sv } = await supabase.from('closing_sales').select('*').in('closing_id',(clsDetail||[]).map((c:any)=>c.id))
+      ;(clsDetail||[]).forEach((cl:any)=>{
+        const platforms=(sv||[]).filter((s:any)=>s.closing_id===cl.id&&s.amount>0)
+        platforms.forEach((p:any)=>wsSales.addRow([cl.closing_date,p.platform,p.amount]))
+      })
+    }
+    wsSales.getColumn(3).numFmt='#,##0'; wsSales.columns.forEach(col=>{col.width=16})
+
+    // 다운로드
+    const buf = await wb.xlsx.writeBuffer()
+    const blob = new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href=url; a.download=`${sheet.icon}${sheet.name}_${year}년${String(month).padStart(2,'0')}월.xlsx`; a.click(); URL.revokeObjectURL(url)
+    const a = document.createElement('a'); a.href=url; a.download=`결산_전체_${year}년${pad(month)}월.xlsx`; a.click(); URL.revokeObjectURL(url)
   } catch(e:any) { alert('엑셀 오류: '+(e?.message||'')) }
 }
 
 // ── 📦 미분류 탭 ───────────────────────────────────────────
 function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
-  storeId: string; year: number; month: number; sheets: any[]; onRefresh: () => void
+  storeId:string; year:number; month:number; sheets:any[]; onRefresh:()=>void
 }) {
   const supabase = createSupabaseBrowserClient()
   const [orders, setOrders] = useState<any[]>([])
@@ -65,55 +151,34 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
   const [unitPrices, setUnitPrices] = useState<Record<string,number|''>>({})
   const [sheetIds, setSheetIds] = useState<Record<string,string>>({})
   const [saving, setSaving] = useState<Record<string,boolean>>({})
-
   const expenseSheets = sheets.filter(s=>s.sheet_type==='expense'&&s.is_active)
 
-  useEffect(() => { loadOrders() }, [storeId, year, month])
+  useEffect(()=>{ loadOrders() },[storeId,year,month])
 
   async function loadOrders() {
     setLoading(true)
-    const { data } = await supabase.from('orders').select('*').eq('store_id', storeId).eq('status','ordered').is('settlement_sheet_id', null).order('confirmed_at',{ ascending:false })
-    setOrders(data||[])
-    setLoading(false)
+    const { data } = await supabase.from('orders').select('*').eq('store_id',storeId).eq('status','ordered').is('settlement_sheet_id',null).order('confirmed_at',{ascending:false})
+    setOrders(data||[]); setLoading(false)
   }
 
   async function classifyOrder(orderId: string) {
-    const sheetId = sheetIds[orderId]
-    const amount = amounts[orderId]
-    const unitPrice = unitPrices[orderId]
+    const sheetId=sheetIds[orderId]; const amount=amounts[orderId]; const unitPrice=unitPrices[orderId]
     if (!sheetId) { alert('분류할 시트를 선택해주세요'); return }
     if (!amount) { alert('금액을 입력해주세요'); return }
     setSaving(p=>({...p,[orderId]:true}))
-    await supabase.from('orders').update({
-      settlement_sheet_id: sheetId,
-      settlement_amount: Number(amount),
-      settlement_unit_price: unitPrice ? Number(unitPrice) : null,
-      settlement_classified_at: new Date().toISOString(),
-      settlement_year: year,
-      settlement_month: month,
-    }).eq('id', orderId)
-    setSaving(p=>({...p,[orderId]:false}))
-    setOrders(prev=>prev.filter(o=>o.id!==orderId))
-    onRefresh()
+    await supabase.from('orders').update({ settlement_sheet_id:sheetId, settlement_amount:Number(amount), settlement_unit_price:unitPrice?Number(unitPrice):null, settlement_classified_at:new Date().toISOString(), settlement_year:year, settlement_month:month }).eq('id',orderId)
+    setSaving(p=>({...p,[orderId]:false})); setOrders(prev=>prev.filter(o=>o.id!==orderId)); onRefresh()
   }
 
   async function classifyAll() {
-    const ready = orders.filter(o=>sheetIds[o.id]&&amounts[o.id])
+    const ready=orders.filter(o=>sheetIds[o.id]&&amounts[o.id])
     if (ready.length===0) { alert('시트와 금액을 입력한 항목이 없어요'); return }
     if (!confirm(`${ready.length}건을 한번에 분류할까요?`)) return
-    await Promise.all(ready.map(o=>supabase.from('orders').update({
-      settlement_sheet_id: sheetIds[o.id],
-      settlement_amount: Number(amounts[o.id]),
-      settlement_unit_price: unitPrices[o.id] ? Number(unitPrices[o.id]) : null,
-      settlement_classified_at: new Date().toISOString(),
-      settlement_year: year, settlement_month: month,
-    }).eq('id', o.id)))
-    setOrders(prev=>prev.filter(o=>!ready.find(r=>r.id===o.id)))
-    onRefresh()
+    await Promise.all(ready.map(o=>supabase.from('orders').update({ settlement_sheet_id:sheetIds[o.id], settlement_amount:Number(amounts[o.id]), settlement_unit_price:unitPrices[o.id]?Number(unitPrices[o.id]):null, settlement_classified_at:new Date().toISOString(), settlement_year:year, settlement_month:month }).eq('id',o.id)))
+    setOrders(prev=>prev.filter(o=>!ready.find(r=>r.id===o.id))); onRefresh()
   }
 
   if (loading) return <div style={{ textAlign:'center', padding:48, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
-
   if (orders.length===0) return (
     <div style={{ textAlign:'center', padding:'64px 20px' }}>
       <div style={{ fontSize:44, marginBottom:12 }}>🎉</div>
@@ -122,7 +187,7 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
     </div>
   )
 
-  const readyCount = orders.filter(o=>sheetIds[o.id]&&amounts[o.id]).length
+  const readyCount=orders.filter(o=>sheetIds[o.id]&&amounts[o.id]).length
 
   return (
     <div>
@@ -130,21 +195,17 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
         <div style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', marginBottom:4 }}>📦 발주 결산 분류</div>
         <div style={{ fontSize:11, color:'#888', lineHeight:1.6 }}>주문확인된 발주를 결산 시트에 분류해요.<br/>시트 선택 + 금액 입력 후 분류 버튼을 누르세요.</div>
       </div>
-
-      {readyCount>0 && (
+      {readyCount>0&&(
         <button onClick={classifyAll} style={{ width:'100%', padding:'12px 0', borderRadius:12, background:'linear-gradient(135deg,#6C5CE7,#a29bfe)', border:'none', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer', marginBottom:14 }}>
           ✅ 입력된 {readyCount}건 한번에 분류
         </button>
       )}
-
-      {orders.map(order => {
-        const d = new Date(order.confirmed_at||order.ordered_at)
-        const selectedSheet = expenseSheets.find(s=>s.id===sheetIds[order.id])
-        const isSaving = saving[order.id]
-        const isReady = !!(sheetIds[order.id]&&amounts[order.id])
+      {orders.map(order=>{
+        const d=new Date(order.confirmed_at||order.ordered_at)
+        const selectedSheet=expenseSheets.find(s=>s.id===sheetIds[order.id])
+        const isReady=!!(sheetIds[order.id]&&amounts[order.id])
         return (
           <div key={order.id} style={{ ...bx, border:isReady?'1.5px solid rgba(108,92,231,0.35)':'1px solid #E8ECF0', background:isReady?'rgba(108,92,231,0.02)':'#fff' }}>
-            {/* ✅ 3번: 상세 정보 표시 */}
             <div style={{ marginBottom:12 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
                 <div>
@@ -153,59 +214,39 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
                 </div>
                 <span style={{ fontSize:14, fontWeight:700, color:'#888', flexShrink:0 }}>{order.quantity}{order.unit}</span>
               </div>
-              {/* 상세 정보 뱃지들 */}
               <div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>
-                <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'#F4F6F9', color:'#666' }}>
-                  📅 {d.getMonth()+1}월 {d.getDate()}일 주문확인
-                </span>
-                {order.supplier_name && (
-                  <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(0,184,148,0.08)', color:'#00B894' }}>
-                    🏪 {order.supplier_name}
-                  </span>
-                )}
-                {order.ordered_by && (
-                  <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(108,92,231,0.07)', color:'#6C5CE7' }}>
-                    👤 {order.ordered_by}
-                  </span>
-                )}
-                {order.memo && (
-                  <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(255,107,53,0.07)', color:'#FF6B35' }}>
-                    📝 {order.memo}
-                  </span>
-                )}
+                <span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'#F4F6F9', color:'#666' }}>📅 {d.getMonth()+1}월 {d.getDate()}일 주문확인</span>
+                {order.supplier_name&&<span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(0,184,148,0.08)', color:'#00B894' }}>🏪 {order.supplier_name}</span>}
+                {order.ordered_by&&<span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(108,92,231,0.07)', color:'#6C5CE7' }}>👤 {order.ordered_by}</span>}
+                {order.memo&&<span style={{ fontSize:10, padding:'2px 8px', borderRadius:8, background:'rgba(255,107,53,0.07)', color:'#FF6B35' }}>📝 {order.memo}</span>}
               </div>
             </div>
-
-            {/* 시트 선택 */}
             <div style={{ marginBottom:10 }}>
               <span style={lbl}>어느 항목으로 분류? *</span>
               <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-                {expenseSheets.map(sheet => (
-                  <button key={sheet.id} onClick={() => setSheetIds(p=>({...p,[order.id]:sheet.id}))}
+                {expenseSheets.map(sheet=>(
+                  <button key={sheet.id} onClick={()=>setSheetIds(p=>({...p,[order.id]:sheet.id}))}
                     style={{ padding:'6px 11px', borderRadius:20, border:sheetIds[order.id]===sheet.id?'2px solid #6C5CE7':'1px solid #E8ECF0', background:sheetIds[order.id]===sheet.id?'rgba(108,92,231,0.1)':'#F8F9FB', color:sheetIds[order.id]===sheet.id?'#6C5CE7':'#888', fontSize:11, fontWeight:sheetIds[order.id]===sheet.id?700:400, cursor:'pointer' }}>
                     {sheet.icon} {sheet.name}
                   </button>
                 ))}
               </div>
             </div>
-
-            {/* ✅ 4번: 금액 + 단가 입력 */}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12 }}>
               <div>
                 <span style={lbl}>결제 금액 * (원)</span>
                 <input type="number" placeholder="실제 결제 금액" value={amounts[order.id]??''} onChange={e=>setAmounts(p=>({...p,[order.id]:e.target.value===''?'':Number(e.target.value)}))} style={inp} />
-                {(amounts[order.id]||0)>0 && <div style={{ fontSize:10, color:'#6C5CE7', marginTop:3, fontWeight:600 }}>{numFmt(Number(amounts[order.id]))}원</div>}
+                {(amounts[order.id]||0)>0&&<div style={{ fontSize:10, color:'#6C5CE7', marginTop:3, fontWeight:600 }}>{numFmt(Number(amounts[order.id]))}원</div>}
               </div>
               <div>
                 <span style={lbl}>단가 (선택, 통계용)</span>
                 <input type="number" placeholder="개당 가격" value={unitPrices[order.id]??''} onChange={e=>setUnitPrices(p=>({...p,[order.id]:e.target.value===''?'':Number(e.target.value)}))} style={inp} />
-                {(unitPrices[order.id]||0)>0 && <div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>{numFmt(Number(unitPrices[order.id]))}원/{order.unit}</div>}
+                {(unitPrices[order.id]||0)>0&&<div style={{ fontSize:10, color:'#aaa', marginTop:3 }}>{numFmt(Number(unitPrices[order.id]))}원/{order.unit}</div>}
               </div>
             </div>
-
-            <button onClick={()=>classifyOrder(order.id)} disabled={isSaving||!isReady}
+            <button onClick={()=>classifyOrder(order.id)} disabled={saving[order.id]||!isReady}
               style={{ width:'100%', padding:'11px 0', borderRadius:11, background:isReady?'linear-gradient(135deg,#6C5CE7,#a29bfe)':'#F0F2F5', border:'none', color:isReady?'#fff':'#bbb', fontSize:13, fontWeight:700, cursor:isReady?'pointer':'default' }}>
-              {isSaving?'분류 중...':isReady?`✅ ${selectedSheet?.icon} ${selectedSheet?.name}으로 분류`:'시트와 금액을 입력해주세요'}
+              {saving[order.id]?'분류 중...':isReady?`✅ ${selectedSheet?.icon} ${selectedSheet?.name}으로 분류`:'시트와 금액을 입력해주세요'}
             </button>
           </div>
         )
@@ -214,9 +255,9 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
   )
 }
 
-// ── ⚙️ 설정 + 👥 권한 모달 ────────────────────────────────
+// ── ⚙️ 설정 모달 ──────────────────────────────────────────
 function SettingsModal({ storeId, settings, onSave, onClose }: {
-  storeId: string; settings: any; onSave: (s:any)=>void; onClose: ()=>void
+  storeId:string; settings:any; onSave:(s:any)=>void; onClose:()=>void
 }) {
   const supabase = createSupabaseBrowserClient()
   const [tab, setTab] = useState<'settings'|'permissions'>('settings')
@@ -227,7 +268,7 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
   const [permissions, setPermissions] = useState<any[]>([])
   const [loadingPerms, setLoadingPerms] = useState(true)
 
-  useEffect(() => { if (tab==='permissions') loadPermissions() }, [tab])
+  useEffect(()=>{ if(tab==='permissions') loadPermissions() },[tab])
   async function loadPermissions() {
     setLoadingPerms(true)
     const [{ data: mems },{ data: perms }] = await Promise.all([
@@ -238,14 +279,14 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
   }
   async function handleSaveSettings() {
     if (!cardRate) return; setSaving(true)
-    const data = { store_id:storeId, business_type:bizType, card_fee_rate:Number(cardRate) }
+    const data={store_id:storeId, business_type:bizType, card_fee_rate:Number(cardRate)}
     if (settings?.id) await supabase.from('settlement_settings').update(data).eq('id',settings.id)
     else await supabase.from('settlement_settings').insert(data)
     const { data: updated } = await supabase.from('settlement_settings').select('*').eq('store_id',storeId).maybeSingle()
     setSaving(false); onSave(updated); onClose()
   }
   async function togglePermission(member: any) {
-    const existing = permissions.find(p=>p.profile_id===member.profile_id)
+    const existing=permissions.find(p=>p.profile_id===member.profile_id)
     if (existing) { await supabase.from('settlement_permissions').delete().eq('id',existing.id); setPermissions(prev=>prev.filter(p=>p.id!==existing.id)) }
     else { const { data } = await supabase.from('settlement_permissions').insert({ store_id:storeId, profile_id:member.profile_id, granted_by:storeId }).select().single(); if(data) setPermissions(prev=>[...prev,data]) }
   }
@@ -267,7 +308,7 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
             <button key={t.key} onClick={()=>setTab(t.key as any)} style={{ flex:1, padding:'8px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:12, fontWeight:tab===t.key?700:400, background:tab===t.key?'#fff':'transparent', color:tab===t.key?'#1a1a2e':'#aaa', boxShadow:tab===t.key?'0 1px 4px rgba(0,0,0,0.08)':'none' }}>{t.label}</button>
           ))}
         </div>
-        {tab==='settings' && (
+        {tab==='settings'&&(
           <div>
             <div style={{ marginBottom:16 }}>
               <span style={lbl}>사업자 유형</span>
@@ -298,10 +339,10 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
             </button>
           </div>
         )}
-        {tab==='permissions' && (
+        {tab==='permissions'&&(
           <div>
             <div style={{ padding:'10px 14px', background:'rgba(255,107,53,0.06)', borderRadius:10, border:'1px solid rgba(255,107,53,0.2)', marginBottom:16, fontSize:12, color:'#FF6B35', lineHeight:1.7 }}>
-              💡 결산 메뉴는 기본적으로 대표만 볼 수 있어요.<br/>아래에서 관리자에게 결산 열람 권한을 부여할 수 있어요.
+              💡 결산 메뉴는 기본적으로 대표만 볼 수 있어요.
             </div>
             {loadingPerms?<div style={{ textAlign:'center', padding:32, color:'#bbb' }}>불러오는 중...</div>
             :members.length===0?<div style={{ textAlign:'center', padding:32, color:'#bbb' }}><div style={{ fontSize:32, marginBottom:8 }}>👥</div>등록된 직원이 없어요</div>
@@ -314,7 +355,7 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
                     <div style={{ width:38, height:38, borderRadius:10, background:hasPermi?'linear-gradient(135deg,#00B894,#2DC6D6)':'#E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, color:hasPermi?'#fff':'#aaa' }}>{name.charAt(0)}</div>
                     <div>
                       <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{name}</div>
-                      <div style={{ fontSize:10, color:'#aaa' }}>{member.role==='manager'?'관리자':member.role==='pt'?'PT':'사원'} {hasPermi&&<span style={{ color:'#00B894', fontWeight:700 }}>· 결산 열람 가능</span>}</div>
+                      <div style={{ fontSize:10, color:'#aaa' }}>{member.role==='manager'?'관리자':'사원'} {hasPermi&&<span style={{ color:'#00B894', fontWeight:700 }}>· 결산 열람 가능</span>}</div>
                     </div>
                   </div>
                   <button onClick={()=>togglePermission(member)} style={{ padding:'8px 16px', borderRadius:10, border:'none', cursor:'pointer', fontSize:12, fontWeight:700, background:hasPermi?'linear-gradient(135deg,#00B894,#2DC6D6)':'#F4F6F9', color:hasPermi?'#fff':'#888', minWidth:80 }}>
@@ -330,13 +371,13 @@ function SettingsModal({ storeId, settings, onSave, onClose }: {
   )
 }
 
-// ── 항목 추가/수정 모달 (✅ 5번: 상세 필드 추가) ──────────
+// ── 항목 추가/수정 모달 ─────────────────────────────────────
 function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, onSave, onClose }: {
   sheet:any; entry:any|null; storeId:string; userName:string
   year:number; month:number; favorites:any[]; onSave:()=>void; onClose:()=>void
 }) {
   const supabase = createSupabaseBrowserClient()
-  const pad = (n:number)=>String(n).padStart(2,'0')
+  const pad=(n:number)=>String(n).padStart(2,'0')
   const [date, setDate] = useState(entry?.entry_date||`${year}-${pad(month)}-01`)
   const [itemName, setItemName] = useState(entry?.item_name||'')
   const [amount, setAmount] = useState<number|''>(entry?.amount||'')
@@ -350,29 +391,23 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
   const [showExtra, setShowExtra] = useState(!!(entry?.deposit_date||entry?.tax_invoice_date||entry?.quantity||entry?.unit_price))
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    if (qty && unitPrice) setAmount(Math.round(Number(qty)*Number(unitPrice)))
-  }, [qty, unitPrice])
+  useEffect(()=>{ if(qty&&unitPrice) setAmount(Math.round(Number(qty)*Number(unitPrice))) },[qty,unitPrice])
 
   async function handleSave() {
     if (!amount) { alert('금액을 입력해주세요'); return }
     setSaving(true)
-    const data: any = {
+    const data:any={
       sheet_id:sheet.id, store_id:storeId, year, month,
       entry_date:date, item_name:itemName.trim()||null,
       amount:Number(amount), payment_method:payment,
-      has_tax_invoice:taxInv,
-      tax_invoice_date:taxInv&&taxInvDate?taxInvDate:null,
-      memo:memo.trim()||null,
-      created_by:userName, updated_at:new Date().toISOString(),
-      deposit_date:depositDate||null,
-      quantity:qty||null,
-      unit_price:unitPrice||null,
+      has_tax_invoice:taxInv, tax_invoice_date:taxInv&&taxInvDate?taxInvDate:null,
+      memo:memo.trim()||null, created_by:userName, updated_at:new Date().toISOString(),
+      deposit_date:depositDate||null, quantity:qty||null, unit_price:unitPrice||null,
     }
     if (entry?.id) await supabase.from('settlement_entries').update(data).eq('id',entry.id)
     else await supabase.from('settlement_entries').insert(data)
     if (itemName.trim()) {
-      const fav = favorites.find(f=>f.name===itemName.trim())
+      const fav=favorites.find(f=>f.name===itemName.trim())
       if (fav) await supabase.from('settlement_favorites').update({ use_count:(fav.use_count||0)+1, default_amount:Number(amount), default_payment:payment }).eq('id',fav.id)
       else { try { await supabase.from('settlement_favorites').insert({ store_id:storeId, sheet_id:sheet.id, name:itemName.trim(), default_amount:Number(amount), default_payment:payment, use_count:1 }) } catch {} }
     }
@@ -380,8 +415,7 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
   }
   async function handleDelete() {
     if (!entry?.id||!confirm('삭제할까요?')) return
-    await supabase.from('settlement_entries').delete().eq('id',entry.id)
-    onSave(); onClose()
+    await supabase.from('settlement_entries').delete().eq('id',entry.id); onSave(); onClose()
   }
 
   return (
@@ -404,8 +438,6 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
             </div>
           </div>
         )}
-
-        {/* 기본 필드 */}
         <div style={{ marginBottom:10 }}><span style={lbl}>날짜 (주문일)</span><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={inp} /></div>
         <div style={{ marginBottom:10 }}><span style={lbl}>품목명 (선택)</span><input value={itemName} onChange={e=>setItemName(e.target.value)} placeholder={`예: ${sheet.name} 구매`} style={inp} /></div>
         <div style={{ marginBottom:10 }}>
@@ -424,43 +456,29 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, favorites, o
             ))}
           </div>
         </div>
-
-        {/* 세금계산서 */}
         <div style={{ marginBottom:10 }}>
           <span style={lbl}>세금계산서</span>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
             <button onClick={()=>setTaxInv((v:boolean)=>!v)} style={{ flex:1, padding:'9px 0', borderRadius:8, border:taxInv?'2px solid #00B894':'1px solid #E8ECF0', background:taxInv?'rgba(0,184,148,0.1)':'#F8F9FB', color:taxInv?'#00B894':'#aaa', fontSize:13, fontWeight:taxInv?700:400, cursor:'pointer' }}>
               {taxInv?'✅ 발행됨':'⬜ 미발행'}
             </button>
-            {taxInv&&(
-              <input type="date" value={taxInvDate} onChange={e=>setTaxInvDate(e.target.value)} style={{ ...inp, flex:1 }} placeholder="발행일" />
-            )}
+            {taxInv&&<input type="date" value={taxInvDate} onChange={e=>setTaxInvDate(e.target.value)} style={{ ...inp, flex:1 }} placeholder="발행일" />}
           </div>
         </div>
-
-        {/* ✅ 5번: 상세정보 토글 */}
         <button onClick={()=>setShowExtra(v=>!v)} style={{ width:'100%', padding:'9px 0', borderRadius:10, border:'1px dashed #E8ECF0', background:'transparent', color:'#aaa', fontSize:12, cursor:'pointer', marginBottom:showExtra?10:16 }}>
-          {showExtra?'▲ 상세정보 닫기':'▼ 상세정보 더 입력하기 (입금일 · 수량 · 단가)'}
+          {showExtra?'▲ 상세정보 닫기':'▼ 상세정보 (입금일 · 수량 · 단가)'}
         </button>
-
         {showExtra&&(
           <div style={{ background:'rgba(108,92,231,0.04)', borderRadius:12, padding:14, marginBottom:14, border:'1px solid rgba(108,92,231,0.12)' }}>
             <div style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginBottom:12 }}>📋 상세 정보 (업체 관리용)</div>
             <div style={{ marginBottom:10 }}><span style={lbl}>입금일</span><input type="date" value={depositDate} onChange={e=>setDepositDate(e.target.value)} style={inp} /></div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:0 }}>
-              <div>
-                <span style={lbl}>수량</span>
-                <input type="number" step="0.1" value={qty} onChange={e=>setQty(e.target.value===''?'':Number(e.target.value))} placeholder="0" style={inp} />
-              </div>
-              <div>
-                <span style={lbl}>단가 (원)</span>
-                <input type="number" value={unitPrice} onChange={e=>setUnitPrice(e.target.value===''?'':Number(e.target.value))} placeholder="0" style={inp} />
-              </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              <div><span style={lbl}>수량</span><input type="number" step="0.1" value={qty} onChange={e=>setQty(e.target.value===''?'':Number(e.target.value))} placeholder="0" style={inp} /></div>
+              <div><span style={lbl}>단가 (원)</span><input type="number" value={unitPrice} onChange={e=>setUnitPrice(e.target.value===''?'':Number(e.target.value))} placeholder="0" style={inp} /></div>
             </div>
-            {qty&&unitPrice&&<div style={{ fontSize:10, color:'#6C5CE7', marginTop:6, fontWeight:600 }}>수량×단가 = {numFmt(Math.round(Number(qty)*Number(unitPrice)))}원 → 금액에 자동반영</div>}
+            {qty&&unitPrice&&<div style={{ fontSize:10, color:'#6C5CE7', marginTop:6, fontWeight:600 }}>수량×단가 = {numFmt(Math.round(Number(qty)*Number(unitPrice)))}원 → 금액 자동반영</div>}
           </div>
         )}
-
         <div style={{ marginBottom:16 }}><span style={lbl}>메모 (선택)</span><input value={memo} onChange={e=>setMemo(e.target.value)} placeholder="메모" style={inp} /></div>
         <div style={{ display:'flex', gap:8 }}>
           {entry&&<button onClick={handleDelete} style={{ padding:'12px 16px', borderRadius:12, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:13, cursor:'pointer', fontWeight:600 }}>삭제</button>}
@@ -486,15 +504,14 @@ function SheetManageModal({ sheets, storeId, onSave, onClose }: {
 
   async function handleAdd() {
     if (!newName.trim()) return; setSaving(true)
-    const maxOrder = sheets.reduce((max,s)=>Math.max(max,s.sort_order||0),0)
+    const maxOrder=sheets.reduce((max,s)=>Math.max(max,s.sort_order||0),0)
     await supabase.from('settlement_sheets').insert({ store_id:storeId, name:newName.trim(), icon:newIcon, sheet_type:'expense', sort_order:maxOrder+1 })
     setNewName(''); setSaving(false); onSave()
   }
   async function handleToggle(sheet:any) { await supabase.from('settlement_sheets').update({ is_active:!sheet.is_active }).eq('id',sheet.id); onSave() }
   async function handleRename(id:string) {
     if (!editName.trim()) return
-    await supabase.from('settlement_sheets').update({ name:editName.trim() }).eq('id',id)
-    setEditId(null); onSave()
+    await supabase.from('settlement_sheets').update({ name:editName.trim() }).eq('id',id); setEditId(null); onSave()
   }
   async function handleDelete(sheet:any) {
     if (!confirm(`"${sheet.name}" 시트를 삭제할까요?`)) return
@@ -545,7 +562,7 @@ function SheetManageModal({ sheets, storeId, onSave, onClose }: {
   )
 }
 
-// ── 수익분석 뷰 ────────────────────────────────────────────
+// ── 수익분석 뷰 (✅ 전체 엑셀 버튼 포함) ──────────────────
 function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
   sheets:any[]; storeId:string; year:number; month:number; settings:any
 }) {
@@ -555,16 +572,17 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
   const [salesByPlatform, setSalesByPlatform] = useState<Record<string,number>>({})
   const [feeEntries, setFeeEntries] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
 
-  useEffect(() => { loadAll() }, [storeId, year, month])
+  useEffect(()=>{ loadAll() },[storeId,year,month])
 
   async function loadAll() {
     setLoading(true)
     const pad=(n:number)=>String(n).padStart(2,'0')
     const from=`${year}-${pad(month)}-01`; const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}`
-    const { data: entries } = await supabase.from('settlement_entries').select('sheet_id,amount').eq('store_id',storeId).eq('year',year).eq('month',month)
+    const { data: ent } = await supabase.from('settlement_entries').select('sheet_id,amount').eq('store_id',storeId).eq('year',year).eq('month',month)
     const sums: Record<string,number>={}
-    ;(entries||[]).forEach((e:any)=>{ sums[e.sheet_id]=(sums[e.sheet_id]||0)+(e.amount||0) })
+    ;(ent||[]).forEach((e:any)=>{ sums[e.sheet_id]=(sums[e.sheet_id]||0)+(e.amount||0) })
     setEntrySums(sums)
     const { data: linked } = await supabase.from('orders').select('settlement_sheet_id,settlement_amount').eq('store_id',storeId).eq('settlement_year',year).eq('settlement_month',month).not('settlement_sheet_id','is',null)
     const oSums: Record<string,number>={}
@@ -580,6 +598,12 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
       setSalesByPlatform(bp)
     } else setSalesByPlatform({})
     setLoading(false)
+  }
+
+  async function handleExportAll() {
+    setExporting(true)
+    await exportAllExcel(storeId, year, month, sheets, settings)
+    setExporting(false)
   }
 
   const cardRate=settings?.card_fee_rate??1.1
@@ -600,6 +624,14 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
 
   return (
     <div>
+      {/* ✅ 전체 엑셀 버튼 */}
+      <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
+        <button onClick={handleExportAll} disabled={exporting}
+          style={{ padding:'9px 18px', borderRadius:11, background: exporting?'#F0F2F5':'linear-gradient(135deg,#00B894,#2DC6D6)', border:'none', color: exporting?'#bbb':'#fff', fontSize:13, fontWeight:700, cursor: exporting?'default':'pointer', display:'flex', alignItems:'center', gap:6 }}>
+          {exporting?'📊 엑셀 생성 중...':'📥 전체 엑셀 다운로드'}
+        </button>
+      </div>
+
       <div style={{ ...bx, border:`1.5px solid ${netProfit>=0?'rgba(0,184,148,0.4)':'rgba(232,67,147,0.4)'}` }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
           <div>
@@ -678,7 +710,7 @@ function ProfitAnalysisView({ sheets, storeId, year, month, settings }: {
   )
 }
 
-// ── 시트 뷰 (✅ 1번: 분류수정 / 2번: 검색 / 6번: 엑셀) ───
+// ── 시트 뷰 ────────────────────────────────────────────────
 function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
   sheet:any; allSheets:any[]; storeId:string; userName:string; year:number; month:number
 }) {
@@ -689,12 +721,10 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editEntry, setEditEntry] = useState<any>(null)
-  // ✅ 2번: 검색
   const [searchQ, setSearchQ] = useState('')
-  // ✅ 1번: 분류 수정
   const [reclassifyId, setReclassifyId] = useState<string|null>(null)
 
-  useEffect(() => { loadAll() }, [sheet.id, year, month])
+  useEffect(()=>{ loadAll() },[sheet.id,year,month])
 
   async function loadAll() {
     setLoading(true)
@@ -703,45 +733,36 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
       supabase.from('settlement_favorites').select('*').eq('sheet_id',sheet.id).order('use_count',{ascending:false}),
       supabase.from('orders').select('*').eq('settlement_sheet_id',sheet.id).eq('settlement_year',year).eq('settlement_month',month).eq('store_id',storeId).order('confirmed_at',{ascending:false}),
     ])
-    setEntries(ent||[]); setFavorites(favs||[]); setLinkedOrders(linked||[])
-    setLoading(false)
+    setEntries(ent||[]); setFavorites(favs||[]); setLinkedOrders(linked||[]); setLoading(false)
   }
 
-  // ✅ 1번: 다른 시트로 이동
   async function reclassifyOrder(orderId: string, newSheetId: string) {
     await supabase.from('orders').update({ settlement_sheet_id:newSheetId }).eq('id',orderId)
     setReclassifyId(null); loadAll()
   }
-
   async function unclassifyOrder(orderId: string) {
-    if (!confirm('이 발주의 분류를 해제하면 미분류 탭으로 돌아가요. 해제할까요?')) return
+    if (!confirm('미분류 탭으로 이동할까요?')) return
     await supabase.from('orders').update({ settlement_sheet_id:null, settlement_amount:null, settlement_unit_price:null, settlement_classified_at:null, settlement_year:null, settlement_month:null }).eq('id',orderId)
     loadAll()
   }
-
   async function deleteFavorite(id:string) { await supabase.from('settlement_favorites').delete().eq('id',id); loadAll() }
 
   const manualTotal=useMemo(()=>entries.reduce((s,e)=>s+(e.amount||0),0),[entries])
   const orderTotal=useMemo(()=>linkedOrders.reduce((s,o)=>s+(o.settlement_amount||0),0),[linkedOrders])
   const total=manualTotal+orderTotal
-
-  // ✅ 2번: 검색 필터
   const filteredEntries=useMemo(()=>searchQ.trim()?entries.filter(e=>(e.item_name||'').includes(searchQ)||String(e.amount).includes(searchQ)):entries,[entries,searchQ])
   const filteredOrders=useMemo(()=>searchQ.trim()?linkedOrders.filter(o=>(o.item_name||'').includes(searchQ)):linkedOrders,[linkedOrders,searchQ])
-
   const grouped=useMemo(()=>{
     const map: Record<string,any[]>={}
     filteredEntries.forEach(e=>{ if(!map[e.entry_date]) map[e.entry_date]=[]; map[e.entry_date].push(e) })
     return Object.entries(map).sort((a,b)=>b[0].localeCompare(a[0]))
   },[filteredEntries])
-
   const expenseSheets=allSheets.filter(s=>s.sheet_type==='expense'&&s.is_active&&s.id!==sheet.id)
 
   if (loading) return <div style={{ textAlign:'center', padding:40, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
 
   return (
     <div>
-      {/* 합계 헤더 */}
       <div style={{ ...bx, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div>
           <div style={{ fontSize:11, color:'#aaa' }}>{year}년 {month}월 합계</div>
@@ -752,9 +773,8 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
           </div>
         </div>
         <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-          {/* ✅ 6번: 엑셀 다운로드 */}
           <button onClick={()=>exportSheetExcel(sheet,entries,linkedOrders,year,month)}
-            style={{ padding:'8px 12px', borderRadius:10, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.25)', color:'#00B894', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+            style={{ padding:'7px 12px', borderRadius:10, background:'rgba(0,184,148,0.08)', border:'1px solid rgba(0,184,148,0.25)', color:'#00B894', fontSize:11, fontWeight:700, cursor:'pointer' }}>
             📥 엑셀
           </button>
           <button onClick={()=>{ setEditEntry(null); setShowModal(true) }}
@@ -764,15 +784,12 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
         </div>
       </div>
 
-      {/* ✅ 2번: 검색창 */}
       <div style={{ position:'relative', marginBottom:12 }}>
         <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#bbb' }}>🔍</span>
-        <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder={`${sheet.name} 항목 검색...`}
-          style={{ ...inp, paddingLeft:32, paddingRight:searchQ?30:10 }} />
+        <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder={`${sheet.name} 항목 검색...`} style={{ ...inp, paddingLeft:32, paddingRight:searchQ?30:10 }} />
         {searchQ&&<button onClick={()=>setSearchQ('')} style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', color:'#bbb', cursor:'pointer', fontSize:14 }}>✕</button>}
       </div>
 
-      {/* 발주 연동 항목 */}
       {filteredOrders.length>0&&(
         <div style={{ ...bx, border:'1px solid rgba(0,184,148,0.25)', background:'rgba(0,184,148,0.02)' }}>
           <div style={{ fontSize:12, fontWeight:700, color:'#00B894', marginBottom:10 }}>📦 발주 연동 ({filteredOrders.length}건)</div>
@@ -798,20 +815,15 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
                     {order.settlement_amount?<span style={{ fontSize:15, fontWeight:800, color:'#1a1a2e' }}>{numFmt(order.settlement_amount)}원</span>:<span style={{ fontSize:11, color:'#bbb' }}>금액없음</span>}
                   </div>
                 </div>
-
-                {/* ✅ 1번: 시트 변경 / 해제 버튼 */}
                 <div style={{ display:'flex', gap:6, marginTop:8 }}>
                   <button onClick={()=>setReclassifyId(isReclassify?null:order.id)}
                     style={{ padding:'4px 10px', borderRadius:7, background:isReclassify?'rgba(108,92,231,0.15)':'rgba(108,92,231,0.07)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:10, fontWeight:700, cursor:'pointer' }}>
                     {isReclassify?'✕ 취소':'✏️ 시트 변경'}
                   </button>
-                  <button onClick={()=>unclassifyOrder(order.id)}
-                    style={{ padding:'4px 10px', borderRadius:7, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:10, cursor:'pointer' }}>
+                  <button onClick={()=>unclassifyOrder(order.id)} style={{ padding:'4px 10px', borderRadius:7, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:10, cursor:'pointer' }}>
                     미분류로 이동
                   </button>
                 </div>
-
-                {/* 시트 선택 펼침 */}
                 {isReclassify&&(
                   <div style={{ marginTop:8, padding:'10px 12px', background:'rgba(108,92,231,0.05)', borderRadius:9, border:'1px solid rgba(108,92,231,0.15)' }}>
                     <div style={{ fontSize:11, color:'#6C5CE7', fontWeight:700, marginBottom:8 }}>어느 시트로 이동할까요?</div>
@@ -831,7 +843,6 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
         </div>
       )}
 
-      {/* 자주쓰는 품목 */}
       {favorites.length>0&&!searchQ&&(
         <div style={bx}>
           <div style={{ fontSize:12, fontWeight:700, marginBottom:8 }}>⭐ 자주쓰는 품목</div>
@@ -844,7 +855,6 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
         </div>
       )}
 
-      {/* 직접입력 항목 */}
       {filteredEntries.length===0&&filteredOrders.length===0?(
         <div style={{ textAlign:'center', padding:'48px 0', color:'#bbb' }}>
           <div style={{ fontSize:40, marginBottom:10 }}>{sheet.icon}</div>
@@ -869,7 +879,6 @@ function SheetView({ sheet, allSheets, storeId, userName, year, month }: {
                       <span style={{ fontSize:10, padding:'1px 7px', borderRadius:10, background:`${PAYMENT_COLORS[entry.payment_method]||'#aaa'}18`, color:PAYMENT_COLORS[entry.payment_method]||'#aaa', fontWeight:600 }}>{entry.payment_method}</span>
                       {entry.has_tax_invoice&&<span style={{ fontSize:10, color:'#00B894', fontWeight:700 }}>✅ 세금계산서</span>}
                     </div>
-                    {/* 상세 정보 표시 */}
                     <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                       {entry.deposit_date&&<span style={{ fontSize:10, color:'#6C5CE7' }}>💰 입금 {entry.deposit_date.slice(5)}</span>}
                       {entry.tax_invoice_date&&<span style={{ fontSize:10, color:'#00B894' }}>🧾 {entry.tax_invoice_date.slice(5)}</span>}
@@ -918,7 +927,6 @@ function SalesView({ storeId, year, month }: { storeId:string; year:number; mont
         <div style={{ fontSize:11, color:'#aaa', marginBottom:2 }}>{year}년 {month}월 총 매출</div>
         <div style={{ fontSize:26, fontWeight:900, color:'#00B894', marginBottom:4 }}>{numFmt(monthTotal)}원</div>
         <div style={{ display:'flex', gap:12 }}><span style={{ fontSize:11, color:'#bbb' }}>마감 {dailySales.length}일</span>{avgDaily>0&&<span style={{ fontSize:11, color:'#6C5CE7', fontWeight:600 }}>일평균 {numFmt(avgDaily)}원</span>}</div>
-        <div style={{ marginTop:8, padding:'7px 12px', background:'rgba(0,184,148,0.07)', borderRadius:8, fontSize:11, color:'#00B894', fontWeight:600 }}>✅ 마감일지 데이터 자동 연동</div>
       </div>
       {dailySales.length===0?<div style={{ textAlign:'center', padding:'60px 0', color:'#bbb' }}><div style={{ fontSize:36, marginBottom:8 }}>💰</div><div style={{ fontSize:12 }}>마감일지에서 매출 입력 시 자동 표시됩니다</div></div>
       :dailySales.map(day=>{
@@ -954,7 +962,7 @@ function AdminView({ profileId, year, month }: { profileId:string; year:number; 
     const result: Record<string,any>={}
     await Promise.all(storeList.map(async (store:any)=>{
       const sid=store.id
-      const [{ data: cls },{ data: entries },{ data: linked },{ data: sheets },{ data: settings }] = await Promise.all([
+      const [{ data: cls },{ data: ent },{ data: linked },{ data: sheets },{ data: settings }] = await Promise.all([
         supabase.from('closings').select('id').eq('store_id',sid).gte('closing_date',from).lte('closing_date',to),
         supabase.from('settlement_entries').select('sheet_id,amount').eq('store_id',sid).eq('year',year).eq('month',month),
         supabase.from('orders').select('settlement_sheet_id,settlement_amount').eq('store_id',sid).eq('settlement_year',year).eq('settlement_month',month).not('settlement_sheet_id','is',null),
@@ -964,14 +972,13 @@ function AdminView({ profileId, year, month }: { profileId:string; year:number; 
       let sales=0
       if (cls?.length) { const { data: sv } = await supabase.from('closing_sales').select('amount').in('closing_id',cls.map((c:any)=>c.id)); sales=(sv||[]).reduce((s:number,r:any)=>s+(r.amount||0),0) }
       const sums: Record<string,number>={}
-      ;(entries||[]).forEach((e:any)=>{ sums[e.sheet_id]=(sums[e.sheet_id]||0)+(e.amount||0) })
+      ;(ent||[]).forEach((e:any)=>{ sums[e.sheet_id]=(sums[e.sheet_id]||0)+(e.amount||0) })
       ;(linked||[]).forEach((o:any)=>{ if(o.settlement_sheet_id&&o.settlement_amount) sums[o.settlement_sheet_id]=(sums[o.settlement_sheet_id]||0)+o.settlement_amount })
       const expense=Object.values(sums).reduce((s:number,v:any)=>s+(v as number),0)
       result[sid]={ sales, expense, sheets:(sheets||[]).map((sh:any)=>({...sh,amount:sums[sh.id]||0})), settings:settings||null }
     }))
     setStoreData(result); setLoading(false)
   }
-  // ✅ 6번: 전지점 엑셀 (이미 있던 기능)
   async function exportExcel() {
     try {
       const ExcelJS=(await import('exceljs')).default
@@ -1059,7 +1066,6 @@ export default function SettlementPage() {
   const isOwner = userRole==='owner'
 
   useEffect(()=>{ const check=()=>setIsPC(window.innerWidth>=768); check(); window.addEventListener('resize',check); return ()=>window.removeEventListener('resize',check) },[])
-
   useEffect(()=>{
     const store=JSON.parse(localStorage.getItem('mj_store')||'{}')
     const user=JSON.parse(localStorage.getItem('mj_user')||'{}')
@@ -1069,7 +1075,6 @@ export default function SettlementPage() {
     else if (user.role==='manager') checkAndLoad(store.id, user.id)
     else { setPermChecked(true); setLoading(false) }
   },[])
-
   useEffect(()=>{ if(storeId) loadUnclassifiedCount() },[storeId])
 
   async function loadUnclassifiedCount() {
@@ -1089,8 +1094,8 @@ export default function SettlementPage() {
     setLoading(false)
   }
 
-  const activeSheets = useMemo(()=>sheets.filter(s=>s.is_active),[sheets])
-  const currentSheet = activeSheets.find(s=>s.id===selectedSheet)
+  const activeSheets=useMemo(()=>sheets.filter(s=>s.is_active),[sheets])
+  const currentSheet=activeSheets.find(s=>s.id===selectedSheet)
 
   if (!permChecked||loading) return <div style={{ minHeight:'60vh', display:'flex', alignItems:'center', justifyContent:'center' }}><span style={{ color:'#bbb', fontSize:13 }}>로딩 중...</span></div>
 
@@ -1098,7 +1103,7 @@ export default function SettlementPage() {
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'80px 20px', textAlign:'center' }}>
       <div style={{ fontSize:40, marginBottom:16 }}>🔒</div>
       <div style={{ fontSize:18, fontWeight:800, color:'#1a1a2e', marginBottom:8 }}>접근 권한이 없습니다</div>
-      <div style={{ fontSize:13, color:'#aaa', lineHeight:1.7 }}>결산 메뉴는 대표만 사용할 수 있어요.<br/>대표가 권한을 부여하면 이용할 수 있습니다.</div>
+      <div style={{ fontSize:13, color:'#aaa', lineHeight:1.7 }}>결산 메뉴는 대표만 사용할 수 있어요.</div>
     </div>
   )
 
