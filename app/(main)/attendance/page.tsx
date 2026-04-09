@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const supabase = createSupabaseBrowserClient()
@@ -38,7 +38,7 @@ function getRateColor(rate: number) {
   return rate >= 100 ? '#00B894' : rate >= 80 ? '#FF6B35' : rate >= 60 ? '#F39C12' : '#E84393'
 }
 
-// 공휴일
+// 공휴일 (목표 페이지와 동일)
 const KR_HOLIDAYS: Record<string, string> = {
   '0101':'신정','0301':'삼일절','0505':'어린이날','0606':'현충일',
   '0815':'광복절','1003':'개천절','1009':'한글날','1225':'크리스마스','0501':'근로자의날',
@@ -59,21 +59,21 @@ function isRedDay(y: number, m: number, d: number): boolean {
   return dow === 0 || dow === 6 || !!(KR_HOLIDAYS[full] || KR_HOLIDAYS[mmdd])
 }
 
-// Issue 타입
-type Issue = { id: string; text: string; imageUrl?: string; imageBase64?: string }
-
-// ✅ 이번 달 전체 지적사항 파싱 (주차 구분 없이 모두 합산)
-function parseAllMonthIssues(raw: any): Issue[] {
-  if (!raw) return []
-  const result: Issue[] = []
+// Issue 타입 (목표 페이지와 동일)
+type Issue = { id: string; text: string; imageUrl?: string }
+function parseWeekIssues(raw: any): Record<number, Issue[]> {
+  if (!raw) return {}
+  const result: Record<number, Issue[]> = {}
   try {
     for (const key of Object.keys(raw)) {
-      const val = raw[key]
+      const val = raw[key]; const weekNum = Number(key)
       if (Array.isArray(val)) {
-        val.filter((v: any) => v && v.id && v.text).forEach((v: any) => result.push(v))
+        result[weekNum] = val.filter((v: any) => v && v.id && v.text)
       } else if (val && typeof val === 'object') {
-        if (val.issue1?.trim()) result.push({ id: `legacy1_${key}`, text: val.issue1 })
-        if (val.issue2?.trim()) result.push({ id: `legacy2_${key}`, text: val.issue2 })
+        const items: Issue[] = []
+        if (val.issue1?.trim()) items.push({ id: 'legacy1', text: val.issue1 })
+        if (val.issue2?.trim()) items.push({ id: 'legacy2', text: val.issue2 })
+        result[weekNum] = items
       }
     }
   } catch(e) {}
@@ -100,7 +100,9 @@ const bx: React.CSSProperties = {
   padding: 18, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
 }
 
-// ── 직원 근태 수정 모달 ──
+// ══════════════════════════════════════
+// 직원 근태 수정 모달 (대표 전용)
+// ══════════════════════════════════════
 function StaffAttendanceEditModal({ item, storeId, workDate, onClose, onSaved }: {
   item: any; storeId: string; workDate: string; onClose: () => void; onSaved: () => void
 }) {
@@ -141,6 +143,10 @@ function StaffAttendanceEditModal({ item, storeId, workDate, onClose, onSaved }:
         } else if (newIn) {
           await supabase.from('attendance').upsert({ profile_id: item.pid, store_id: storeId, work_date: workDate, clock_in: newIn, clock_out: newOut || null, status: newStatus }, { onConflict: 'profile_id,store_id,work_date' })
         }
+        const syncStatus = newStatus === 'working' ? 'work' : newStatus === 'absent' ? 'absent' : scheduleStatus
+        if (syncStatus !== scheduleStatus) {
+          await supabase.from('schedules').update({ status: syncStatus }).eq('store_id', storeId).eq('staff_name', item.nm).eq('schedule_date', workDate)
+        }
       }
       onSaved(); onClose()
     } finally { setSaving(false) }
@@ -180,6 +186,7 @@ function StaffAttendanceEditModal({ item, storeId, workDate, onClose, onSaved }:
               <input type="time" value={clockOut} onChange={e => setClockOut(e.target.value)} disabled={scheduleStatus==='absent'} style={{ width:'100%', padding:'11px 12px', borderRadius:10, border:'1px solid #E8ECF0', background:'#F8F9FB', fontSize:14, color:'#1a1a2e', outline:'none', boxSizing:'border-box' }} />
             </div>
           </div>
+          {clockIn && clockOut && scheduleStatus !== 'absent' && <div style={{ marginTop:8, fontSize:11, color:'#4a6cf7', fontWeight:600 }}>⚡ 저장 시 기준시간 대비 지각·조퇴 자동 계산됩니다</div>}
         </div>
         <button onClick={save} disabled={saving} style={{ width:'100%', padding:14, borderRadius:12, border:'none', background:'linear-gradient(135deg,#FF6B35,#E84393)', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer', opacity: saving ? 0.7 : 1 }}>
           {saving ? '저장 중...' : '💾 저장'}
@@ -189,7 +196,9 @@ function StaffAttendanceEditModal({ item, storeId, workDate, onClose, onSaved }:
   )
 }
 
-// ── 직원별 근무시간 설정 모달 ──
+// ══════════════════════════════════════
+// 직원별 근무시간 설정 모달 (대표만)
+// ══════════════════════════════════════
 function StaffScheduleModal({ staff, storeId, onClose, onSaved }: {
   staff: { id: string; nm: string; expected_in?: string; expected_out?: string }
   storeId: string; onClose: () => void; onSaved: () => void
@@ -386,14 +395,14 @@ export default function AttendancePage() {
   const [todayTodos,     setTodayTodos]     = useState<any[]>([])
   const [checkedToday,   setCheckedToday]   = useState<Set<string>>(new Set())
 
-  // ✅ 이번 달 전체 지적사항
-  const [monthIssueList, setMonthIssueList] = useState<Issue[]>([])
-  const [issueAcked,     setIssueAcked]     = useState(false)
+  // ★ 이번 주 지적사항
+  const [weekIssueList, setWeekIssueList] = useState<Issue[]>([])
+  const [issueAcked,    setIssueAcked]    = useState(false)
 
-  // 오늘 목표 매출
+  // ★ 오늘 목표 매출
   const [todayGoal,  setTodayGoal]  = useState(0)
   const [goalLoaded, setGoalLoaded] = useState(false)
-  const [goalAcked,  setGoalAcked]  = useState(false)
+  const [goalAcked,  setGoalAcked]  = useState(false)  // 오늘 목표 확인 체크
 
   const allTodos = [
     ...closingTodos.map(t => `c-${t.id}`),
@@ -439,9 +448,11 @@ export default function AttendancePage() {
   const [editItem,           setEditItem]            = useState<any>(null)
   const [myMonthData,        setMyMonthData]         = useState<any[]>([])
 
-  const hasIssues  = monthIssueList.length > 0
+  const hasIssues  = weekIssueList.length > 0
   const canClockIn  = !attLoading && wifiOk && allChecked && (!hasIssues || issueAcked) && !attendance?.clock_in
   const canClockOut = !attLoading && wifiOk && !!attendance?.clock_in && !attendance?.clock_out
+
+
 
   useEffect(() => {
     const u = JSON.parse(localStorage.getItem('mj_user')  || '{}')
@@ -459,7 +470,7 @@ export default function AttendancePage() {
     loadBoard(s.id)
     loadStaffList(s.id)
     loadMyMonthData(u.id, s.id)
-    loadTodayGoalData(s.id)
+    loadTodayGoalData(s.id)   // ★ 오늘 목표 + 지적사항
     if (u.role==='owner'||u.role==='manager') loadPendingCount(s.id)
     if (u.role==='owner') loadAllStores(u.id)
   }, [])
@@ -526,33 +537,33 @@ export default function AttendancePage() {
     }
   }
 
-  // ✅ 이번 달 전체 지적사항 + 오늘 목표 로드
+  // ★ 오늘 목표 매출 + 이번 주 지적사항 한번에 로드
   async function loadTodayGoalData(sid: string) {
     const y = nowDate.getFullYear()
     const m = nowDate.getMonth() + 1
     const d = nowDate.getDate()
+    const startDow = new Date(y, m - 1, 1).getDay()
+    const weekNum = Math.ceil((d + (startDow === 0 ? 6 : startDow - 1)) / 7)
 
     const { data: goalData } = await supabase.from('goals')
       .select('week_issues, weekly_goals')
       .eq('store_id', sid).eq('year', y).eq('month', m).maybeSingle()
 
-    // ✅ 이번 달 전체 지적사항 (모든 주차 합산)
-    const allIssues = parseAllMonthIssues(goalData?.week_issues)
-    setMonthIssueList(allIssues)
-
+    // 지적사항
+    const allWeekIssues = parseWeekIssues(goalData?.week_issues)
+    setWeekIssueList(allWeekIssues[weekNum] || [])
     if (typeof window !== 'undefined') {
-      // ✅ 확인 키를 월 단위로 변경 (주 단위 → 월 단위)
-      setIssueAcked(localStorage.getItem(`issue_ack_month_${y}_${m}_${sid}`) === 'true')
+      setIssueAcked(localStorage.getItem(`issue_ack_${today}_${sid}`) === 'true')
     }
 
-    // 오늘 목표
-    const startDow = new Date(y, m - 1, 1).getDay()
-    const weekNum = Math.ceil((d + (startDow === 0 ? 6 : startDow - 1)) / 7)
+    // ★ 오늘 목표: 평일/주말 구분
     const wg = goalData?.weekly_goals?.[weekNum]
     if (wg) {
       const todayIsRed = isRedDay(y, m, d)
       setTodayGoal(todayIsRed ? (wg.weekend || 0) : (wg.weekday || 0))
     }
+
+    // 오늘 목표 확인 체크 복원
     if (typeof window !== 'undefined') {
       setGoalAcked(localStorage.getItem(`goal_ack_${today}_${sid}`) === 'true')
     }
@@ -745,6 +756,213 @@ export default function AttendancePage() {
   function prevMonth() { if (histMonth===0) { setHistYear(y=>y-1); setHistMonth(11) } else setHistMonth(m=>m-1) }
   function nextMonth() { if (histMonth===11) { setHistYear(y=>y+1); setHistMonth(0) } else setHistMonth(m=>m+1) }
 
+  // ★ 출퇴근 기록 엑셀 내보내기 (대표 전용)
+  const [exporting, setExporting] = useState(false)
+  async function exportAttendanceExcel() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet(`${histYear}년${histMonth+1}월 출퇴근`)
+
+      const lastDay = new Date(histYear, histMonth+1, 0).getDate()
+      const DOW_KR = ['일','월','화','수','목','금','토']
+
+      // 상태 한글 + 색상
+      const STATUS_LABEL: Record<string, string> = {
+        normal:'정상', late:'지각', early:'조기퇴근', late_early:'지각+조기퇴근',
+        absent:'결근', no_clockout:'퇴근누락', no_clockin:'출근누락', working:'근무중', pending:'대기',
+      }
+      const STATUS_BG: Record<string, string> = {
+        normal:'FFE0FAF4', late:'FFFCE4F0', early:'FFF0EEFF', late_early:'FFFCE4F0',
+        absent:'FFF5F5F5', no_clockout:'FFFFF9E0', no_clockin:'FFFFEEE6', working:'FFFFEEE6', pending:'FFF8F8F8',
+      }
+      const STATUS_COLOR: Record<string, string> = {
+        normal:'FF00B894', late:'FFE84393', early:'FF6C5CE7', late_early:'FFE84393',
+        absent:'FFb2bec3', no_clockout:'FFb8860b', no_clockin:'FFFF6B35', working:'FFFF6B35', pending:'FFbbbbbb',
+      }
+
+      const thin = () => ({ style: 'thin' as const, color: { argb: 'FFE0E4E8' } })
+      const med  = () => ({ style: 'medium' as const, color: { argb: 'FFaaaaaa' } })
+
+      // staffList에서 visibleStaff 대신 전체 staffList 사용 (대표는 전체 보임)
+      const staffForExport = staffList
+
+      // ── 제목 행 ──
+      const totalCols = 3 + staffForExport.length  // 날짜, 요일, 출근수(합계), 직원별
+      const titleRow = ws.addRow(new Array(totalCols + 1).fill(''))
+      ws.mergeCells(1, 1, 1, totalCols + 1)
+      const tc = titleRow.getCell(1)
+      tc.value = `📋 ${histYear}년 ${histMonth+1}월 출퇴근 기록`
+      tc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1A1A2E' } }
+      tc.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:14 }
+      tc.alignment = { horizontal:'center', vertical:'middle' }
+      titleRow.height = 30
+
+      // ── 직원 헤더 행 ──
+      const headerRow = ws.addRow(['날짜', '요일', ...staffForExport.map((s: any) => s.nm), '출근수'])
+      headerRow.eachCell((cell, ci) => {
+        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: ci <= 2 ? 'FF2C3E50' : 'FF4A148C' } }
+        cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 }
+        cell.alignment = { horizontal:'center', vertical:'middle' }
+        cell.border = { bottom:med(), right:thin() }
+      })
+      ws.getRow(2).height = 22
+
+      // ── 기준시간 행 ──
+      const baseRow = ws.addRow(['기준', '', ...staffForExport.map((s: any) => `${s.expected_in||'--'} ~ ${s.expected_out||'--'}`), ''])
+      baseRow.eachCell((cell, ci) => {
+        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF8F0FF' } }
+        cell.font = { color:{ argb:'FF6C5CE7' }, size:9 }
+        cell.alignment = { horizontal:'center', vertical:'middle' }
+        cell.border = { bottom:med(), right:thin() }
+      })
+      ws.getRow(3).height = 16
+
+      // ── 열 너비 ──
+      ws.getColumn(1).width = 13
+      ws.getColumn(2).width = 5
+      staffForExport.forEach((_: any, i: number) => { ws.getColumn(i + 3).width = 16 })
+      ws.getColumn(staffForExport.length + 3).width = 7
+
+      // 출퇴근 데이터 맵 (profile_id → work_date → record)
+      const attMap: Record<string, Record<string, any>> = {}
+      allAttData.forEach(r => {
+        if (!attMap[r.profile_id]) attMap[r.profile_id] = {}
+        attMap[r.profile_id][r.work_date] = r
+      })
+
+      // ── 날짜별 데이터 행 ──
+      for (let day = 1; day <= lastDay; day++) {
+        const dateStr = `${histYear}-${pad(histMonth+1)}-${pad(day)}`
+        const dow = new Date(dateStr).getDay()
+        const isSun = dow === 0; const isSat = dow === 6
+        const isMonday = dow === 1 && day !== 1
+        const dateBg = isSun ? 'FFFCE4F0' : isSat ? 'FFF0EEFF' : 'FFFAFAFA'
+        const dateClr = isSun ? 'FFE84393' : isSat ? 'FF6C5CE7' : 'FF333333'
+
+        const rowData: any[] = [`${histMonth+1}/${day}`, DOW_KR[dow]]
+        let workCnt = 0
+
+        const cellInfos: { status: string; clockIn: string; clockOut: string; lateMin: number }[] = []
+
+        staffForExport.forEach((s: any) => {
+          const rec = attMap[s.id]?.[dateStr]
+          if (!rec) { rowData.push(''); cellInfos.push({ status:'', clockIn:'', clockOut:'', lateMin:0 }); return }
+
+          // 기준시간 기반 상태 재계산
+          const expIn  = s.expected_in
+          const expOut = s.expected_out
+          const st = rec.status || 'normal'
+          let finalStatus = st
+          if (!['absent','no_clockin'].includes(st)) {
+            const isLate  = expIn  && rec.clock_in  ? tsToMinutes(rec.clock_in)  > timeToMinutes(expIn)  : false
+            const isEarly = expOut && rec.clock_out ? tsToMinutes(rec.clock_out) < timeToMinutes(expOut) : false
+            if (isPastDate(dateStr, today) && rec.clock_in && !rec.clock_out) finalStatus = 'no_clockout'
+            else if (rec.clock_out) {
+              if (isLate && isEarly) finalStatus = 'late_early'
+              else if (isLate)  finalStatus = 'late'
+              else if (isEarly) finalStatus = 'early'
+              else finalStatus = 'normal'
+            } else if (rec.clock_in) finalStatus = 'working'
+          }
+
+          const ciStr = fmtTime(rec.clock_in) || ''
+          const coStr = fmtTime(rec.clock_out) || ''
+          const lateMin = rec.late_minutes || 0
+
+          let cellVal = STATUS_LABEL[finalStatus] || finalStatus
+          if (ciStr) cellVal += `\n${ciStr}${coStr ? ` → ${coStr}` : ' ~'}`
+          if (lateMin > 0) cellVal += `\n지각 ${lateMin}분`
+
+          rowData.push(cellVal)
+          cellInfos.push({ status: finalStatus, clockIn: ciStr, clockOut: coStr, lateMin })
+          if (['normal','late','early','late_early','working'].includes(finalStatus)) workCnt++
+        })
+        rowData.push(workCnt || '')
+
+        const row = ws.addRow(rowData)
+        row.height = 36
+        row.alignment = { wrapText: true }
+
+        // 날짜 셀 스타일
+        const dc = row.getCell(1)
+        dc.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: dateBg } }
+        dc.font = { color:{ argb: dateClr }, size:10 }
+        dc.alignment = { horizontal:'left', vertical:'middle' }
+
+        const dw = row.getCell(2)
+        dw.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: dateBg } }
+        dw.font = { bold:true, color:{ argb: dateClr }, size:10 }
+        dw.alignment = { horizontal:'center', vertical:'middle' }
+
+        // 직원 셀 스타일
+        cellInfos.forEach((info, i) => {
+          const cell = row.getCell(i + 3)
+          cell.alignment = { horizontal:'center', vertical:'middle', wrapText: true }
+          if (!info.status) return
+          cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: STATUS_BG[info.status] || 'FFFFFFFF' } }
+          cell.font = { color:{ argb: STATUS_COLOR[info.status] || 'FF333333' }, bold: true, size:10 }
+        })
+
+        // 출근수 셀
+        const cntCell = row.getCell(staffForExport.length + 3)
+        cntCell.font = { bold:true, color:{ argb: workCnt < 2 ? 'FFE84393' : 'FF6C5CE7' }, size:11 }
+        cntCell.alignment = { horizontal:'center', vertical:'middle' }
+
+        // 월요일 경계선
+        if (isMonday) {
+          row.eachCell(cell => { cell.border = { ...cell.border, top: med() } })
+        } else {
+          row.eachCell(cell => { cell.border = { top:thin(), bottom:thin(), left:thin(), right:thin() } })
+        }
+      }
+
+      // ── 합계 행 ──
+      const sumData: any[] = ['합계', '']
+      staffForExport.forEach((s: any) => {
+        const stat = monthStats[s.id] || { normal:0, late:0, early:0, absent:0, late_early:0, no_clockout:0, no_clockin:0 }
+        const totalWork  = stat.normal + stat.late + stat.early + stat.late_early
+        const totalLate  = stat.late  + stat.late_early
+        const totalEarly = stat.early + stat.late_early
+        let summary = `출근 ${totalWork}일`
+        if (totalLate  > 0) summary += ` / 지각 ${totalLate}회`
+        if (totalEarly > 0) summary += ` / 조기퇴 ${totalEarly}회`
+        if (stat.absent > 0) summary += ` / 결근 ${stat.absent}일`
+        if (stat.no_clockout > 0) summary += ` / 퇴근누락 ${stat.no_clockout}회`
+        sumData.push(summary)
+      })
+      sumData.push('')
+      const sumRow = ws.addRow(sumData)
+      ws.mergeCells(ws.rowCount, 1, ws.rowCount, 2)
+      sumRow.height = 24
+      sumRow.eachCell(cell => {
+        cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFFE8CC' } }
+        cell.font = { bold:true, size:10, color:{ argb:'FF1A1A2E' } }
+        cell.alignment = { horizontal:'center', vertical:'middle', wrapText: true }
+        cell.border = { top:med(), bottom:thin(), left:thin(), right:thin() }
+      })
+
+      // ── 틀 고정 (날짜+요일, 제목+헤더+기준) ──
+      ws.views = [{ state:'frozen', xSplit:2, ySplit:3 }]
+
+      // ── 다운로드 ──
+      const buf = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `출퇴근기록_${histYear}년${histMonth+1}월.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch(e: any) {
+      alert('내보내기 실패: ' + (e?.message || '다시 시도해주세요'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const firstDow = new Date(histYear, histMonth, 1).getDay()
   const lastDate = new Date(histYear, histMonth+1, 0).getDate()
   const attMatrix = useMemo(() => {
@@ -788,7 +1006,7 @@ export default function AttendancePage() {
   const clockInBlockReason = !wifiOk
     ? '매장 와이파이 연결 필요'
     : hasIssues && !issueAcked
-    ? '이번 달 지적사항을 확인(체크)해야 출근할 수 있어요'
+    ? '이번 주 지적사항을 확인(체크)해야 출근할 수 있어요'
     : !allChecked
     ? '전달사항을 모두 확인(체크)해야 출근할 수 있어요'
     : attendance?.clock_in ? '이미 출근했습니다' : null
@@ -826,10 +1044,15 @@ export default function AttendancePage() {
         {/* ════ 오늘 탭 ════ */}
         {tab==='today' && (
           <>
-            {/* 오늘 목표 */}
+            {/* ★ 오늘의 목표 매출 카드 — 맨 위 */}
             {goalLoaded && todayGoal > 0 && (
-              <div style={{ borderRadius:16, marginBottom:12, background:'linear-gradient(135deg, #FF6B35, #E84393)', boxShadow:'0 4px 20px rgba(255,107,53,0.25)' }}>
+              <div style={{
+                borderRadius: 16, marginBottom: 12,
+                background: 'linear-gradient(135deg, #FF6B35, #E84393)',
+                boxShadow: '0 4px 20px rgba(255,107,53,0.25)'
+              }}>
                 <div style={{ padding:'18px 20px' }}>
+                  {/* 날짜 + 요일 */}
                   <div style={{ fontSize:11, color:'rgba(255,255,255,0.75)', fontWeight:600, marginBottom:4 }}>
                     {nowDate.getMonth()+1}월 {nowDate.getDate()}일 {DOW_KR[todayDow]}
                     {isRedDay(nowDate.getFullYear(), nowDate.getMonth()+1, nowDate.getDate()) && (
@@ -837,16 +1060,37 @@ export default function AttendancePage() {
                     )}
                   </div>
                   <div style={{ fontSize:13, fontWeight:700, color:'rgba(255,255,255,0.85)', marginBottom:10 }}>🎯 오늘의 목표 매출</div>
-                  <div style={{ fontSize:34, fontWeight:900, color:'#fff', marginBottom:16, letterSpacing:'-0.5px' }}>{fmtW(todayGoal)}</div>
+
+                  {/* 목표 금액 크게 */}
+                  <div style={{ fontSize:34, fontWeight:900, color:'#fff', marginBottom:16, letterSpacing:'-0.5px' }}>
+                    {fmtW(todayGoal)}
+                  </div>
+
+                  {/* 확인 체크박스 */}
                   <div onClick={() => {
                     const next = !goalAcked
                     setGoalAcked(next)
-                    if (typeof window !== 'undefined') localStorage.setItem(`goal_ack_${today}_${storeId}`, String(next))
-                  }} style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', background:goalAcked?'rgba(255,255,255,0.3)':'rgba(255,255,255,0.15)', borderRadius:12, cursor:'pointer', border:`1.5px solid ${goalAcked?'rgba(255,255,255,0.6)':'rgba(255,255,255,0.3)'}`, transition:'all 0.15s' }}>
-                    <div style={{ width:22, height:22, borderRadius:7, flexShrink:0, border:`2px solid ${goalAcked?'#fff':'rgba(255,255,255,0.6)'}`, background:goalAcked?'#fff':'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem(`goal_ack_${today}_${storeId}`, String(next))
+                    }
+                  }} style={{
+                    display:'flex', alignItems:'center', gap:10, padding:'11px 14px',
+                    background: goalAcked ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
+                    borderRadius:12, cursor:'pointer',
+                    border:`1.5px solid ${goalAcked ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.3)'}`,
+                    transition:'all 0.15s'
+                  }}>
+                    <div style={{
+                      width:22, height:22, borderRadius:7, flexShrink:0,
+                      border:`2px solid ${goalAcked ? '#fff' : 'rgba(255,255,255,0.6)'}`,
+                      background: goalAcked ? '#fff' : 'transparent',
+                      display:'flex', alignItems:'center', justifyContent:'center'
+                    }}>
                       {goalAcked && <span style={{ color:'#FF6B35', fontSize:13, fontWeight:900 }}>✓</span>}
                     </div>
-                    <span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{goalAcked?'✅ 오늘의 목표 확인 완료!':'오늘의 목표를 확인했습니다'}</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>
+                      {goalAcked ? '✅ 오늘의 목표 확인 완료!' : '오늘의 목표를 확인했습니다'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -858,34 +1102,29 @@ export default function AttendancePage() {
               <span style={{ flex:1 }}>{ipLoading?'와이파이 확인중...':!allowedIp?'매장 IP 미등록 — 대표가 먼저 IP를 등록해주세요':wifiOk?'매장 와이파이 연결됨 — 출퇴근 가능':'매장 와이파이 미연결 — 출퇴근 불가'}</span>
             </div>
 
-            {/* ✅ 이번 달 지적사항 (주차 구분 없이 월 전체) */}
+            {/* 이번 주 지적사항 */}
             {hasIssues && !attendance?.clock_in && (
               <div style={{ ...bx, border:'2px solid rgba(232,67,147,0.35)', background:'rgba(232,67,147,0.03)', marginBottom:12 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:12 }}>
-                  <span style={{ fontSize:13, fontWeight:700, color:'#E84393' }}>📌 이번 달 지적사항</span>
-                  <span style={{ fontSize:10, background:'rgba(232,67,147,0.12)', color:'#E84393', padding:'2px 6px', borderRadius:10, fontWeight:700 }}>{monthIssueList.length}건</span>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#E84393' }}>📌 이번 주 지적사항</span>
+                  <span style={{ fontSize:10, background:'rgba(232,67,147,0.12)', color:'#E84393', padding:'2px 6px', borderRadius:10, fontWeight:700 }}>{weekIssueList.length}건</span>
                   <span style={{ fontSize:10, color:'#aaa', marginLeft:'auto' }}>확인 체크 후 출근 가능</span>
                 </div>
-                {monthIssueList.map((issue, idx) => (
+                {weekIssueList.map((issue, idx) => (
                   <div key={issue.id} style={{ marginBottom:8, padding:'10px 14px', background:'#fff', borderRadius:10, border:'1px solid rgba(232,67,147,0.18)' }}>
                     <div style={{ fontSize:10, color:'#E84393', fontWeight:700, marginBottom:5 }}>#{idx + 1}</div>
                     <div style={{ fontSize:13, color:'#1a1a2e', lineHeight:1.7 }}>{issue.text}</div>
-                    {(issue.imageBase64 || issue.imageUrl) && (
-                      <img src={issue.imageBase64 || issue.imageUrl} alt="지적사항 사진"
-                        style={{ width:'100%', maxHeight:160, objectFit:'cover', borderRadius:8, marginTop:8, border:'1px solid #E8ECF0', display:'block' }}/>
-                    )}
                   </div>
                 ))}
                 <div onClick={() => {
                   if (!wifiOk) { alert('매장 와이파이 연결 후 체크할 수 있습니다'); return }
                   const next = !issueAcked; setIssueAcked(next)
-                  const y = nowDate.getFullYear(), m = nowDate.getMonth() + 1
-                  if (typeof window !== 'undefined') localStorage.setItem(`issue_ack_month_${y}_${m}_${storeId}`, String(next))
+                  if (typeof window !== 'undefined') localStorage.setItem(`issue_ack_${today}_${storeId}`, String(next))
                 }} style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px', background:issueAcked?'rgba(0,184,148,0.08)':'rgba(232,67,147,0.06)', borderRadius:10, cursor:'pointer', border:`1.5px solid ${issueAcked?'rgba(0,184,148,0.35)':'rgba(232,67,147,0.25)'}` }}>
                   <div style={{ width:22, height:22, borderRadius:7, flexShrink:0, border:`2px solid ${issueAcked?'#00B894':'#E84393'}`, background:issueAcked?'#00B894':'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
                     {issueAcked && <span style={{ color:'#fff', fontSize:12, fontWeight:800 }}>✓</span>}
                   </div>
-                  <span style={{ fontSize:13, fontWeight:700, color:issueAcked?'#00B894':'#E84393' }}>{issueAcked?'✅ 이번 달 지적사항 확인 완료!':'이번 달 지적사항을 확인했습니다 (필수)'}</span>
+                  <span style={{ fontSize:13, fontWeight:700, color:issueAcked?'#00B894':'#E84393' }}>{issueAcked?'✅ 지적사항 확인 완료!':'지적사항을 확인했습니다 (필수)'}</span>
                 </div>
               </div>
             )}
@@ -930,7 +1169,7 @@ export default function AttendancePage() {
               </div>
             )}
 
-            {/* 이번달 내 근태 요약 */}
+            {/* 본인 이번달 근태 요약 */}
             {(() => {
               if (myMonthData.length === 0) return null
               const myInfo = staffList.find(s => s.id === profileId)
@@ -1062,6 +1301,12 @@ export default function AttendancePage() {
               <button onClick={prevMonth} style={{ width:36, height:36, borderRadius:10, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>‹</button>
               <span style={{ flex:1, textAlign:'center', fontSize:15, fontWeight:800, color:'#1a1a2e' }}>{histYear}년 {histMonth+1}월</span>
               <button onClick={nextMonth} style={{ width:36, height:36, borderRadius:10, border:'1px solid #E8ECF0', background:'#fff', cursor:'pointer', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>›</button>
+              {isOwner && (
+                <button onClick={exportAttendanceExcel} disabled={exporting}
+                  style={{ padding:'6px 12px', borderRadius:10, border:'1px solid rgba(0,184,148,0.3)', background:'rgba(0,184,148,0.08)', color: exporting ? '#aaa' : '#00B894', fontSize:12, fontWeight:700, cursor: exporting ? 'not-allowed' : 'pointer', flexShrink:0, whiteSpace:'nowrap' }}>
+                  {exporting ? '⏳...' : '📥 엑셀'}
+                </button>
+              )}
             </div>
             {visibleStaff.length>0 && (
               <div style={{ marginBottom:16 }}>
@@ -1161,13 +1406,13 @@ export default function AttendancePage() {
                 </div>
                 {allMonthLoading?<div style={{ textAlign:'center', padding:40, color:'#aaa', fontSize:14 }}>불러오는 중...</div>
                 :allStores.map((store:any)=>{
-                  const d=allMonthData[store.id]; if(!d) return <div key={store.id} style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', padding:20, marginBottom:12, textAlign:'center', color:'#bbb', fontSize:13 }}>로딩 중...</div>
+                  const d=allMonthData[store.id]; if(!d) return <div key={store.id} style={{ ...bx, textAlign:'center', color:'#bbb', padding:20, fontSize:13 }}>로딩 중...</div>
                   const {staff,att}=d, lastDay=new Date(allMonthYear,allMonthMonth+1,0).getDate()
                   const am: Record<string,Record<string,any>>={};staff.forEach((s:any)=>{am[s.id]={}});att.forEach((a:any)=>{if(am[a.profile_id])am[a.profile_id][a.work_date]=a})
                   const ss=staff.map((s:any)=>{let normal=0,late=0,early=0,absent=0,no_clockout=0,no_clockin=0;for(let d2=1;d2<=lastDay;d2++){const ds=`${allMonthYear}-${pad(allMonthMonth+1)}-${pad(d2)}`,r=am[s.id]?.[ds];if(!r)continue;const isLate=s.expected_in&&r.clock_in?tsToMinutes(r.clock_in)>timeToMinutes(s.expected_in):false,isEarly=s.expected_out&&r.clock_out?tsToMinutes(r.clock_out)<timeToMinutes(s.expected_out):false,isPast=ds<today;if(r.status==='absent'||r.status==='no_clockin'){absent++;no_clockin++}else if(isPast&&r.clock_in&&!r.clock_out)no_clockout++;else if(isLate&&isEarly){late++;early++}else if(isLate)late++;else if(isEarly)early++;else if(r.clock_in)normal++}return{...s,normal,late,early,absent,no_clockout,no_clockin}})
                   const sk=`month_open_${store.id}`, isOpen=typeof window!=='undefined'?sessionStorage.getItem(sk)!=='false':true
                   return (
-                    <div key={store.id} style={{ background:'#fff', borderRadius:16, border:'1px solid #E8ECF0', padding:16, marginBottom:12, boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
+                    <div key={store.id} style={{ ...bx, marginBottom:12 }}>
                       <button onClick={()=>{const next=sessionStorage.getItem(sk)==='false'?'true':'false';sessionStorage.setItem(sk,next);setAllMonthData(p=>({...p}))}} style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between', background:'none', border:'none', cursor:'pointer', padding:0, marginBottom:isOpen?14:0 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:8 }}><span style={{ fontSize:14, fontWeight:800, color:'#1a1a2e' }}>🏪 {store.name}</span><span style={{ fontSize:11, color:'#aaa' }}>{staff.length}명</span></div>
                         <span style={{ fontSize:13, color:'#bbb' }}>{isOpen?'▲':'▼'}</span>
