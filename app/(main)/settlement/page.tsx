@@ -13,7 +13,6 @@ function pct(v: number, total: number) { if (!total) return 0; return Math.round
 const PAYMENT_METHODS = ['카드','현금','계좌이체','기타']
 const PAYMENT_COLORS: Record<string,string> = { '카드':'#6C5CE7','현금':'#00B894','계좌이체':'#2DC6D6','기타':'#aaa' }
 const ICONS = ['📋','🌐','🛒','🥩','🐟','🍺','🥤','📦','👤','⚡','💳','🧾','💰','🏠','🚗','📱','🔧','✂️','🎯','💬']
-const DEFAULT_OPT = { deposit_date:false, quantity:false, unit_price:false }
 
 const DEFAULT_SHEETS = [
   { name:'인터넷발주', icon:'🌐', sheet_type:'expense', sort_order:1 },
@@ -58,7 +57,6 @@ async function exportAllExcel(storeId: string, year: number, month: number, shee
     const from = `${year}-${pad(month)}-01`
     const to = `${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}`
 
-    // 1. 수익분석 요약
     const wsSummary = wb.addWorksheet('📊 수익분석 요약')
     wsSummary.addRow([`${year}년 ${month}월 결산 요약`])
     wsSummary.getRow(1).font = { bold:true, size:14 }
@@ -98,7 +96,6 @@ async function exportAllExcel(storeId: string, year: number, month: number, shee
     netRow.font={bold:true,size:13,color:{argb:netProfit>=0?'FF00B894':'FFE84393'}}
     wsSummary.getColumn(1).width=32; wsSummary.getColumn(2).numFmt='#,##0'; wsSummary.getColumn(2).width=18; wsSummary.getColumn(3).width=16
 
-    // 2. 각 시트별
     for (const sheet of expenseSheets) {
       const { data: se } = await supabase.from('settlement_entries').select('*').eq('sheet_id',sheet.id).eq('year',year).eq('month',month).order('entry_date')
       const { data: so } = await supabase.from('orders').select('*').eq('settlement_sheet_id',sheet.id).eq('settlement_year',year).eq('settlement_month',month).order('confirmed_at')
@@ -113,7 +110,6 @@ async function exportAllExcel(storeId: string, year: number, month: number, shee
       ws.getColumn(4).numFmt='#,##0'; ws.columns.forEach(col=>{col.width=14})
     }
 
-    // 3. 매출
     const wsSales = wb.addWorksheet('💰 매출')
     wsSales.addRow(['날짜','플랫폼','금액'])
     wsSales.getRow(1).eachCell(cell=>{ cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF00B894'}}; cell.font={bold:true,color:{argb:'FFFFFFFF'}} })
@@ -130,7 +126,9 @@ async function exportAllExcel(storeId: string, year: number, month: number, shee
   } catch(e:any) { alert('엑셀 오류: '+(e?.message||'')) }
 }
 
-// ── 📦 미분류 탭 (✅ 선택한 월 기준으로만 표시) ────────────
+// ── 📦 미분류 탭 ─────────────────────────────────────────
+// ✅ 핵심: confirmed_at 기준 (주문확인된 것) + settlement_sheet_id 없는 것
+//    status 필터 없음 → 수령처리 돼도 분류 안 했으면 계속 표시
 function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
   storeId:string; year:number; month:number; sheets:any[]; onRefresh:()=>void
 }) {
@@ -150,12 +148,13 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
     const pad = (n: number) => String(n).padStart(2,'0')
     const from = `${year}-${pad(month)}-01`
     const to = `${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`
-    // ✅ 선택한 월 주문확인된 발주만 표시
+    // ✅ status 필터 없음 — 주문확인(confirmed_at 있는 것) + 미분류만
+    // 수령처리 돼도 분류 안 했으면 계속 표시
     const { data } = await supabase.from('orders')
       .select('*')
       .eq('store_id', storeId)
-      .eq('status', 'ordered')
       .is('settlement_sheet_id', null)
+      .not('confirmed_at', 'is', null)   // 주문확인 된 것만 (confirmed_at이 있는 것)
       .gte('confirmed_at', from)
       .lte('confirmed_at', to)
       .order('confirmed_at', { ascending:false })
@@ -174,7 +173,9 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
       settlement_classified_at:new Date().toISOString(),
       settlement_year:year, settlement_month:month,
     }).eq('id',orderId)
-    setSaving(p=>({...p,[orderId]:false})); setOrders(prev=>prev.filter(o=>o.id!==orderId)); onRefresh()
+    setSaving(p=>({...p,[orderId]:false}))
+    setOrders(prev=>prev.filter(o=>o.id!==orderId))
+    onRefresh()
   }
 
   async function classifyAll() {
@@ -187,7 +188,8 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
       settlement_classified_at:new Date().toISOString(),
       settlement_year:year, settlement_month:month,
     }).eq('id',o.id)))
-    setOrders(prev=>prev.filter(o=>!ready.find(r=>r.id===o.id))); onRefresh()
+    setOrders(prev=>prev.filter(o=>!ready.find(r=>r.id===o.id)))
+    onRefresh()
   }
 
   if (loading) return <div style={{ textAlign:'center', padding:48, color:'#bbb', fontSize:13 }}>불러오는 중...</div>
@@ -196,7 +198,7 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
     <div style={{ textAlign:'center', padding:'64px 20px' }}>
       <div style={{ fontSize:44, marginBottom:12 }}>🎉</div>
       <div style={{ fontSize:16, fontWeight:700, color:'#ccc', marginBottom:6 }}>미분류 발주가 없어요!</div>
-      <div style={{ fontSize:12, color:'#ddd' }}>{year}년 {month}월 주문확인된 발주가 없거나 모두 분류됐어요</div>
+      <div style={{ fontSize:12, color:'#ddd' }}>{year}년 {month}월 미분류 발주가 없거나 모두 분류됐어요</div>
     </div>
   )
 
@@ -207,7 +209,7 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
       <div style={{ padding:'12px 14px', background:'rgba(108,92,231,0.06)', borderRadius:12, border:'1px solid rgba(108,92,231,0.2)', marginBottom:14 }}>
         <div style={{ fontSize:12, fontWeight:700, color:'#6C5CE7', marginBottom:4 }}>📦 {year}년 {month}월 발주 결산 분류</div>
         <div style={{ fontSize:11, color:'#888', lineHeight:1.6 }}>
-          {month}월에 주문확인된 발주 {orders.length}건이 있어요.<br/>
+          {month}월 미분류 발주 {orders.length}건이 있어요.<br/>
           시트 선택 + 금액 입력 후 분류 버튼을 누르세요.
         </div>
       </div>
@@ -228,7 +230,6 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: {
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
                 <div>
                   <span style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{order.item_name}</span>
-                  <span style={{ fontSize:10, padding:'1px 7px', borderRadius:8, background:'rgba(108,92,231,0.1)', color:'#6C5CE7', fontWeight:700, marginLeft:7 }}>주문확인</span>
                 </div>
                 <span style={{ fontSize:14, fontWeight:700, color:'#888', flexShrink:0 }}>{order.quantity}{order.unit}</span>
               </div>
@@ -1094,16 +1095,19 @@ export default function SettlementPage() {
     else { setPermChecked(true); setLoading(false) }
   },[])
 
-  // 미분류 카운트 — 선택한 월 기준
   useEffect(()=>{ if(storeId) loadUnclassifiedCount() },[storeId, year, month])
 
+  // ✅ 미분류 카운트 — confirmed_at 기준, status 무관
   async function loadUnclassifiedCount() {
     const pad=(n:number)=>String(n).padStart(2,'0')
     const from=`${year}-${pad(month)}-01`
     const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`
     const { count } = await supabase.from('orders').select('*',{count:'exact',head:true})
-      .eq('store_id',storeId).eq('status','ordered').is('settlement_sheet_id',null)
-      .gte('confirmed_at',from).lte('confirmed_at',to)
+      .eq('store_id',storeId)
+      .is('settlement_sheet_id',null)
+      .not('confirmed_at','is',null)
+      .gte('confirmed_at',from)
+      .lte('confirmed_at',to)
     setUnclassifiedCount(count||0)
   }
 
@@ -1178,7 +1182,6 @@ export default function SettlementPage() {
               ⚙️ 카드수수료율을 설정해주세요
             </div>
           )}
-
           <div style={{ ...bx, padding:'12px 16px', marginBottom:14 }}>
             <YearMonthPicker year={year} month={month-1} onChange={(y:number,m:number)=>{ setYear(y); setMonth(m+1) }} color="#FF6B35" />
           </div>
