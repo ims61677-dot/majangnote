@@ -2560,12 +2560,12 @@ export default function NoticePage() {
 
   async function loadStoreMembers(sid: string) {
     const { data } = await supabase.from('store_members')
-      .select('role, profile_id, profiles(name)')
+      .select('role, profile_id, profiles(nm)')
       .eq('store_id', sid)
       .eq('active', true)
+      .neq('role', 'owner')
     if (data) {
       const members = data
-        .filter((m: any) => m.role !== 'owner')
         .map((m: any) => ({ name: (m.profiles as any)?.nm || '', role: m.role || 'employee' }))
         .filter((m: any) => m.name)
       setStoreMembers(members)
@@ -2690,7 +2690,15 @@ export default function NoticePage() {
   // ── 할일 폼 ──
   const todoForm = showTodoForm && canWriteTodo && (
     <div style={{ ...bx, border:'1px solid rgba(108,92,231,0.3)', background:'rgba(108,92,231,0.02)' }}>
-      <div style={{ fontSize:13, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>✅ {selectedDate.replace(/-/g,'.')} 할일 추가</div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:'#6C5CE7' }}>✅ {selectedDate.replace(/-/g,'.')} 할일 추가</div>
+        {isOwner && (
+          <button onClick={() => setShowTodoPermMgr(true)}
+            style={{ fontSize:11, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', borderRadius:8, padding:'4px 10px', cursor:'pointer', fontWeight:600 }}>
+            ✍️ 작성 권한 설정
+          </button>
+        )}
+      </div>
       <input value={formTodoTitle} onChange={e => setFormTodoTitle(e.target.value)} placeholder="그룹명 (예: 오픈 준비)" style={{ ...inp, marginBottom:10 }} />
 
       {/* 직급별 보기 */}
@@ -2934,12 +2942,6 @@ export default function NoticePage() {
       <button style={tabBtn(subTab==='todo')} onClick={() => setSubTab('todo')}>
         ✅ 할일 {overdueCount > 0 ? `(${overdueCount} 미완료)` : ''}
       </button>
-      {isOwner && subTab === 'todo' && (
-        <button onClick={() => setShowTodoPermMgr(true)}
-          style={{ padding:'6px 10px', borderRadius:9, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' as const, alignSelf:'center' }}>
-          ✍️ 권한
-        </button>
-      )}
       <button style={tabBtn(subTab==='stats')} onClick={() => setSubTab('stats')}>
         📊 통계
       </button>
