@@ -329,7 +329,7 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: { storeId
 }
 
 // ── 설정 모달 ─────────────────────────────────────────────
-function SettingsModal({ storeId, settings, onSave, onClose }: { storeId:string; settings:any; onSave:(s:any)=>void; onClose:()=>void }) {
+function SettingsModal({ storeId, settings, profileId, onSave, onClose }: { storeId:string; settings:any; profileId:string; onSave:(s:any)=>void; onClose:()=>void }) {
   const supabase = createSupabaseBrowserClient()
   const [tab, setTab] = useState<'settings'|'permissions'>('settings')
   const [bizType, setBizType] = useState(settings?.business_type||'individual')
@@ -340,7 +340,7 @@ function SettingsModal({ storeId, settings, onSave, onClose }: { storeId:string;
   const [loadingPerms, setLoadingPerms] = useState(true)
   useEffect(()=>{ if(tab==='permissions') loadPermissions() },[tab])
   async function loadPermissions() { setLoadingPerms(true); const [{ data: mems },{ data: perms }] = await Promise.all([supabase.from('store_members').select('*, profiles(*)').eq('store_id',storeId).eq('active',true).neq('role','owner'),supabase.from('settlement_permissions').select('*').eq('store_id',storeId)]); setMembers(mems||[]); setPermissions(perms||[]); setLoadingPerms(false) }
-  async function handleSaveSettings() { if (!cardRate) return; setSaving(true); const data={store_id:storeId, business_type:bizType, card_fee_rate:Number(cardRate)}; if (settings?.id) await supabase.from('settlement_settings').update(data).eq('id',settings.id); else await supabase.from('settlement_settings').insert(data); const { data: updated } = await supabase.from('settlement_settings').select('*').eq('store_id',storeId).maybeSingle(); setSaving(false); onSave(updated); onClose() }
+  async function handleSaveSettings() { if (!cardRate) return; setSaving(true); const data:any={store_id:storeId, business_type:bizType, card_fee_rate:Number(cardRate)}; if (settings?.id) { await supabase.from('settlement_settings').update(data).eq('id',settings.id) } else { data.owner_profile_id=profileId; await supabase.from('settlement_settings').insert(data) } const { data: updated } = await supabase.from('settlement_settings').select('*').eq('store_id',storeId).maybeSingle(); setSaving(false); onSave(updated); onClose() }
   async function togglePermission(member:any) { const existing=permissions.find(p=>p.profile_id===member.profile_id); if (existing) { await supabase.from('settlement_permissions').delete().eq('id',existing.id); setPermissions(prev=>prev.filter(p=>p.id!==existing.id)) } else { const { data } = await supabase.from('settlement_permissions').insert({ store_id:storeId, profile_id:member.profile_id, granted_by:storeId }).select().single(); if(data) setPermissions(prev=>[...prev,data]) } }
   const GUIDE=[{label:'개인사업자 (연매출 3억 이하)',rate:0.5},{label:'개인사업자 (연매출 3~5억)',rate:1.1},{label:'개인사업자 (5억 초과)',rate:1.5},{label:'법인',rate:2.0}]
   return (
@@ -812,7 +812,7 @@ function AdminView({ profileId, year, month }: { profileId:string; year:number; 
   const [stores, setStores] = useState<any[]>([]); const [storeData, setStoreData] = useState<Record<string,any>>({}); const [loading, setLoading] = useState(true)
   useEffect(()=>{ loadAll() },[profileId,year,month])
   async function loadAll() {
-    setLoading(true); const { data: members } = await supabase.from('store_members').select('*, stores(*)').eq('profile_id',profileId).eq('active',true); const storeList=(members||[]).map((m:any)=>m.stores).filter(Boolean); setStores(storeList)
+    setLoading(true); const { data: members } = await supabase.from('store_members').select('*, stores(*)').eq('profile_id',profileId).eq('role','owner').eq('active',true); const storeList=(members||[]).map((m:any)=>m.stores).filter(Boolean); setStores(storeList)
     const pad=(n:number)=>String(n).padStart(2,'0'); const from=`${year}-${pad(month)}-01`; const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}`; const result: Record<string,any>={}
     await Promise.all(storeList.map(async (store:any)=>{ const sid=store.id; const [{ data: cls },{ data: ent },{ data: linked },{ data: sheets },{ data: settings }] = await Promise.all([supabase.from('closings').select('id').eq('store_id',sid).gte('closing_date',from).lte('closing_date',to),supabase.from('settlement_entries').select('sheet_id,amount').eq('store_id',sid).eq('year',year).eq('month',month),supabase.from('orders').select('settlement_sheet_id,settlement_amount').eq('store_id',sid).eq('settlement_year',year).eq('settlement_month',month).not('settlement_sheet_id','is',null),supabase.from('settlement_sheets').select('id,name,icon').eq('store_id',sid).eq('is_active',true).eq('sheet_type','expense').order('sort_order'),supabase.from('settlement_settings').select('*').eq('store_id',sid).maybeSingle()]); let sales=0; if (cls?.length) { const { data: sv } = await supabase.from('closing_sales').select('amount').in('closing_id',cls.map((c:any)=>c.id)); sales=(sv||[]).reduce((s:number,r:any)=>s+(r.amount||0),0) }; const sums: Record<string,number>={}; ;(ent||[]).forEach((e:any)=>{ sums[e.sheet_id]=(sums[e.sheet_id]||0)+(e.amount||0) }); ;(linked||[]).forEach((o:any)=>{ if(o.settlement_sheet_id&&o.settlement_amount) sums[o.settlement_sheet_id]=(sums[o.settlement_sheet_id]||0)+o.settlement_amount }); const expense=Object.values(sums).reduce((s:number,v:any)=>s+(v as number),0); result[sid]={ sales, expense, sheets:(sheets||[]).map((sh:any)=>({...sh,amount:sums[sh.id]||0})), settings:settings||null } }))
     setStoreData(result); setLoading(false)
@@ -845,14 +845,15 @@ export default function SettlementPage() {
     const store=JSON.parse(localStorage.getItem('mj_store')||'{}'); const user=JSON.parse(localStorage.getItem('mj_user')||'{}')
     if (!store.id) return
     setStoreId(store.id); setUserName(user.nm||''); setUserRole(user.role||''); setProfileId(user.id||'')
-    if (user.role==='owner') { setHasPermission(true); setPermChecked(true); loadSheets(store.id); loadSettings(store.id) }
+    if (user.role==='owner') checkOwnerAndLoad(store.id, user.id)
     else if (user.role==='manager') checkAndLoad(store.id, user.id)
     else { setPermChecked(true); setLoading(false) }
   },[])
   useEffect(()=>{ if(storeId) loadUnclassifiedCount() },[storeId,year,month])
 
   async function loadUnclassifiedCount() { const pad=(n:number)=>String(n).padStart(2,'0'); const from=`${year}-${pad(month)}-01`; const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`; const { count } = await supabase.from('orders').select('*',{count:'exact',head:true}).eq('store_id',storeId).is('settlement_sheet_id',null).not('confirmed_at','is',null).neq('settlement_excluded',true).gte('confirmed_at',from).lte('confirmed_at',to); setUnclassifiedCount(count||0) }
-  async function loadSettings(sid:string) { const { data } = await supabase.from('settlement_settings').select('*').eq('store_id',sid).maybeSingle(); setSettings(data) }
+  async function loadSettings(sid:string) { const { data } = await supabase.from('settlement_settings').select('*').eq('store_id',sid).maybeSingle(); setSettings(data); return data }
+  async function checkOwnerAndLoad(sid:string, pid:string) { const data = await loadSettings(sid); const allowed = !data || !data.owner_profile_id || data.owner_profile_id === pid; setHasPermission(allowed); setPermChecked(true); if(allowed) loadSheets(sid); else setLoading(false) }
   async function checkAndLoad(sid:string, pid:string) { const { data } = await supabase.from('settlement_permissions').select('id').eq('store_id',sid).eq('profile_id',pid).maybeSingle(); setHasPermission(!!data); setPermChecked(true); if(data) { loadSheets(sid); loadSettings(sid) } else setLoading(false) }
   async function loadSheets(sid:string) { const { data } = await supabase.from('settlement_sheets').select('*').eq('store_id',sid).order('sort_order'); if (!data||data.length===0) { const rows=DEFAULT_SHEETS.map(s=>({...s,store_id:sid})); const { data: inserted } = await supabase.from('settlement_sheets').insert(rows).select(); setSheets(inserted||[]) } else setSheets(data); setLoading(false) }
 
@@ -865,7 +866,7 @@ export default function SettlementPage() {
   return (
     <div>
       {showSheetMgr&&<SheetManageModal sheets={sheets} storeId={storeId} onSave={()=>{ setLoading(true); loadSheets(storeId) }} onClose={()=>setShowSheetMgr(false)} />}
-      {showSettings&&<SettingsModal storeId={storeId} settings={settings} onSave={(s)=>setSettings(s)} onClose={()=>setShowSettings(false)} />}
+      {showSettings&&<SettingsModal storeId={storeId} settings={settings} profileId={profileId} onSave={(s)=>setSettings(s)} onClose={()=>setShowSettings(false)} />}
 
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
         <span style={{ fontSize:isPC?20:17, fontWeight:700, color:'#1a1a2e' }}>💹 결산</span>
