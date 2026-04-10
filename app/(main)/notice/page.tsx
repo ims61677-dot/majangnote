@@ -2560,11 +2560,13 @@ export default function NoticePage() {
 
   async function loadStoreMembers(sid: string) {
     const { data } = await supabase.from('store_members')
-      .select('user_name, role').eq('store_id', sid)
+      .select('role, profile_id, profiles(name)')
+      .eq('store_id', sid)
+      .eq('active', true)
     if (data) {
       const members = data
         .filter((m: any) => m.role !== 'owner')
-        .map((m: any) => ({ name: m.user_name || '', role: m.role || 'employee' }))
+        .map((m: any) => ({ name: (m.profiles as any)?.name || '', role: m.role || 'employee' }))
         .filter((m: any) => m.name)
       setStoreMembers(members)
     }
