@@ -329,7 +329,7 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: { storeId
 }
 
 // ── 설정 모달 ─────────────────────────────────────────────
-function SettingsModal({ storeId, settings, profileId, onSave, onClose }: { storeId:string; settings:any; profileId:string; onSave:(s:any)=>void; onClose:()=>void }) {
+function SettingsModal({ storeId, settings, onSave, onClose }: { storeId:string; settings:any; onSave:(s:any)=>void; onClose:()=>void }) {
   const supabase = createSupabaseBrowserClient()
   const [tab, setTab] = useState<'settings'|'permissions'>('settings')
   const [bizType, setBizType] = useState(settings?.business_type||'individual')
@@ -339,8 +339,8 @@ function SettingsModal({ storeId, settings, profileId, onSave, onClose }: { stor
   const [permissions, setPermissions] = useState<any[]>([])
   const [loadingPerms, setLoadingPerms] = useState(true)
   useEffect(()=>{ if(tab==='permissions') loadPermissions() },[tab])
-  async function loadPermissions() { setLoadingPerms(true); const [{ data: mems },{ data: perms }] = await Promise.all([supabase.from('store_members').select('*, profiles(*)').eq('store_id',storeId).eq('active',true),supabase.from('settlement_permissions').select('*').eq('store_id',storeId)]); setMembers(mems||[]); setPermissions(perms||[]); setLoadingPerms(false) }
-  async function handleSaveSettings() { if (!cardRate) return; setSaving(true); const data:any={store_id:storeId, business_type:bizType, card_fee_rate:Number(cardRate)}; if (settings?.id) { await supabase.from('settlement_settings').update(data).eq('id',settings.id) } else { data.owner_profile_id=profileId; await supabase.from('settlement_settings').insert(data) } const { data: updated } = await supabase.from('settlement_settings').select('*').eq('store_id',storeId).maybeSingle(); setSaving(false); onSave(updated); onClose() }
+  async function loadPermissions() { setLoadingPerms(true); const [{ data: mems },{ data: perms }] = await Promise.all([supabase.from('store_members').select('*, profiles(*)').eq('store_id',storeId).eq('active',true).neq('role','owner'),supabase.from('settlement_permissions').select('*').eq('store_id',storeId)]); setMembers(mems||[]); setPermissions(perms||[]); setLoadingPerms(false) }
+  async function handleSaveSettings() { if (!cardRate) return; setSaving(true); const data={store_id:storeId, business_type:bizType, card_fee_rate:Number(cardRate)}; if (settings?.id) await supabase.from('settlement_settings').update(data).eq('id',settings.id); else await supabase.from('settlement_settings').insert(data); const { data: updated } = await supabase.from('settlement_settings').select('*').eq('store_id',storeId).maybeSingle(); setSaving(false); onSave(updated); onClose() }
   async function togglePermission(member:any) { const existing=permissions.find(p=>p.profile_id===member.profile_id); if (existing) { await supabase.from('settlement_permissions').delete().eq('id',existing.id); setPermissions(prev=>prev.filter(p=>p.id!==existing.id)) } else { const { data } = await supabase.from('settlement_permissions').insert({ store_id:storeId, profile_id:member.profile_id, granted_by:storeId }).select().single(); if(data) setPermissions(prev=>[...prev,data]) } }
   const GUIDE=[{label:'개인사업자 (연매출 3억 이하)',rate:0.5},{label:'개인사업자 (연매출 3~5억)',rate:1.1},{label:'개인사업자 (5억 초과)',rate:1.5},{label:'법인',rate:2.0}]
   return (
@@ -355,7 +355,7 @@ function SettingsModal({ storeId, settings, profileId, onSave, onClose }: { stor
           <button onClick={handleSaveSettings} disabled={saving||!cardRate} style={{ width:'100%', padding:'13px 0', borderRadius:12, background:cardRate?'linear-gradient(135deg,#6C5CE7,#a29bfe)':'#E8ECF0', border:'none', color:cardRate?'#fff':'#aaa', fontSize:14, fontWeight:700, cursor:cardRate?'pointer':'default' }}>{saving?'저장 중...':'설정 저장'}</button>
         </div>}
         {tab==='permissions'&&<div>
-          <div style={{ padding:'10px 14px', background:'rgba(255,107,53,0.06)', borderRadius:10, border:'1px solid rgba(255,107,53,0.2)', marginBottom:16, fontSize:12, color:'#FF6B35', lineHeight:1.7 }}>💡 권한을 부여한 직원만 결산을 볼 수 있어요.<br/>(대표 포함 — 본인도 반드시 허용됨으로 설정하세요)</div>
+          <div style={{ padding:'10px 14px', background:'rgba(255,107,53,0.06)', borderRadius:10, border:'1px solid rgba(255,107,53,0.2)', marginBottom:16, fontSize:12, color:'#FF6B35' }}>💡 결산 메뉴는 기본적으로 대표만 볼 수 있어요.</div>
           {loadingPerms?<div style={{ textAlign:'center', padding:32, color:'#bbb' }}>불러오는 중...</div>:members.length===0?<div style={{ textAlign:'center', padding:32, color:'#bbb' }}><div style={{ fontSize:32, marginBottom:8 }}>👥</div>등록된 직원이 없어요</div>:members.map(member=>{ const hasPermi=permissions.some(p=>p.profile_id===member.profile_id); const name=member.profiles?.name||member.profiles?.nm||'이름없음'; return <div key={member.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 14px', background:hasPermi?'rgba(0,184,148,0.05)':'#F8F9FB', borderRadius:12, marginBottom:8, border:`1px solid ${hasPermi?'rgba(0,184,148,0.25)':'#E8ECF0'}` }}><div style={{ display:'flex', alignItems:'center', gap:10 }}><div style={{ width:38, height:38, borderRadius:10, background:hasPermi?'linear-gradient(135deg,#00B894,#2DC6D6)':'#E8ECF0', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, color:hasPermi?'#fff':'#aaa' }}>{name.charAt(0)}</div><div><div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{name}</div><div style={{ fontSize:10, color:'#aaa' }}>{member.role==='manager'?'관리자':'사원'} {hasPermi&&<span style={{ color:'#00B894', fontWeight:700 }}>· 결산 열람 가능</span>}</div></div></div><button onClick={()=>togglePermission(member)} style={{ padding:'8px 16px', borderRadius:10, border:'none', cursor:'pointer', fontSize:12, fontWeight:700, background:hasPermi?'linear-gradient(135deg,#00B894,#2DC6D6)':'#F4F6F9', color:hasPermi?'#fff':'#888', minWidth:80 }}>{hasPermi?'✅ 허용됨':'권한 부여'}</button></div> })}
         </div>}
       </div>
@@ -845,7 +845,7 @@ export default function SettlementPage() {
     const store=JSON.parse(localStorage.getItem('mj_store')||'{}'); const user=JSON.parse(localStorage.getItem('mj_user')||'{}')
     if (!store.id) return
     setStoreId(store.id); setUserName(user.nm||''); setUserRole(user.role||''); setProfileId(user.id||'')
-    if (user.role==='owner') checkOwnerAndLoad(store.id, user.id)
+    if (user.role==='owner') { setHasPermission(true); setPermChecked(true); loadSheets(store.id); loadSettings(store.id) }
     else if (user.role==='manager') checkAndLoad(store.id, user.id)
     else { setPermChecked(true); setLoading(false) }
   },[])
@@ -853,19 +853,6 @@ export default function SettlementPage() {
 
   async function loadUnclassifiedCount() { const pad=(n:number)=>String(n).padStart(2,'0'); const from=`${year}-${pad(month)}-01`; const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`; const { count } = await supabase.from('orders').select('*',{count:'exact',head:true}).eq('store_id',storeId).is('settlement_sheet_id',null).not('confirmed_at','is',null).neq('settlement_excluded',true).gte('confirmed_at',from).lte('confirmed_at',to); setUnclassifiedCount(count||0) }
   async function loadSettings(sid:string) { const { data } = await supabase.from('settlement_settings').select('*').eq('store_id',sid).maybeSingle(); setSettings(data); return data }
-  async function checkOwnerAndLoad(sid:string, pid:string) {
-    await loadSettings(sid)
-    // 오너 중 settlement_permissions에 등록된 사람이 한 명이라도 있으면 → 명시적 권한 체크
-    // 아무도 없으면 → 모든 오너 허용 (초기 상태 호환)
-    const { data: ownerPerms } = await supabase.from('settlement_permissions').select('profile_id').eq('store_id',sid)
-    const { data: ownerMembers } = await supabase.from('store_members').select('profile_id').eq('store_id',sid).eq('role','owner').eq('active',true)
-    const ownerIds = (ownerMembers||[]).map((m:any)=>m.profile_id)
-    const ownerPermIds = (ownerPerms||[]).map((p:any)=>p.profile_id).filter((id:string)=>ownerIds.includes(id))
-    // 아직 아무 오너도 권한 등록 안 했으면 → 전체 허용
-    const allowed = ownerPermIds.length === 0 || ownerPermIds.includes(pid)
-    setHasPermission(allowed); setPermChecked(true)
-    if(allowed) loadSheets(sid); else setLoading(false)
-  }
   async function checkAndLoad(sid:string, pid:string) { const { data } = await supabase.from('settlement_permissions').select('id').eq('store_id',sid).eq('profile_id',pid).maybeSingle(); setHasPermission(!!data); setPermChecked(true); if(data) { loadSheets(sid); loadSettings(sid) } else setLoading(false) }
   async function loadSheets(sid:string) { const { data } = await supabase.from('settlement_sheets').select('*').eq('store_id',sid).order('sort_order'); if (!data||data.length===0) { const rows=DEFAULT_SHEETS.map(s=>({...s,store_id:sid})); const { data: inserted } = await supabase.from('settlement_sheets').insert(rows).select(); setSheets(inserted||[]) } else setSheets(data); setLoading(false) }
 
@@ -878,7 +865,7 @@ export default function SettlementPage() {
   return (
     <div>
       {showSheetMgr&&<SheetManageModal sheets={sheets} storeId={storeId} onSave={()=>{ setLoading(true); loadSheets(storeId) }} onClose={()=>setShowSheetMgr(false)} />}
-      {showSettings&&<SettingsModal storeId={storeId} settings={settings} profileId={profileId} onSave={(s)=>setSettings(s)} onClose={()=>setShowSettings(false)} />}
+      {showSettings&&<SettingsModal storeId={storeId} settings={settings} onSave={(s)=>setSettings(s)} onClose={()=>setShowSettings(false)} />}
 
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
         <span style={{ fontSize:isPC?20:17, fontWeight:700, color:'#1a1a2e' }}>💹 결산</span>
