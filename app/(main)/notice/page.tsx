@@ -2566,7 +2566,7 @@ export default function NoticePage() {
     if (data) {
       const members = data
         .filter((m: any) => m.role !== 'owner')
-        .map((m: any) => ({ name: (m.profiles as any)?.name || '', role: m.role || 'employee' }))
+        .map((m: any) => ({ name: (m.profiles as any)?.nm || '', role: m.role || 'employee' }))
         .filter((m: any) => m.name)
       setStoreMembers(members)
     }
