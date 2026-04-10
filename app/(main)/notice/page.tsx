@@ -2161,6 +2161,14 @@ export default function NoticePage() {
   const isManager = userRole === 'owner' || userRole === 'manager'
   const isOwner = userRole === 'owner'
 
+  // ── 할일 작성 권한 ──
+  const [todoWritePermissions, setTodoWritePermissions] = useState<string[]>([]) // 허용된 직원 이름 목록
+  const [storeMembers, setStoreMembers] = useState<{name:string;role:string}[]>([])
+  const [showTodoPermMgr, setShowTodoPermMgr] = useState(false)
+
+  // 할일 작성 가능 여부: 대표는 항상 가능, 나머지는 권한 목록 확인
+  const canWriteTodo = isOwner || todoWritePermissions.includes(userName)
+
   // ── PC 감지 + today 초기화 (hydration 방지) ──
   useEffect(() => {
     setToday(toDateStr(new Date()))
@@ -2177,6 +2185,8 @@ export default function NoticePage() {
     setStoreId(store.id); setUserName(user.nm || ''); setUserRole(user.role || ''); setUserId(user.id || user.nm || '')
     loadNotices(store.id); loadTodoDates(store.id); loadOverdueTodos(store.id)
     loadCategories(store.id)
+    loadTodoPermissions(store.id)
+    loadStoreMembers(store.id)
     // 통계탭이 기본 선택된 경우 바로 로드
     const savedTab = localStorage.getItem('notice_subTab')
     if (savedTab === 'stats') {
@@ -2529,6 +2539,37 @@ export default function NoticePage() {
     loadNotices(storeId)
   }
 
+  // ── 할일 작성 권한 관리 ──
+  async function loadTodoPermissions(sid: string) {
+    const { data } = await supabase.from('store_settings')
+      .select('value').eq('store_id', sid).eq('key', 'todo_write_permissions').maybeSingle()
+    if (data?.value) {
+      try { setTodoWritePermissions(JSON.parse(data.value)) } catch {}
+    } else {
+      setTodoWritePermissions([]) // 기본: 대표만
+    }
+  }
+
+  async function saveTodoPermissions(sid: string, names: string[]) {
+    setTodoWritePermissions(names)
+    await supabase.from('store_settings').upsert(
+      { store_id: sid, key: 'todo_write_permissions', value: JSON.stringify(names), updated_at: new Date().toISOString() },
+      { onConflict: 'store_id,key' }
+    )
+  }
+
+  async function loadStoreMembers(sid: string) {
+    const { data } = await supabase.from('store_members')
+      .select('user_name, role').eq('store_id', sid)
+    if (data) {
+      const members = data
+        .filter((m: any) => m.role !== 'owner')
+        .map((m: any) => ({ name: m.user_name || '', role: m.role || 'employee' }))
+        .filter((m: any) => m.name)
+      setStoreMembers(members)
+    }
+  }
+
   // ── 카테고리 관리 ──
   async function loadCategories(sid?: string) {
     const id = sid || storeId
@@ -2645,7 +2686,7 @@ export default function NoticePage() {
   )
 
   // ── 할일 폼 ──
-  const todoForm = showTodoForm && isManager && (
+  const todoForm = showTodoForm && canWriteTodo && (
     <div style={{ ...bx, border:'1px solid rgba(108,92,231,0.3)', background:'rgba(108,92,231,0.02)' }}>
       <div style={{ fontSize:13, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>✅ {selectedDate.replace(/-/g,'.')} 할일 추가</div>
       <input value={formTodoTitle} onChange={e => setFormTodoTitle(e.target.value)} placeholder="그룹명 (예: 오픈 준비)" style={{ ...inp, marginBottom:10 }} />
@@ -2905,13 +2946,19 @@ export default function NoticePage() {
   // ── 액션 버튼 ──
   const actionButton = (
     <>
+      {isOwner && subTab === 'todo' && (
+        <button onClick={() => setShowTodoPermMgr(true)}
+          style={{ padding:'6px 12px', borderRadius:9, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:11, fontWeight:700, cursor:'pointer', marginRight:6 }}>
+          ✍️ 작성 권한
+        </button>
+      )}
       {isManager && subTab === 'notice' && (
         <button onClick={() => { setShowNoticeForm(p=>!p); setEditingNotice(null); setFormTitle(''); setFormContent(''); setFormPinned(false); setFormNoticeAttachType('none'); setFormNoticeAttachUrl('') }}
           style={{ padding:'6px 14px', borderRadius:9, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, fontWeight:700, cursor:'pointer' }}>
           {showNoticeForm ? '✕ 취소' : '+ 공지 작성'}
         </button>
       )}
-      {isManager && subTab === 'todo' && (
+      {canWriteTodo && subTab === 'todo' && (
         <button onClick={() => { setShowTodoForm(p=>!p); setFormTodoTitle(''); setFormTodos(['']); setFormTodoVisibility('all'); setFormTodoRepeat('none'); setFormTodoMission(false); setFormTodoAttachType('none'); setFormTodoAttachUrl('') }}
           style={{ padding:'6px 14px', borderRadius:9, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, fontWeight:700, cursor:'pointer' }}>
           {showTodoForm ? '✕ 취소' : '+ 할일 추가'}
@@ -3347,6 +3394,44 @@ export default function NoticePage() {
           onSave={saveCategories}
           onClose={() => setShowCategoryMgr(false)}
         />
+      )}
+      {/* 할일 작성 권한 관리 모달 */}
+      {showTodoPermMgr && isOwner && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:300, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+          onClick={() => setShowTodoPermMgr(false)}>
+          <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:20, maxHeight:'80vh', overflowY:'auto' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <span style={{ fontSize:16, fontWeight:700, color:'#1a1a2e' }}>✍️ 할일 작성 권한 설정</span>
+              <button onClick={() => setShowTodoPermMgr(false)} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
+            </div>
+            <div style={{ fontSize:11, color:'#aaa', marginBottom:16 }}>대표는 항상 작성 가능해요. 추가로 허용할 직원을 선택하세요.</div>
+            {storeMembers.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'20px 0', color:'#bbb', fontSize:13 }}>등록된 직원이 없어요</div>
+            ) : storeMembers.map(member => {
+              const allowed = todoWritePermissions.includes(member.name)
+              return (
+                <div key={member.name} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderRadius:12, background: allowed ? 'rgba(108,92,231,0.06)' : '#F8F9FB', border: allowed ? '1px solid rgba(108,92,231,0.2)' : '1px solid #E8ECF0', marginBottom:8 }}>
+                  <div>
+                    <div style={{ fontSize:14, fontWeight:600, color:'#1a1a2e' }}>{member.name}</div>
+                    <div style={{ fontSize:11, color:'#aaa', marginTop:2 }}>{member.role === 'manager' ? '👔 관리자' : '👤 직원'}</div>
+                  </div>
+                  <button onClick={() => {
+                    const next = allowed
+                      ? todoWritePermissions.filter(n => n !== member.name)
+                      : [...todoWritePermissions, member.name]
+                    saveTodoPermissions(storeId, next)
+                  }} style={{ padding:'7px 16px', borderRadius:10, background: allowed ? '#6C5CE7' : '#F4F6F9', border: allowed ? 'none' : '1px solid #E8ECF0', color: allowed ? '#fff' : '#888', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                    {allowed ? '✓ 허용됨' : '허용 안됨'}
+                  </button>
+                </div>
+              )
+            })}
+            <div style={{ marginTop:16, padding:'12px 16px', borderRadius:12, background:'rgba(108,92,231,0.05)', border:'1px solid rgba(108,92,231,0.15)' }}>
+              <div style={{ fontSize:11, color:'#6C5CE7', fontWeight:700 }}>현재 작성 가능: 대표{todoWritePermissions.length > 0 ? ` + ${todoWritePermissions.join(', ')}` : ' 만'}</div>
+            </div>
+          </div>
+        </div>
       )}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
