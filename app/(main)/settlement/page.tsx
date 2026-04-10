@@ -185,7 +185,13 @@ function OrderEditModal({ order, onSave, onClose }: { order:any; onSave:()=>void
           </div>
         </div>
         <div style={{ marginBottom:16 }}><span style={lbl}>메모</span><input value={memo} onChange={e=>setMemo(e.target.value)} placeholder="메모" style={inp} /></div>
-        <button onClick={handleSave} disabled={saving||!amount} style={{ width:'100%', padding:'13px 0', borderRadius:12, background:amount?'linear-gradient(135deg,#FF6B35,#E84393)':'#E8ECF0', border:'none', color:amount?'#fff':'#aaa', fontSize:14, fontWeight:700, cursor:amount?'pointer':'default' }}>{saving?'저장 중...':'수정 저장'}</button>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={async()=>{ if(!confirm('이 항목을 결산에서 제거할까요?\n(발주 데이터는 재고&발주에 그대로 유지됩니다)')) return; await createSupabaseBrowserClient().from('orders').update({ settlement_sheet_id:null, settlement_amount:null, settlement_unit_price:null, price_unit:null, delivery_fee:null, payment_method:null, settlement_classified_at:null, settlement_year:null, settlement_month:null }).eq('id',order.id); onSave(); onClose() }}
+            style={{ padding:'13px 16px', borderRadius:12, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+            미분류로 이동
+          </button>
+          <button onClick={handleSave} disabled={saving||!amount} style={{ flex:1, padding:'13px 0', borderRadius:12, background:amount?'linear-gradient(135deg,#FF6B35,#E84393)':'#E8ECF0', border:'none', color:amount?'#fff':'#aaa', fontSize:14, fontWeight:700, cursor:amount?'pointer':'default' }}>{saving?'저장 중...':'수정 저장'}</button>
+        </div>
       </div>
     </div>
   )
@@ -216,7 +222,7 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: { storeId
     setLoading(true)
     const pad=(n:number)=>String(n).padStart(2,'0')
     const from=`${year}-${pad(month)}-01`; const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`
-    const { data } = await supabase.from('orders').select('*').eq('store_id',storeId).is('settlement_sheet_id',null).not('confirmed_at','is',null).gte('confirmed_at',from).lte('confirmed_at',to).order('confirmed_at',{ascending:false})
+    const { data } = await supabase.from('orders').select('*').eq('store_id',storeId).is('settlement_sheet_id',null).not('confirmed_at','is',null).neq('settlement_excluded',true).gte('confirmed_at',from).lte('confirmed_at',to).order('confirmed_at',{ascending:false})
     setOrders(data||[]); setLoading(false)
   }
   async function classifyOrder(orderId:string) {
@@ -310,6 +316,10 @@ function UnclassifiedView({ storeId, year, month, sheets, onRefresh }: { storeId
             </div>
             <button onClick={()=>classifyOrder(order.id)} disabled={saving[order.id]||!isReady} style={{ width:'100%', padding:'11px 0', borderRadius:11, background:isReady?'linear-gradient(135deg,#6C5CE7,#a29bfe)':'#F0F2F5', border:'none', color:isReady?'#fff':'#bbb', fontSize:13, fontWeight:700, cursor:isReady?'pointer':'default' }}>
               {saving[order.id]?'분류 중...':isReady?`✅ ${selectedSheet?.icon} ${selectedSheet?.name}으로 분류`:'시트와 금액을 입력해주세요'}
+            </button>
+            <button onClick={async()=>{ if(!confirm('이 항목을 결산 미분류에서 삭제할까요?\n재고&발주에는 영향 없어요.')) return; await supabase.from('orders').update({ settlement_excluded:true }).eq('id',order.id); setOrders(prev=>prev.filter(o=>o.id!==order.id)); onRefresh() }}
+              style={{ width:'100%', marginTop:8, padding:'9px 0', borderRadius:11, background:'rgba(232,67,147,0.06)', border:'1px solid rgba(232,67,147,0.2)', color:'#E84393', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+              🗑 결산에서 삭제 (재고&발주 유지)
             </button>
           </div>
         )
@@ -841,7 +851,7 @@ export default function SettlementPage() {
   },[])
   useEffect(()=>{ if(storeId) loadUnclassifiedCount() },[storeId,year,month])
 
-  async function loadUnclassifiedCount() { const pad=(n:number)=>String(n).padStart(2,'0'); const from=`${year}-${pad(month)}-01`; const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`; const { count } = await supabase.from('orders').select('*',{count:'exact',head:true}).eq('store_id',storeId).is('settlement_sheet_id',null).not('confirmed_at','is',null).gte('confirmed_at',from).lte('confirmed_at',to); setUnclassifiedCount(count||0) }
+  async function loadUnclassifiedCount() { const pad=(n:number)=>String(n).padStart(2,'0'); const from=`${year}-${pad(month)}-01`; const to=`${year}-${pad(month)}-${pad(new Date(year,month,0).getDate())}T23:59:59`; const { count } = await supabase.from('orders').select('*',{count:'exact',head:true}).eq('store_id',storeId).is('settlement_sheet_id',null).not('confirmed_at','is',null).neq('settlement_excluded',true).gte('confirmed_at',from).lte('confirmed_at',to); setUnclassifiedCount(count||0) }
   async function loadSettings(sid:string) { const { data } = await supabase.from('settlement_settings').select('*').eq('store_id',sid).maybeSingle(); setSettings(data) }
   async function checkAndLoad(sid:string, pid:string) { const { data } = await supabase.from('settlement_permissions').select('id').eq('store_id',sid).eq('profile_id',pid).maybeSingle(); setHasPermission(!!data); setPermChecked(true); if(data) { loadSheets(sid); loadSettings(sid) } else setLoading(false) }
   async function loadSheets(sid:string) { const { data } = await supabase.from('settlement_sheets').select('*').eq('store_id',sid).order('sort_order'); if (!data||data.length===0) { const rows=DEFAULT_SHEETS.map(s=>({...s,store_id:sid})); const { data: inserted } = await supabase.from('settlement_sheets').insert(rows).select(); setSheets(inserted||[]) } else setSheets(data); setLoading(false) }
