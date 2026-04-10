@@ -2932,6 +2932,12 @@ export default function NoticePage() {
       <button style={tabBtn(subTab==='todo')} onClick={() => setSubTab('todo')}>
         ✅ 할일 {overdueCount > 0 ? `(${overdueCount} 미완료)` : ''}
       </button>
+      {isOwner && subTab === 'todo' && (
+        <button onClick={() => setShowTodoPermMgr(true)}
+          style={{ padding:'6px 10px', borderRadius:9, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' as const, alignSelf:'center' }}>
+          ✍️ 권한
+        </button>
+      )}
       <button style={tabBtn(subTab==='stats')} onClick={() => setSubTab('stats')}>
         📊 통계
       </button>
@@ -2946,12 +2952,6 @@ export default function NoticePage() {
   // ── 액션 버튼 ──
   const actionButton = (
     <>
-      {isOwner && subTab === 'todo' && (
-        <button onClick={() => setShowTodoPermMgr(true)}
-          style={{ padding:'6px 12px', borderRadius:9, background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:11, fontWeight:700, cursor:'pointer', marginRight:6 }}>
-          ✍️ 작성 권한
-        </button>
-      )}
       {isManager && subTab === 'notice' && (
         <button onClick={() => { setShowNoticeForm(p=>!p); setEditingNotice(null); setFormTitle(''); setFormContent(''); setFormPinned(false); setFormNoticeAttachType('none'); setFormNoticeAttachUrl('') }}
           style={{ padding:'6px 14px', borderRadius:9, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, fontWeight:700, cursor:'pointer' }}>
@@ -2977,6 +2977,44 @@ export default function NoticePage() {
             onSave={saveCategories}
             onClose={() => setShowCategoryMgr(false)}
           />
+        )}
+        {/* 할일 작성 권한 모달 - PC */}
+        {showTodoPermMgr && isOwner && (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center' }}
+            onClick={() => setShowTodoPermMgr(false)}>
+            <div style={{ background:'#fff', width:'100%', maxWidth:440, borderRadius:20, padding:24, maxHeight:'80vh', overflowY:'auto' }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                <span style={{ fontSize:16, fontWeight:700, color:'#1a1a2e' }}>✍️ 할일 작성 권한 설정</span>
+                <button onClick={() => setShowTodoPermMgr(false)} style={{ background:'none', border:'none', fontSize:20, color:'#aaa', cursor:'pointer' }}>✕</button>
+              </div>
+              <div style={{ fontSize:11, color:'#aaa', marginBottom:16 }}>대표는 항상 작성 가능해요. 추가로 허용할 직원을 선택하세요.</div>
+              {storeMembers.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'20px 0', color:'#bbb', fontSize:13 }}>등록된 직원이 없어요</div>
+              ) : storeMembers.map(member => {
+                const allowed = todoWritePermissions.includes(member.name)
+                return (
+                  <div key={member.name} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderRadius:12, background: allowed ? 'rgba(108,92,231,0.06)' : '#F8F9FB', border: allowed ? '1px solid rgba(108,92,231,0.2)' : '1px solid #E8ECF0', marginBottom:8 }}>
+                    <div>
+                      <div style={{ fontSize:14, fontWeight:600, color:'#1a1a2e' }}>{member.name}</div>
+                      <div style={{ fontSize:11, color:'#aaa', marginTop:2 }}>{member.role === 'manager' ? '👔 관리자' : '👤 직원'}</div>
+                    </div>
+                    <button onClick={() => {
+                      const next = allowed
+                        ? todoWritePermissions.filter(n => n !== member.name)
+                        : [...todoWritePermissions, member.name]
+                      saveTodoPermissions(storeId, next)
+                    }} style={{ padding:'7px 16px', borderRadius:10, background: allowed ? '#6C5CE7' : '#F4F6F9', border: allowed ? 'none' : '1px solid #E8ECF0', color: allowed ? '#fff' : '#888', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                      {allowed ? '✓ 허용됨' : '허용 안됨'}
+                    </button>
+                  </div>
+                )
+              })}
+              <div style={{ marginTop:16, padding:'12px 16px', borderRadius:12, background:'rgba(108,92,231,0.05)', border:'1px solid rgba(108,92,231,0.15)' }}>
+                <div style={{ fontSize:11, color:'#6C5CE7', fontWeight:700 }}>현재 작성 가능: 대표{todoWritePermissions.length > 0 ? ` + ${todoWritePermissions.join(', ')}` : ' 만'}</div>
+              </div>
+            </div>
+          </div>
         )}
         {/* 헤더 */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
