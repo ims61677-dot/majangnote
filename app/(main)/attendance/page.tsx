@@ -61,6 +61,25 @@ function isRedDay(y: number, m: number, d: number): boolean {
 
 // Issue 타입 (목표 페이지와 동일)
 type Issue = { id: string; text: string; imageUrl?: string }
+
+// ★ 이번 달 전체 지적사항 파싱 (모든 주차 합산)
+function parseAllMonthIssues(raw: any): Issue[] {
+  if (!raw) return []
+  const result: Issue[] = []
+  try {
+    for (const key of Object.keys(raw)) {
+      const val = raw[key]
+      if (Array.isArray(val)) {
+        val.filter((v: any) => v && v.id && v.text).forEach((v: any) => result.push(v))
+      } else if (val && typeof val === 'object') {
+        if (val.issue1?.trim()) result.push({ id: `legacy1_${key}`, text: val.issue1 })
+        if (val.issue2?.trim()) result.push({ id: `legacy2_${key}`, text: val.issue2 })
+      }
+    }
+  } catch(e) {}
+  return result
+}
+
 function parseWeekIssues(raw: any): Record<number, Issue[]> {
   if (!raw) return {}
   const result: Record<number, Issue[]> = {}
@@ -537,7 +556,7 @@ export default function AttendancePage() {
     }
   }
 
-  // ★ 오늘 목표 매출 + 이번 주 지적사항 한번에 로드
+  // ★ 오늘 목표 매출 + 이번 달 전체 지적사항 한번에 로드
   async function loadTodayGoalData(sid: string) {
     const y = nowDate.getFullYear()
     const m = nowDate.getMonth() + 1
@@ -549,11 +568,11 @@ export default function AttendancePage() {
       .select('week_issues, weekly_goals')
       .eq('store_id', sid).eq('year', y).eq('month', m).maybeSingle()
 
-    // 지적사항
-    const allWeekIssues = parseWeekIssues(goalData?.week_issues)
-    setWeekIssueList(allWeekIssues[weekNum] || [])
+    // ★ 이번 달 전체 지적사항 (모든 주차 합산)
+    const allIssues = parseAllMonthIssues(goalData?.week_issues)
+    setWeekIssueList(allIssues)
     if (typeof window !== 'undefined') {
-      setIssueAcked(localStorage.getItem(`issue_ack_${today}_${sid}`) === 'true')
+      setIssueAcked(localStorage.getItem(`issue_ack_month_${y}_${m}_${sid}`) === 'true')
     }
 
     // ★ 오늘 목표: 평일/주말 구분
@@ -1202,7 +1221,7 @@ export default function AttendancePage() {
   const clockInBlockReason = !wifiOk
     ? '매장 와이파이 연결 필요'
     : hasIssues && !issueAcked
-    ? '이번 주 지적사항을 확인(체크)해야 출근할 수 있어요'
+    ? '이번 달 지적사항을 확인(체크)해야 출근할 수 있어요'
     : !allChecked
     ? '전달사항을 모두 확인(체크)해야 출근할 수 있어요'
     : attendance?.clock_in ? '이미 출근했습니다' : null
@@ -1298,11 +1317,11 @@ export default function AttendancePage() {
               <span style={{ flex:1 }}>{ipLoading?'와이파이 확인중...':!allowedIp?'매장 IP 미등록 — 대표가 먼저 IP를 등록해주세요':wifiOk?'매장 와이파이 연결됨 — 출퇴근 가능':'매장 와이파이 미연결 — 출퇴근 불가'}</span>
             </div>
 
-            {/* 이번 주 지적사항 */}
+            {/* 이번 달 지적사항 */}
             {hasIssues && !attendance?.clock_in && (
               <div style={{ ...bx, border:'2px solid rgba(232,67,147,0.35)', background:'rgba(232,67,147,0.03)', marginBottom:12 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:12 }}>
-                  <span style={{ fontSize:13, fontWeight:700, color:'#E84393' }}>📌 이번 주 지적사항</span>
+                  <span style={{ fontSize:13, fontWeight:700, color:'#E84393' }}>📌 이번 달 지적사항</span>
                   <span style={{ fontSize:10, background:'rgba(232,67,147,0.12)', color:'#E84393', padding:'2px 6px', borderRadius:10, fontWeight:700 }}>{weekIssueList.length}건</span>
                   <span style={{ fontSize:10, color:'#aaa', marginLeft:'auto' }}>확인 체크 후 출근 가능</span>
                 </div>
@@ -1315,12 +1334,13 @@ export default function AttendancePage() {
                 <div onClick={() => {
                   if (!wifiOk) { alert('매장 와이파이 연결 후 체크할 수 있습니다'); return }
                   const next = !issueAcked; setIssueAcked(next)
-                  if (typeof window !== 'undefined') localStorage.setItem(`issue_ack_${today}_${storeId}`, String(next))
+                  const y = nowDate.getFullYear(), m = nowDate.getMonth() + 1
+                  if (typeof window !== 'undefined') localStorage.setItem(`issue_ack_month_${y}_${m}_${storeId}`, String(next))
                 }} style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px', background:issueAcked?'rgba(0,184,148,0.08)':'rgba(232,67,147,0.06)', borderRadius:10, cursor:'pointer', border:`1.5px solid ${issueAcked?'rgba(0,184,148,0.35)':'rgba(232,67,147,0.25)'}` }}>
                   <div style={{ width:22, height:22, borderRadius:7, flexShrink:0, border:`2px solid ${issueAcked?'#00B894':'#E84393'}`, background:issueAcked?'#00B894':'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
                     {issueAcked && <span style={{ color:'#fff', fontSize:12, fontWeight:800 }}>✓</span>}
                   </div>
-                  <span style={{ fontSize:13, fontWeight:700, color:issueAcked?'#00B894':'#E84393' }}>{issueAcked?'✅ 지적사항 확인 완료!':'지적사항을 확인했습니다 (필수)'}</span>
+                  <span style={{ fontSize:13, fontWeight:700, color:issueAcked?'#00B894':'#E84393' }}>{issueAcked?'✅ 이번 달 지적사항 확인 완료!':'이번 달 지적사항을 확인했습니다 (필수)'}</span>
                 </div>
               </div>
             )}
