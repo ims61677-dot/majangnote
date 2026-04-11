@@ -2245,22 +2245,35 @@ export default function NoticePage() {
       const lastDay = new Date(year, month, 0).getDate()
       const endDate = `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
 
-      // 내 지점 공지+할일
+      // ① 일반 할일 (is_from_closing 필터 제거 → 마감에서 온 것도 포함)
       const { data: noticeList } = await supabase
         .from('notices')
         .select('id, title, notice_date, store_id, notice_todos(*)')
         .eq('store_id', sid)
         .gte('notice_date', startDate)
         .lte('notice_date', endDate)
-        .eq('is_from_closing', false)
         .not('title', 'like', '__%__')
 
       const noticeIds = (noticeList||[]).map((n:any)=>n.id)
       const allTodoIds = (noticeList||[]).flatMap((n:any)=>(n.notice_todos||[]).map((t:any)=>t.id))
 
-      const [checksRes, readsRes] = await Promise.all([
+      // ② 마감 전달사항 (closings + closing_next_todos)
+      const { data: closingList } = await supabase
+        .from('closings')
+        .select('id, closing_date, closing_next_todos(*)')
+        .eq('store_id', sid)
+        .gte('closing_date', startDate)
+        .lte('closing_date', endDate)
+
+      const allClosingTodoIds = (closingList||[]).flatMap((c:any)=>(c.closing_next_todos||[]).map((t:any)=>t.id))
+
+      // ③ 체크 + 읽음 병렬 조회
+      const [checksRes, closingChecksRes, readsRes] = await Promise.all([
         allTodoIds.length > 0
           ? supabase.from('notice_todo_checks').select('checked_by,checked_at,todo_id').in('todo_id', allTodoIds)
+          : Promise.resolve({ data: [] }),
+        allClosingTodoIds.length > 0
+          ? supabase.from('closing_next_todo_checks').select('checked_by,checked_at,todo_id').in('todo_id', allClosingTodoIds)
           : Promise.resolve({ data: [] }),
         noticeIds.length > 0
           ? supabase.from('notice_reads').select('notice_id,read_by,read_at').in('notice_id', noticeIds)
@@ -2268,18 +2281,20 @@ export default function NoticePage() {
       ])
 
       const checks = checksRes.data || []
+      const closingChecks = closingChecksRes.data || []
+      const allChecks = [...checks, ...closingChecks]
       const reads = readsRes.data || []
 
       // 체크 맵
       const checksByTodo: Record<string, any[]> = {}
-      for (const c of checks) {
+      for (const c of allChecks) {
         if (!checksByTodo[c.todo_id]) checksByTodo[c.todo_id] = []
         checksByTodo[c.todo_id].push(c)
       }
 
       // 직원별 집계
       const personMap: Record<string, {checks:number; days:Set<string>}> = {}
-      for (const c of checks) {
+      for (const c of allChecks) {
         if (!c.checked_by) continue
         if (!personMap[c.checked_by]) personMap[c.checked_by] = {checks:0, days:new Set()}
         personMap[c.checked_by].checks++
@@ -2288,7 +2303,7 @@ export default function NoticePage() {
 
       // 날짜별 체크 수
       const dateMap: Record<string, number> = {}
-      for (const c of checks) {
+      for (const c of allChecks) {
         const d = c.checked_at.slice(0,10)
         dateMap[d] = (dateMap[d]||0) + 1
       }
@@ -2300,18 +2315,30 @@ export default function NoticePage() {
         noticeReadMap[r.notice_id].push(r.read_by)
       }
 
-      // 할일 전체 + 체커
+      // 일반 할일 목록
       const allTodos = (noticeList||[]).flatMap((n:any)=>
         (n.notice_todos||[]).map((t:any)=>({
           ...t, noticeTitle:n.title, noticeDate:n.notice_date,
+          type: 'todo',
           checkers: checksByTodo[t.id]||[]
         }))
       )
 
+      // 마감 전달사항 목록
+      const allClosingTodos = (closingList||[]).flatMap((c:any)=>
+        (c.closing_next_todos||[]).map((t:any)=>({
+          ...t, noticeTitle:'마감 전달사항', noticeDate:c.closing_date,
+          type: 'closing',
+          checkers: checksByTodo[t.id]||[]
+        }))
+      )
+
+      const combinedTodos = [...allTodos, ...allClosingTodos]
+
       // 카테고리별 집계
       const categoryMap: Record<string, {total:number; done:number; checks:number}> = {}
-      for (const t of allTodos) {
-        const cat = t.category || '미분류'
+      for (const t of combinedTodos) {
+        const cat = t.type === 'closing' ? '📢 마감전달사항' : (t.category || '미분류')
         if (!categoryMap[cat]) categoryMap[cat] = {total:0, done:0, checks:0}
         categoryMap[cat].total++
         if (t.checkers.length > 0) categoryMap[cat].done++
@@ -2321,16 +2348,17 @@ export default function NoticePage() {
       setMyStatsData({
         year, month, startDate, endDate,
         personMap: Object.fromEntries(Object.entries(personMap).map(([k,v])=>[k,{...v,days:v.days.size}])),
-        dateMap, noticeList:noticeList||[], noticeReadMap, allTodos, categoryMap,
-        totalChecks: checks.length,
-        totalTodos: allTodos.length,
+        dateMap, noticeList:noticeList||[], noticeReadMap,
+        allTodos: combinedTodos, categoryMap,
+        totalChecks: allChecks.length,
+        totalTodos: combinedTodos.length,
         totalNotices: (noticeList||[]).length,
       })
     } catch(e) { console.error(e) }
     setMyStatsLoading(false)
   }
 
-  async function loadNotices(sid: string) {
+    async function loadNotices(sid: string) {
     const { data } = await supabase.from('notices').select('*, notice_todos(id)').eq('store_id', sid).eq('is_from_closing', false)
       .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
     // 순수 공지만: notice_todos가 없고 __PERSONAL_MEMO__ 아닌 것
