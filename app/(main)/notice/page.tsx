@@ -853,39 +853,55 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
       const endDate = `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
       const storeIds = stores.map((s: any) => s.id)
 
-      // 이 기간 할일 체크 전체
-      const { data: checks } = await supabase
-        .from('notice_todo_checks')
-        .select('checked_by, checked_at, todo_id')
-        .gte('checked_at', startDate + 'T00:00:00')
-        .lte('checked_at', endDate + 'T23:59:59')
-
-      // 이 기간 공지+할일 전체 (누가 눌렀는지 확인용)
+      // ① 일반 할일
       const { data: noticeList } = await supabase
         .from('notices')
         .select('id, title, notice_date, store_id, notice_todos(*)')
         .in('store_id', storeIds)
         .gte('notice_date', startDate)
         .lte('notice_date', endDate)
-        .eq('is_from_closing', false)
         .neq('title', '__PERSONAL_CHECKLIST__')
 
-      // 공지 읽음
-      const noticeIds = (noticeList || []).map((n: any) => n.id)
-      const { data: reads } = noticeIds.length > 0
-        ? await supabase.from('notice_reads').select('notice_id, read_by, read_at').in('notice_id', noticeIds)
-        : { data: [] }
+      // ② 마감 전달사항
+      const { data: closingList } = await supabase
+        .from('closings')
+        .select('id, closing_date, store_id, closing_next_todos(*)')
+        .in('store_id', storeIds)
+        .gte('closing_date', startDate)
+        .lte('closing_date', endDate)
 
-      // 체크 맵: todo_id → [{checked_by, checked_at}]
+      const noticeIds = (noticeList || []).map((n: any) => n.id)
+      const allTodoIds = (noticeList || []).flatMap((n: any) => (n.notice_todos || []).map((t: any) => t.id))
+      const allClosingTodoIds = (closingList || []).flatMap((c: any) => (c.closing_next_todos || []).map((t: any) => t.id))
+
+      // ③ 체크 + 읽음 병렬 조회
+      const [checksRes, closingChecksRes, readsRes] = await Promise.all([
+        allTodoIds.length > 0
+          ? supabase.from('notice_todo_checks').select('checked_by,checked_at,todo_id').in('todo_id', allTodoIds)
+          : Promise.resolve({ data: [] }),
+        allClosingTodoIds.length > 0
+          ? supabase.from('closing_next_todo_checks').select('checked_by,checked_at,todo_id').in('todo_id', allClosingTodoIds)
+          : Promise.resolve({ data: [] }),
+        noticeIds.length > 0
+          ? supabase.from('notice_reads').select('notice_id,read_by,read_at').in('notice_id', noticeIds)
+          : Promise.resolve({ data: [] })
+      ])
+
+      const checks = checksRes.data || []
+      const closingChecks = closingChecksRes.data || []
+      const allChecks = [...checks, ...closingChecks]
+      const reads = readsRes.data || []
+
+      // 체크 맵
       const checksByTodo: Record<string, {checked_by: string, checked_at: string}[]> = {}
-      for (const c of (checks || [])) {
+      for (const c of allChecks) {
         if (!checksByTodo[c.todo_id]) checksByTodo[c.todo_id] = []
         checksByTodo[c.todo_id].push({ checked_by: c.checked_by, checked_at: c.checked_at })
       }
 
       // 직원별 집계
       const personMap: Record<string, { checks: number; days: Set<string> }> = {}
-      for (const c of (checks || [])) {
+      for (const c of allChecks) {
         if (!c.checked_by) continue
         if (!personMap[c.checked_by]) personMap[c.checked_by] = { checks: 0, days: new Set() }
         personMap[c.checked_by].checks++
@@ -894,7 +910,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
 
       // 날짜별 체크 수
       const dateMap: Record<string, number> = {}
-      for (const c of (checks || [])) {
+      for (const c of allChecks) {
         const d = c.checked_at.slice(0,10)
         dateMap[d] = (dateMap[d] || 0) + 1
       }
@@ -906,7 +922,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         noticeReadMap[r.notice_id].push(r.read_by)
       }
 
-      // 할일 전체 목록 (누가 눌렀는지 포함)
+      // 일반 할일 목록
       const allTodos: any[] = []
       for (const n of (noticeList || [])) {
         for (const t of (n.notice_todos || [])) {
@@ -914,16 +930,34 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
             ...t,
             noticeTitle: n.title,
             noticeDate: n.notice_date,
+            type: 'todo',
             store: stores.find((s: any) => s.id === n.store_id),
             checkers: checksByTodo[t.id] || []
           })
         }
       }
 
+      // 마감 전달사항 목록
+      const allClosingTodos: any[] = []
+      for (const c of (closingList || [])) {
+        for (const t of (c.closing_next_todos || [])) {
+          allClosingTodos.push({
+            ...t,
+            noticeTitle: '마감 전달사항',
+            noticeDate: c.closing_date,
+            type: 'closing',
+            store: stores.find((s: any) => s.id === c.store_id),
+            checkers: checksByTodo[t.id] || []
+          })
+        }
+      }
+
+      const combinedTodos = [...allTodos, ...allClosingTodos]
+
       // 카테고리별 집계
       const categoryMap: Record<string, {total:number; done:number; checks:number}> = {}
-      for (const t of allTodos) {
-        const cat = t.category || '미분류'
+      for (const t of combinedTodos) {
+        const cat = t.type === 'closing' ? '📢 마감전달사항' : (t.category || '미분류')
         if (!categoryMap[cat]) categoryMap[cat] = {total:0, done:0, checks:0}
         categoryMap[cat].total++
         if (t.checkers.length > 0) categoryMap[cat].done++
@@ -936,9 +970,10 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         dateMap,
         noticeList: noticeList || [],
         noticeReadMap,
-        allTodos, categoryMap,
-        totalChecks: (checks || []).length,
-        totalTodos: allTodos.length,
+        allTodos: combinedTodos,
+        categoryMap,
+        totalChecks: allChecks.length,
+        totalTodos: combinedTodos.length,
         totalNotices: (noticeList || []).length,
       })
     } catch(e) { console.error(e) }
