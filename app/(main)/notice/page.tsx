@@ -2088,6 +2088,12 @@ export default function NoticePage() {
   const [myStatsYear, setMyStatsYear] = useState(new Date().getFullYear())
   const [myStatsMonth, setMyStatsMonth] = useState(new Date().getMonth() + 1)
   const [myExpandedTodo, setMyExpandedTodo] = useState<string|null>(null)
+  // 통계 테이블 필터/정렬
+  const [statsCatFilter, setStatsCatFilter] = useState('전체')
+  const [statsDoneFilter, setStatsDoneFilter] = useState('전체')
+  const [statsSearch, setStatsSearch] = useState('')
+  const [statsSortKey, setStatsSortKey] = useState<'date'|'category'|'done'>('date')
+  const [statsSortAsc, setStatsSortAsc] = useState(true)
   const [subTab, setSubTab] = useState<SubTab>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('notice_subTab')
@@ -2358,7 +2364,34 @@ export default function NoticePage() {
     setMyStatsLoading(false)
   }
 
-    async function loadNotices(sid: string) {
+    function downloadStatsExcel() {
+    if (!myStatsData) return
+    const rows = [['등록일자','카테고리','작업명','완료여부','완료일자','작업자']]
+    for (const t of myStatsData.allTodos) {
+      const isDone = t.checkers.length > 0
+      const completeDates = t.checkers.map((c:any) => new Date(c.checked_at).toLocaleDateString('ko',{month:'numeric',day:'numeric'})).join(', ')
+      const workers = t.checkers.map((c:any) => c.checked_by).join(', ')
+      rows.push([
+        t.noticeDate?.replace(/-/g,'/') || '',
+        t.type === 'closing' ? '📢전달사항' : (t.category || '미분류'),
+        t.content || '',
+        isDone ? '✅완료' : '○미완료',
+        completeDates || '-',
+        workers || '-'
+      ])
+    }
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
+    const bom = '\uFEFF'
+    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `통계_${myStatsData.year}년${myStatsData.month}월.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function loadNotices(sid: string) {
     const { data } = await supabase.from('notices').select('*, notice_todos(id)').eq('store_id', sid).eq('is_from_closing', false)
       .order('is_pinned', { ascending: false }).order('created_at', { ascending: false })
     // 순수 공지만: notice_todos가 없고 __PERSONAL_MEMO__ 아닌 것
@@ -3301,6 +3334,7 @@ export default function NoticePage() {
         {subTab === 'stats' && (
           <div>
             <div style={{ fontSize:11, color:'#888', marginBottom:10, padding:'6px 10px', background:'rgba(108,92,231,0.05)', borderRadius:8 }}>📍 내 지점 기준 통계</div>
+            {/* 월 네비게이션 */}
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, background:'#fff', borderRadius:14, padding:'10px 14px', border:'1px solid #F0F0F0' }}>
               <button onClick={() => { const d=new Date(myStatsYear,myStatsMonth-2,1); setMyStatsYear(d.getFullYear()); setMyStatsMonth(d.getMonth()+1); loadMyStats(d.getFullYear(),d.getMonth()+1) }}
                 style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>‹</button>
@@ -3321,7 +3355,8 @@ export default function NoticePage() {
                 </button>
               </div>
             ) : (
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:16 }}>
+                {/* 좌: 요약 + 랭킹 + 그래프 */}
                 <div>
                   <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
                     {[
@@ -3367,12 +3402,12 @@ export default function NoticePage() {
                           {dates.map(d=>{
                             const val=myStatsData.dateMap[d]||0
                             const h=Math.max((val/maxV)*52,val>0?4:0)
-                            const isToday=d===today
+                            const isTodayD=d===today
                             return (
                               <div key={d} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:1 }}>
                                 {val>0&&<div style={{ fontSize:7, color:'#6C5CE7', fontWeight:700 }}>{val}</div>}
-                                <div style={{ width:'100%', height:h, background:isToday?'linear-gradient(180deg,#E84393,#6C5CE7)':'#a29bfe', borderRadius:'2px 2px 0 0', minHeight:val>0?4:0 }} />
-                                <div style={{ fontSize:6, color:isToday?'#E84393':'#ccc', fontWeight:isToday?700:400 }}>{d.slice(8)}</div>
+                                <div style={{ width:'100%', height:h, background:isTodayD?'linear-gradient(180deg,#E84393,#6C5CE7)':'#a29bfe', borderRadius:'2px 2px 0 0', minHeight:val>0?4:0 }} />
+                                <div style={{ fontSize:6, color:isTodayD?'#E84393':'#ccc', fontWeight:isTodayD?700:400 }}>{d.slice(8)}</div>
                               </div>
                             )
                           })}
@@ -3381,46 +3416,105 @@ export default function NoticePage() {
                     })()}
                   </div>
                 </div>
-                <div>
-                  <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
-                    <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>📋 이달 할일 <span style={{ fontSize:10, color:'#aaa', fontWeight:400 }}>누가 완료했는지</span></div>
-                    {myStatsData.allTodos.sort((a:any,b:any)=>{
-                      if(a.checkers.length===0&&b.checkers.length>0) return -1
-                      if(a.checkers.length>0&&b.checkers.length===0) return 1
-                      return a.noticeDate>b.noticeDate?-1:1
-                    }).map((todo:any)=>{
-                      const isDone=todo.checkers.length>0
-                      const isExp=myExpandedTodo===todo.id
-                      return (
-                        <div key={todo.id} style={{ marginBottom:6, borderRadius:10, border:`1px solid ${isDone?'rgba(0,184,148,0.2)':'rgba(232,67,147,0.2)'}`, overflow:'hidden' }}>
-                          <div onClick={()=>setMyExpandedTodo(isExp?null:todo.id)}
-                            style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', cursor:'pointer', background:isDone?'rgba(0,184,148,0.04)':'rgba(232,67,147,0.02)' }}>
-                            <span style={{ fontSize:13, color:isDone?'#00B894':'#E84393', flexShrink:0 }}>{isDone?'✅':'○'}</span>
-                            <div style={{ flex:1, minWidth:0 }}>
-                              <div style={{ fontSize:12, color:isDone?'#555':'#333', textDecoration:isDone?'line-through':'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</div>
-                              <div style={{ fontSize:10, color:'#bbb', marginTop:1 }}>{todo.noticeDate}</div>
-                            </div>
-                            <span style={{ fontSize:10, color:isDone?'#00B894':'#E84393', fontWeight:700, flexShrink:0 }}>{isDone?`${todo.checkers.length}명 ▾`:'미완료'}</span>
+                {/* 우: 엑셀 스타일 테이블 */}
+                <div style={{ background:'#fff', borderRadius:14, padding:'16px', border:'1px solid #F0F0F0' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>📋 할일 현황표</div>
+                    <button onClick={() => {
+                      const headers = ['등록일자','카테고리','작업명','완료여부','완료일자','작업자']
+                      const filteredForExcel = myStatsData.allTodos
+                      const rows = filteredForExcel.map((t:any) => [
+                        t.noticeDate?.replace(/-/g,'/'),
+                        t.type==='closing'?'마감전달사항':(t.category||'미분류'),
+                        t.content||'',
+                        t.checkers.length>0?'완료':'미완료',
+                        t.checkers.length>0?t.checkers.map((c:any)=>c.checked_at.slice(0,10).replace(/-/g,'/')).join(', '):'',
+                        t.checkers.map((c:any)=>c.checked_by).join(', ')
+                      ])
+                      const csv = [headers, ...rows].map(r=>r.map((v:any)=>`"${v}"`).join(',')).join('\n')
+                      const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'})
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href=url; a.download=`통계_${myStatsYear}년${myStatsMonth}월.csv`; a.click()
+                    }} style={{ padding:'5px 12px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                      📥 엑셀 다운
+                    </button>
+                  </div>
+                  {/* 필터 */}
+                  <div style={{ display:'flex', gap:6, marginBottom:10, flexWrap:'wrap' }}>
+                    <input value={statsSearch} onChange={e=>setStatsSearch(e.target.value)} placeholder="🔍 작업명 검색"
+                      style={{ flex:1, minWidth:100, padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none' }} />
+                    <select value={statsCatFilter} onChange={e=>setStatsCatFilter(e.target.value)}
+                      style={{ padding:'5px 8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none', background:'#fff' }}>
+                      <option>전체</option>
+                      {Array.from(new Set(myStatsData.allTodos.map((t:any)=>t.type==='closing'?'마감전달사항':(t.category||'미분류')))).map((c:any)=>(
+                        <option key={c}>{c}</option>
+                      ))}
+                    </select>
+                    <select value={statsDoneFilter} onChange={e=>setStatsDoneFilter(e.target.value)}
+                      style={{ padding:'5px 8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none', background:'#fff' }}>
+                      <option>전체</option>
+                      <option>완료</option>
+                      <option>미완료</option>
+                    </select>
+                  </div>
+                  {/* 테이블 헤더 */}
+                  <div style={{ display:'grid', gridTemplateColumns:'80px 80px 1fr 60px 80px 1fr', gap:0, background:'#F4F6F9', borderRadius:'8px 8px 0 0', padding:'8px 10px', fontSize:11, fontWeight:700, color:'#888' }}>
+                    {[['date','등록일자'],['category','카테고리'],['','작업명'],['done','완료'],['','완료일자'],['','작업자']].map(([key,label])=>(
+                      <div key={label} onClick={()=>{ if(key){setStatsSortKey(key as any); setStatsSortAsc(p=>statsSortKey===key?!p:true)} }}
+                        style={{ cursor:key?'pointer':'default', display:'flex', alignItems:'center', gap:2 }}>
+                        {label}{key&&statsSortKey===key?(statsSortAsc?'↑':'↓'):''}
+                      </div>
+                    ))}
+                  </div>
+                  {/* 테이블 바디 */}
+                  <div style={{ maxHeight:480, overflowY:'auto', border:'1px solid #F0F0F0', borderTop:'none', borderRadius:'0 0 8px 8px' }}>
+                    {(()=>{
+                      let rows = myStatsData.allTodos.filter((t:any)=>{
+                        const cat = t.type==='closing'?'마감전달사항':(t.category||'미분류')
+                        if(statsCatFilter!=='전체'&&cat!==statsCatFilter) return false
+                        if(statsDoneFilter==='완료'&&t.checkers.length===0) return false
+                        if(statsDoneFilter==='미완료'&&t.checkers.length>0) return false
+                        if(statsSearch&&!(t.content||'').includes(statsSearch)) return false
+                        return true
+                      })
+                      rows = [...rows].sort((a:any,b:any)=>{
+                        let av='', bv=''
+                        if(statsSortKey==='date'){av=a.noticeDate||'';bv=b.noticeDate||''}
+                        if(statsSortKey==='category'){av=a.type==='closing'?'마감전달사항':(a.category||'미분류');bv=b.type==='closing'?'마감전달사항':(b.category||'미분류')}
+                        if(statsSortKey==='done'){av=String(a.checkers.length>0);bv=String(b.checkers.length>0)}
+                        return statsSortAsc?(av>bv?1:-1):(av<bv?1:-1)
+                      })
+                      if(rows.length===0) return <div style={{ textAlign:'center', padding:'24px', color:'#bbb', fontSize:12 }}>조건에 맞는 항목이 없어요</div>
+                      // 날짜별 그룹핑
+                      const grouped: Record<string,any[]> = {}
+                      rows.forEach((t:any)=>{ const d=t.noticeDate||''; if(!grouped[d]) grouped[d]=[]; grouped[d].push(t) })
+                      return Object.entries(grouped).sort(([a],[b])=>statsSortAsc?a.localeCompare(b):b.localeCompare(a)).map(([date, items])=>(
+                        <div key={date}>
+                          <div style={{ padding:'6px 10px', background:'rgba(108,92,231,0.05)', fontSize:11, fontWeight:700, color:'#6C5CE7', borderBottom:'1px solid #F0F0F0', borderTop:'1px solid #F0F0F0' }}>
+                            📅 {date.replace(/-/g,'/')} ({items.length}건)
                           </div>
-                          {isExp&&isDone&&(
-                            <div style={{ background:'rgba(0,184,148,0.04)', padding:'6px 12px 10px', borderTop:'1px solid rgba(0,184,148,0.1)' }}>
-                              {todo.checkers.map((c:any,i:number)=>(
-                                <div key={i} style={{ fontSize:11, color:'#555', padding:'3px 0', display:'flex', justifyContent:'space-between' }}>
-                                  <span>✓ <strong>{c.checked_by}</strong></span>
-                                  <span style={{ color:'#aaa' }}>{new Date(c.checked_at).toLocaleString('ko',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}</span>
+                          {items.map((t:any,idx:number)=>{
+                            const isDone=t.checkers.length>0
+                            const cat=t.type==='closing'?'마감전달사항':(t.category||'미분류')
+                            const doneDate=isDone?[...new Set(t.checkers.map((c:any)=>c.checked_at.slice(0,10)))].join(', '):'-'
+                            const workers=isDone?t.checkers.map((c:any)=>c.checked_by).join(', '):'-'
+                            return (
+                              <div key={t.id||idx} style={{ display:'grid', gridTemplateColumns:'80px 80px 1fr 60px 80px 1fr', gap:0, padding:'8px 10px', borderBottom:'1px solid #F8F9FB', background:isDone?'rgba(0,184,148,0.02)':'#fff', fontSize:11 }}>
+                                <div style={{ color:'#aaa' }}>{date.slice(5).replace('-','/')}</div>
+                                <div>
+                                  <span style={{ fontSize:10, padding:'1px 6px', borderRadius:4, background:t.type==='closing'?'rgba(255,107,53,0.1)':'rgba(108,92,231,0.1)', color:t.type==='closing'?'#FF6B35':'#6C5CE7', fontWeight:600 }}>{cat}</span>
                                 </div>
-                              ))}
-                            </div>
-                          )}
-                          {isExp&&!isDone&&(
-                            <div style={{ background:'#FFF3F8', padding:'8px 12px', borderTop:'1px solid rgba(232,67,147,0.1)' }}>
-                              <div style={{ fontSize:11, color:'#E84393' }}>⚠️ 아직 아무도 완료하지 않았어요</div>
-                            </div>
-                          )}
+                                <div style={{ color:'#1a1a2e', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.content}</div>
+                                <div style={{ color:isDone?'#00B894':'#E84393', fontWeight:700 }}>{isDone?'✅':'○'}</div>
+                                <div style={{ color:'#888', fontSize:10 }}>{doneDate.replace(/-/g,'/')}</div>
+                                <div style={{ color:'#555', fontSize:10 }}>{workers}</div>
+                              </div>
+                            )
+                          })}
                         </div>
-                      )
-                    })}
-                    {myStatsData.allTodos.length===0&&<div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>이 기간 할일이 없어요</div>}
+                      ))
+                    })()}
                   </div>
                 </div>
               </div>
@@ -3590,9 +3684,7 @@ export default function NoticePage() {
 
       {subTab === 'stats' && (
         <div>
-          {/* 내 지점 통계 헤더 */}
           <div style={{ fontSize:11, color:'#888', marginBottom:10, padding:'6px 10px', background:'rgba(108,92,231,0.05)', borderRadius:8 }}>📍 내 지점 기준 통계</div>
-          {/* 월 네비게이션 */}
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, background:'#fff', borderRadius:14, padding:'10px 14px', border:'1px solid #F0F0F0' }}>
             <button onClick={() => { const d=new Date(myStatsYear,myStatsMonth-2,1); setMyStatsYear(d.getFullYear()); setMyStatsMonth(d.getMonth()+1); loadMyStats(d.getFullYear(),d.getMonth()+1) }}
               style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>‹</button>
@@ -3614,7 +3706,7 @@ export default function NoticePage() {
             </div>
           ) : (
             <>
-              {/* 요약 */}
+              {/* 요약 카드 */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
                 {[
                   { label:'전체 할일', value:myStatsData.totalTodos+'개', color:'#6C5CE7' },
@@ -3627,20 +3719,18 @@ export default function NoticePage() {
                   </div>
                 ))}
               </div>
-              {/* 직원 랭킹 */}
+              {/* 랭킹 */}
               <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
                 <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏆 직원별 완료 랭킹</div>
                 {Object.entries(myStatsData.personMap as Record<string,any>).sort((a,b)=>b[1].checks-a[1].checks).map(([name,data],idx)=>{
-                  const maxC = Math.max(...Object.values(myStatsData.personMap as Record<string,any>).map((v:any)=>v.checks),1)
-                  const pct = Math.round((data.checks/maxC)*100)
+                  const maxC=Math.max(...Object.values(myStatsData.personMap as Record<string,any>).map((v:any)=>v.checks),1)
+                  const pct=Math.round((data.checks/maxC)*100)
                   const medals=['🥇','🥈','🥉']
-                  const isMe = name===userName
+                  const isMe=name===userName
                   return (
                     <div key={name} style={{ marginBottom:10 }}>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                        <div style={{ fontSize:12, fontWeight:isMe?700:400, color:isMe?'#E84393':'#333' }}>
-                          {medals[idx]||`${idx+1}.`} {name}{isMe&&<span style={{fontSize:10,marginLeft:4,color:'#E84393'}}>(나)</span>}
-                        </div>
+                        <div style={{ fontSize:12, fontWeight:isMe?700:400, color:isMe?'#E84393':'#333' }}>{medals[idx]||`${idx+1}.`} {name}{isMe&&<span style={{fontSize:10,marginLeft:4,color:'#E84393'}}>(나)</span>}</div>
                         <div style={{ fontSize:11, color:'#888' }}>{data.checks}건 · {data.days}일</div>
                       </div>
                       <div style={{ background:'#F4F6F9', borderRadius:8, height:8, overflow:'hidden' }}>
@@ -3651,113 +3741,80 @@ export default function NoticePage() {
                 })}
                 {Object.keys(myStatsData.personMap).length===0 && <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>활동 기록이 없어요</div>}
               </div>
-              {/* 날짜별 그래프 */}
-              <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
-                <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>📈 날짜별 완료</div>
+              {/* 엑셀 테이블 (모바일) */}
+              <div style={{ background:'#fff', borderRadius:14, padding:'14px', border:'1px solid #F0F0F0' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>📋 할일 현황표</div>
+                  <button onClick={() => {
+                    const headers = ['등록일자','카테고리','작업명','완료여부','작업자']
+                    const rows = myStatsData.allTodos.map((t:any) => [
+                      t.noticeDate?.replace(/-/g,'/'),
+                      t.type==='closing'?'마감전달사항':(t.category||'미분류'),
+                      t.content||'',
+                      t.checkers.length>0?'완료':'미완료',
+                      t.checkers.map((c:any)=>c.checked_by).join(', ')
+                    ])
+                    const csv = [headers, ...rows].map(r=>r.map((v:any)=>`"${v}"`).join(',')).join('\n')
+                    const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'})
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href=url; a.download=`통계_${myStatsYear}년${myStatsMonth}월.csv`; a.click()
+                  }} style={{ padding:'5px 12px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                    📥 CSV
+                  </button>
+                </div>
+                {/* 필터 */}
+                <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+                  <select value={statsCatFilter} onChange={e=>setStatsCatFilter(e.target.value)}
+                    style={{ flex:1, padding:'6px 8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none' }}>
+                    <option>전체</option>
+                    {Array.from(new Set(myStatsData.allTodos.map((t:any)=>t.type==='closing'?'마감전달사항':(t.category||'미분류')))).map((c:any)=>(
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                  <select value={statsDoneFilter} onChange={e=>setStatsDoneFilter(e.target.value)}
+                    style={{ flex:1, padding:'6px 8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none' }}>
+                    <option>전체</option>
+                    <option>완료</option>
+                    <option>미완료</option>
+                  </select>
+                </div>
+                {/* 날짜별 그룹 목록 */}
                 {(()=>{
-                  const dates:string[]=[]
-                  for(let d=new Date(myStatsData.startDate);d<=new Date(myStatsData.endDate);d.setDate(d.getDate()+1)) dates.push(d.toISOString().slice(0,10))
-                  const maxV=Math.max(...dates.map(d=>myStatsData.dateMap[d]||0),1)
-                  return (
-                    <div style={{ display:'flex', alignItems:'flex-end', gap:2, height:64 }}>
-                      {dates.map(d=>{
-                        const val=myStatsData.dateMap[d]||0
-                        const h=Math.max((val/maxV)*52,val>0?4:0)
-                        const isToday=d===today
+                  const rows = myStatsData.allTodos.filter((t:any)=>{
+                    const cat=t.type==='closing'?'마감전달사항':(t.category||'미분류')
+                    if(statsCatFilter!=='전체'&&cat!==statsCatFilter) return false
+                    if(statsDoneFilter==='완료'&&t.checkers.length===0) return false
+                    if(statsDoneFilter==='미완료'&&t.checkers.length>0) return false
+                    return true
+                  })
+                  const grouped: Record<string,any[]> = {}
+                  rows.forEach((t:any)=>{ const d=t.noticeDate||''; if(!grouped[d]) grouped[d]=[]; grouped[d].push(t) })
+                  if(rows.length===0) return <div style={{ textAlign:'center', padding:'20px', color:'#bbb', fontSize:12 }}>조건에 맞는 항목이 없어요</div>
+                  return Object.entries(grouped).sort(([a],[b])=>b.localeCompare(a)).map(([date, items])=>(
+                    <div key={date} style={{ marginBottom:12 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginBottom:6, padding:'4px 8px', background:'rgba(108,92,231,0.05)', borderRadius:6 }}>
+                        📅 {date.replace(/-/g,'/')} ({items.length}건)
+                      </div>
+                      {items.map((t:any,idx:number)=>{
+                        const isDone=t.checkers.length>0
+                        const cat=t.type==='closing'?'마감전달사항':(t.category||'미분류')
                         return (
-                          <div key={d} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:1 }}>
-                            {val>0&&<div style={{ fontSize:7, color:'#6C5CE7', fontWeight:700 }}>{val}</div>}
-                            <div style={{ width:'100%', height:h, background:isToday?'linear-gradient(180deg,#E84393,#6C5CE7)':'#a29bfe', borderRadius:'2px 2px 0 0', minHeight:val>0?4:0 }} />
-                            <div style={{ fontSize:6, color:isToday?'#E84393':'#ccc', fontWeight:isToday?700:400 }}>{d.slice(8)}</div>
+                          <div key={t.id||idx} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'8px 10px', borderBottom:'1px solid #F8F9FB', background:isDone?'rgba(0,184,148,0.02)':'#fff' }}>
+                            <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>{isDone?'✅':'○'}</span>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ display:'flex', gap:4, alignItems:'center', marginBottom:2 }}>
+                                <span style={{ fontSize:10, padding:'1px 5px', borderRadius:4, background:t.type==='closing'?'rgba(255,107,53,0.1)':'rgba(108,92,231,0.1)', color:t.type==='closing'?'#FF6B35':'#6C5CE7', fontWeight:600 }}>{cat}</span>
+                              </div>
+                              <div style={{ fontSize:12, color:'#1a1a2e', fontWeight:500 }}>{t.content}</div>
+                              {isDone && <div style={{ fontSize:10, color:'#00B894', marginTop:2 }}>✓ {t.checkers.map((c:any)=>c.checked_by).join(', ')}</div>}
+                            </div>
                           </div>
                         )
                       })}
                     </div>
-                  )
+                  ))
                 })()}
-              </div>
-              {/* 카테고리별 현황 */}
-              {myStatsData.categoryMap && Object.keys(myStatsData.categoryMap).length > 0 && (
-                <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
-                  <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏷 카테고리별 현황</div>
-                  {Object.entries(myStatsData.categoryMap as Record<string,any>).sort((a,b)=>b[1].total-a[1].total).map(([cat, data])=>{
-                    const rate = data.total > 0 ? Math.round((data.done/data.total)*100) : 0
-                    return (
-                      <div key={cat} style={{ marginBottom:12 }}>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                          <span style={{ fontSize:12, fontWeight:600, color:'#1a1a2e' }}>{cat}</span>
-                          <div style={{ display:'flex', gap:8, fontSize:11 }}>
-                            <span style={{ color:'#6C5CE7' }}>총 {data.total}개</span>
-                            <span style={{ color:'#00B894' }}>완료 {data.done}</span>
-                            {data.total-data.done>0 && <span style={{ color:'#E84393' }}>미완료 {data.total-data.done}</span>}
-                          </div>
-                        </div>
-                        <div style={{ height:7, borderRadius:4, background:'#F4F6F9' }}>
-                          <div style={{ height:7, borderRadius:4, background:'linear-gradient(90deg,#6C5CE7,#00B894)', width:`${rate}%`, transition:'width 0.4s' }} />
-                        </div>
-                        <div style={{ fontSize:10, color:'#aaa', marginTop:2, textAlign:'right' }}>{rate}% 완료</div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {/* 전체 할일 + 체커 */}
-              <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
-                <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>📋 이달 할일 전체 <span style={{ fontSize:10, color:'#aaa', fontWeight:400 }}>누가 완료했는지</span></div>
-                {myStatsData.allTodos.length===0 ? (
-                  <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>이 기간 할일이 없어요</div>
-                ) : myStatsData.allTodos.sort((a:any,b:any)=>a.noticeDate>b.noticeDate?-1:1).map((todo:any)=>{
-                  const isDone=todo.checkers.length>0
-                  const isExp=myExpandedTodo===todo.id
-                  return (
-                    <div key={todo.id} style={{ marginBottom:6, borderRadius:10, border:`1px solid ${isDone?'rgba(0,184,148,0.2)':'#F0F0F0'}`, overflow:'hidden' }}>
-                      <div onClick={()=>setMyExpandedTodo(isExp?null:todo.id)}
-                        style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', cursor:'pointer', background:isDone?'rgba(0,184,148,0.04)':'#fff' }}>
-                        <span style={{ fontSize:13, color:isDone?'#00B894':'#ddd', flexShrink:0 }}>{isDone?'✅':'○'}</span>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:12, color:isDone?'#555':'#333', textDecoration:isDone?'line-through':'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{todo.content}</div>
-                          <div style={{ fontSize:10, color:'#bbb', marginTop:1 }}>{todo.noticeDate}</div>
-                        </div>
-                        {isDone&&<span style={{ fontSize:10, color:'#00B894', fontWeight:700, flexShrink:0 }}>{todo.checkers.length}명 ▾</span>}
-                      </div>
-                      {isExp&&isDone&&(
-                        <div style={{ background:'rgba(0,184,148,0.04)', padding:'6px 12px 10px', borderTop:'1px solid rgba(0,184,148,0.1)' }}>
-                          {todo.checkers.map((c:any,i:number)=>(
-                            <div key={i} style={{ fontSize:11, color:'#555', padding:'3px 0', display:'flex', justifyContent:'space-between' }}>
-                              <span>✓ <strong>{c.checked_by}</strong></span>
-                              <span style={{ color:'#aaa' }}>{new Date(c.checked_at).toLocaleString('ko',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {isExp&&!isDone&&(
-                        <div style={{ background:'#FFF9F0', padding:'8px 12px', borderTop:'1px solid #F0F0F0' }}>
-                          <div style={{ fontSize:11, color:'#FFB347' }}>⚠️ 아직 아무도 완료하지 않았어요</div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-              {/* 공지 읽음 현황 */}
-              <div style={{ background:'#fff', borderRadius:14, padding:'14px', border:'1px solid #F0F0F0' }}>
-                <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>📢 공지 읽음 현황</div>
-                {myStatsData.noticeList.length===0 ? (
-                  <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>이 기간 공지가 없어요</div>
-                ) : myStatsData.noticeList.map((n:any)=>{
-                  const readers=myStatsData.noticeReadMap[n.id]||[]
-                  return (
-                    <div key={n.id} style={{ padding:'8px 0', borderBottom:'1px solid #F4F6F9' }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:2 }}>
-                        <div style={{ fontSize:12, color:'#333', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{n.title}</div>
-                        <span style={{ fontSize:10, color:readers.length>0?'#00B894':'#FFB347', fontWeight:700, flexShrink:0, marginLeft:8 }}>{readers.length}명 읽음</span>
-                      </div>
-                      {readers.length>0&&<div style={{ fontSize:10, color:'#00B894' }}>✓ {readers.join(', ')}</div>}
-                      {readers.length===0&&<div style={{ fontSize:10, color:'#FFB347' }}>아직 읽은 사람 없음</div>}
-                    </div>
-                  )
-                })}
               </div>
             </>
           )}
