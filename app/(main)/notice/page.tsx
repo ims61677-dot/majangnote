@@ -2442,30 +2442,60 @@ export default function NoticePage() {
     for (let i = 1; i <= 7; i++) {
       const d = new Date(); d.setDate(d.getDate() - i)
       const dateStr = toDateStr(d)
-      const { data } = await supabase.from('notices').select('*, notice_todos(*)').eq('store_id', sid).eq('notice_date', dateStr).eq('is_from_closing', false)
-      if (!data) continue
-      const allIds = data.flatMap((n: any) => (n.notice_todos||[]).map((t: any) => t.id))
-      if (allIds.length === 0) continue
-      const { data: chks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', allIds)
-      const checkMap: Record<string, any[]> = {}
-      if (chks) chks.forEach((c: any) => { if (!checkMap[c.todo_id]) checkMap[c.todo_id] = []; checkMap[c.todo_id].push(c) })
-      for (const notice of data) {
-        for (const todo of (notice.notice_todos || [])) {
-          if ((checkMap[todo.id]||[]).length === 0) {
-            results.push({ ...todo, origin_date: dateStr, day_count: i, notice_title: notice.title })
+
+      // ① 일반 할일
+      const { data } = await supabase.from('notices').select('*, notice_todos(*)')
+        .eq('store_id', sid).eq('notice_date', dateStr).eq('is_from_closing', false)
+      if (data) {
+        const allIds = data.flatMap((n: any) => (n.notice_todos||[]).map((t: any) => t.id))
+        if (allIds.length > 0) {
+          const { data: chks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', allIds)
+          const checkMap: Record<string, any[]> = {}
+          if (chks) chks.forEach((c: any) => { if (!checkMap[c.todo_id]) checkMap[c.todo_id] = []; checkMap[c.todo_id].push(c) })
+          for (const notice of data) {
+            for (const todo of (notice.notice_todos || [])) {
+              if ((checkMap[todo.id]||[]).length === 0) {
+                results.push({ ...todo, origin_date: dateStr, day_count: i, notice_title: notice.title, is_closing: false })
+              }
+            }
+          }
+        }
+      }
+
+      // ② 마감 전달사항
+      const { data: closing } = await supabase.from('closings').select('id')
+        .eq('store_id', sid).eq('closing_date', dateStr).maybeSingle()
+      if (closing) {
+        const { data: cTodos } = await supabase.from('closing_next_todos').select('*').eq('closing_id', closing.id)
+        if (cTodos && cTodos.length > 0) {
+          const cIds = cTodos.map((t: any) => t.id)
+          const { data: cChks } = await supabase.from('closing_next_todo_checks').select('*').in('todo_id', cIds)
+          const cCheckMap: Record<string, any[]> = {}
+          if (cChks) cChks.forEach((c: any) => { if (!cCheckMap[c.todo_id]) cCheckMap[c.todo_id] = []; cCheckMap[c.todo_id].push(c) })
+          for (const todo of cTodos) {
+            if ((cCheckMap[todo.id]||[]).length === 0) {
+              results.push({ ...todo, origin_date: dateStr, day_count: i, notice_title: '마감 전달사항', is_closing: true })
+            }
           }
         }
       }
     }
     results.sort((a, b) => b.day_count - a.day_count)
     setOverdueTodos(results)
-    const allIds = results.map(t => t.id)
-    if (allIds.length > 0) {
-      const { data: todayChks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', allIds)
-      const tm: Record<string, any[]> = {}
+
+    // 체크 현황 로드 (일반 + 마감 구분)
+    const normalIds = results.filter(t => !t.is_closing).map(t => t.id)
+    const closingIds = results.filter(t => t.is_closing).map(t => t.id)
+    const tm: Record<string, any[]> = {}
+    if (normalIds.length > 0) {
+      const { data: todayChks } = await supabase.from('notice_todo_checks').select('*').in('todo_id', normalIds)
       if (todayChks) todayChks.forEach((c: any) => { if (!tm[c.todo_id]) tm[c.todo_id] = []; tm[c.todo_id].push(c) })
-      setOverdueChecks(tm)
     }
+    if (closingIds.length > 0) {
+      const { data: closingChks } = await supabase.from('closing_next_todo_checks').select('*').in('todo_id', closingIds)
+      if (closingChks) closingChks.forEach((c: any) => { if (!tm[c.todo_id]) tm[c.todo_id] = []; tm[c.todo_id].push(c) })
+    }
+    setOverdueChecks(tm)
   }
 
   async function loadClosingTodos(sid: string, date: string) {
@@ -2496,13 +2526,14 @@ export default function NoticePage() {
     return date === today
   }
 
-  async function toggleOverdueTodo(todoId: string) {
+  async function toggleOverdueTodo(todoId: string, isClosing?: boolean) {
     const myCheck = (overdueChecks[todoId]||[]).find((c: any) => c.checked_by === userName)
+    const table = isClosing ? 'closing_next_todo_checks' : 'notice_todo_checks'
     if (myCheck) {
-      await supabase.from('notice_todo_checks').delete().eq('id', myCheck.id)
+      await supabase.from(table).delete().eq('id', myCheck.id)
       setOverdueChecks(p => ({ ...p, [todoId]: (p[todoId]||[]).filter((c: any) => c.id !== myCheck.id) }))
     } else {
-      const { data } = await supabase.from('notice_todo_checks').insert({ todo_id: todoId, checked_by: userName, checked_at: new Date().toISOString() }).select().single()
+      const { data } = await supabase.from(table).insert({ todo_id: todoId, checked_by: userName, checked_at: new Date().toISOString() }).select().single()
       if (data) setOverdueChecks(p => ({ ...p, [todoId]: [...(p[todoId]||[]), data] }))
     }
   }
@@ -2918,7 +2949,7 @@ export default function NoticePage() {
             <OverdueTodoItem
               key={`${todo.id}-${todo.origin_date}`}
               todo={todo} checks={overdueChecks[todo.id]||[]}
-              onToggle={() => toggleOverdueTodo(todo.id)}
+              onToggle={() => toggleOverdueTodo(todo.id, todo.is_closing)}
               onMove={() => moveTodoToToday(todo)}
               onDelete={() => deleteOverdueTodo(todo)}
               myName={userName} dayCount={todo.day_count} isManager={isManager}
