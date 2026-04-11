@@ -868,7 +868,7 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         .gte('notice_date', startDate)
         .lte('notice_date', endDate)
         .eq('is_from_closing', false)
-        .not('title', 'like', '__%__')
+        .neq('title', '__PERSONAL_CHECKLIST__')
 
       // 공지 읽음
       const noticeIds = (noticeList || []).map((n: any) => n.id)
@@ -1893,9 +1893,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
                   t.checkers.length>0?t.checkers.map((c:any)=>c.checked_at.slice(0,10).replace(/-/g,'/')).join(', '):'',
                   t.checkers.map((c:any)=>c.checked_by).join(', ')
                 ])
-                const csv = [headers,...rows].map(r=>r.map((v:any)=>`"${v}"`).join(',')).join('
-')
-                const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'})
+                const csv = [headers,...rows].map(r=>r.map((v:any)=>`"${v}"`).join(',')).join('\n')
+                const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'})
                 const url = URL.createObjectURL(blob)
                 const a = document.createElement('a')
                 a.href=url; a.download=`관리통계_${statsYear}년${statsMonth}월.csv`; a.click()
@@ -2235,7 +2234,7 @@ export default function NoticePage() {
         .eq('store_id', sid)
         .gte('notice_date', startDate)
         .lte('notice_date', endDate)
-        .not('title', 'like', '__%__')
+        .neq('title', '__PERSONAL_CHECKLIST__')
 
       const noticeIds = (noticeList||[]).map((n:any)=>n.id)
       const allTodoIds = (noticeList||[]).flatMap((n:any)=>(n.notice_todos||[]).map((t:any)=>t.id))
