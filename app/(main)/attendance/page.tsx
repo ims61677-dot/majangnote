@@ -60,7 +60,7 @@ function isRedDay(y: number, m: number, d: number): boolean {
 }
 
 // Issue 타입 (목표 페이지와 동일)
-type Issue = { id: string; text: string; imageUrl?: string }
+type Issue = { id: string; text: string; imageUrl?: string; imageBase64?: string }
 
 // ★ 이번 달 전체 지적사항 파싱 (모든 주차 합산)
 function parseAllMonthIssues(raw: any): Issue[] {
@@ -1329,6 +1329,10 @@ export default function AttendancePage() {
                   <div key={issue.id} style={{ marginBottom:8, padding:'10px 14px', background:'#fff', borderRadius:10, border:'1px solid rgba(232,67,147,0.18)' }}>
                     <div style={{ fontSize:10, color:'#E84393', fontWeight:700, marginBottom:5 }}>#{idx + 1}</div>
                     <div style={{ fontSize:13, color:'#1a1a2e', lineHeight:1.7 }}>{issue.text}</div>
+                    {(issue.imageBase64 || issue.imageUrl) && (
+                      <img src={issue.imageBase64 || issue.imageUrl} alt="지적사항 사진"
+                        style={{ width:'100%', maxHeight:200, objectFit:'cover', borderRadius:8, marginTop:8, border:'1px solid #E8ECF0', display:'block' }} />
+                    )}
                   </div>
                 ))}
                 <div onClick={() => {
