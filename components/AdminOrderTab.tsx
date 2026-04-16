@@ -30,6 +30,10 @@ const ISSUE_TYPES: Record<string, string> = {
 // ─── 기본 단위 (삭제 불가) ───
 const DEFAULT_UNITS = ['ea', 'box', 'kg', 'L', '병']
 
+// ─── 결제방법 ───
+const DEFAULT_PAYMENT_METHODS = ['카드', '계좌이체', '현금', '어음', '기타']
+const PAYMENT_COLORS: Record<string, string> = { '카드': '#6C5CE7', '현금': '#00B894', '계좌이체': '#2DC6D6', '어음': '#FF6B35', '기타': '#aaa' }
+
 // ─── 단위 관리 모달 ───
 function UnitManagerModal({ storeId, units, onClose, onUpdate }: {
   storeId: string; units: string[]; onClose: () => void; onUpdate: (u: string[]) => void
