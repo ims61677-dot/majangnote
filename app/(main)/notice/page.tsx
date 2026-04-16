@@ -3252,7 +3252,7 @@ export default function NoticePage() {
         {subTab === 'todo' && (
           <div style={{ display:'grid', gridTemplateColumns:'220px 1fr 1fr', gap:16, alignItems:'start' }}>
             {/* 1열: 캘린더 */}
-            <div style={{ position:'sticky', top:80 }}>
+            <div style={{ position:'sticky', top:80, alignSelf:'flex-start' }}>
               <MiniCalendar
                 year={calYear} month={calMonth}
                 todoDates={todoDates} selectedDate={selectedDate}
@@ -3261,7 +3261,7 @@ export default function NoticePage() {
               />
             </div>
             {/* 2열: 미완료 이월 + 마감 전달사항 (세로 스택) */}
-            <div style={{ position:'sticky', top:80, display:'flex', flexDirection:'column', gap:12 }}>
+            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
               {/* 미완료 이월 */}
               {overdueTodos.length > 0 ? (
                 <div style={{ borderRadius:14, border:'2px solid rgba(232,67,147,0.4)', background:'rgba(232,67,147,0.04)', padding:14 }}>
@@ -3273,7 +3273,7 @@ export default function NoticePage() {
                     <OverdueTodoItem
                       key={`${todo.id}-${todo.origin_date}`}
                       todo={todo} checks={overdueChecks[todo.id]||[]}
-                      onToggle={() => toggleOverdueTodo(todo.id)}
+                      onToggle={() => toggleOverdueTodo(todo.id, todo.is_closing)}
                       onMove={() => moveTodoToToday(todo)}
                       onDelete={() => deleteOverdueTodo(todo)}
                       myName={userName} dayCount={todo.day_count} isManager={isManager}
