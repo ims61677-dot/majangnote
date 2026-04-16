@@ -615,7 +615,11 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
         {order.status === 'requested' && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
             <button onClick={() => setShowConfirm(true)} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>✅ 주문완료</button>
-            <button onClick={() => handleStatusChange('received')} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.3)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomRightRadius: 10 }}>📦 수령완료</button>
+            <button onClick={async () => {
+              if (!confirm('이슈로 등록할까요?')) return
+              await supabase.from('orders').update({ status: 'issue' }).eq('id', order.id)
+              onRefresh()
+            }} style={{ width: 80, padding: '9px 0', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
           </div>
         )}
         {order.status === 'ordered' && (
