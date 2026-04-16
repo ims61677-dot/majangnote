@@ -564,27 +564,80 @@ function AdminConfirmOrderModal({ order, suppliers, units, onClose, onSaved }: {
   )
 }
 
+// ─── 관리자 수령 처리 모달 ───
+function AdminReceiveModal({ order, onClose, onSaved }: { order: any; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [recvQty, setRecvQty] = useState<number | ''>(order.quantity)
+  const [receivedAt, setReceivedAt] = useState(new Date().toISOString().split('T')[0])
+  const [memo, setMemo] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSubmit() {
+    if (!recvQty) return
+    setSaving(true)
+    await supabase.from('order_receipts').insert({
+      order_id: order.id,
+      received_quantity: Number(recvQty),
+      received_by: '관리자',
+      inventory_applied: false,
+      memo: memo.trim() || null,
+    })
+    await supabase.from('orders').update({
+      status: 'received',
+      received_by: '관리자',
+      received_at: receivedAt ? new Date(receivedAt + 'T12:00:00').toISOString() : new Date().toISOString(),
+    }).eq('id', order.id)
+    setSaving(false)
+    onSaved(); onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 230, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>📦 수령 처리</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} · 발주수량 {order.quantity}{order.unit}</div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>실제 수령 수량</div>
+          <input type="number" step="0.1" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수령 날짜</div>
+          <input type="date" value={receivedAt} onChange={e => setReceivedAt(e.target.value)} style={inp} />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="특이사항 메모" style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} disabled={saving || !recvQty}
+            style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: recvQty ? 'linear-gradient(135deg,#00B894,#2DC6D6)' : '#E8ECF0', border: 'none', color: recvQty ? '#fff' : '#bbb', fontSize: 13, fontWeight: 700, cursor: recvQty ? 'pointer' : 'default' }}>
+            {saving ? '처리 중...' : '✅ 수령 완료'}
+          </button>
+          <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── 관리자 발주 카드 ───
 function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; suppliers: any[]; units: string[]; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [showReceive, setShowReceive] = useState(false)
   const store = STORES.find(s => s.id === order.store_id)
   const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending
-
-  async function handleStatusChange(newStatus: string) {
-    await supabase.from('orders').update({
-      status: newStatus,
-      ...(newStatus === 'received' ? { received_at: new Date().toISOString(), received_by: '관리자' } : {}),
-    }).eq('id', order.id)
-    onRefresh()
-  }
 
   return (
     <>
       {showEdit && <AdminEditOrderModal order={order} suppliers={suppliers} units={units} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
       {showConfirm && <AdminConfirmOrderModal order={order} suppliers={suppliers} units={units} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
+      {showReceive && <AdminReceiveModal order={order} onClose={() => setShowReceive(false)} onSaved={onRefresh} />}
       <div style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: '0 1px 5px rgba(0,0,0,0.05)' }}>
         <div style={{ background: cfg.headerBg, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -612,6 +665,7 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
           </div>
         </div>
 
+        {/* 주문요청 → 주문완료 + 이슈 */}
         {order.status === 'requested' && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
             <button onClick={() => setShowConfirm(true)} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>✅ 주문완료</button>
@@ -622,9 +676,16 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
             }} style={{ width: 80, padding: '9px 0', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
           </div>
         )}
-        {order.status === 'ordered' && (
+
+        {/* 주문완료 → 수령처리(모달) + 이슈 */}
+        {(order.status === 'ordered' || order.status === 'pending') && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
-            <button onClick={() => handleStatusChange('received')} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10, borderBottomRightRadius: 10 }}>📦 수령완료 처리</button>
+            <button onClick={() => setShowReceive(true)} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>📦 수령처리</button>
+            <button onClick={async () => {
+              if (!confirm('이슈로 등록할까요?')) return
+              await supabase.from('orders').update({ status: 'issue' }).eq('id', order.id)
+              onRefresh()
+            }} style={{ width: 80, padding: '9px 0', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
           </div>
         )}
       </div>
