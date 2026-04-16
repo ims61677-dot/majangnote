@@ -21,6 +21,70 @@ const ISSUE_TYPES: Record<string, string> = {
   other: '기타',
 }
 
+// ─── 기본 단위 (삭제 불가) ───
+const DEFAULT_UNITS = ['ea', 'box', 'kg', 'L', '병']
+
+// ─── 단위 관리 모달 ───
+function UnitManagerModal({ storeId, units, onClose, onUpdate }: {
+  storeId: string; units: string[]; onClose: () => void; onUpdate: (u: string[]) => void
+}) {
+  const supabase = createSupabaseBrowserClient()
+  const [list, setList] = useState([...units])
+  const [newUnit, setNewUnit] = useState('')
+
+  async function save(newList: string[]) {
+    setList(newList)
+    onUpdate(newList)
+    await supabase.from('store_settings').upsert(
+      { store_id: storeId, key: 'custom_units', value: JSON.stringify(newList), updated_at: new Date().toISOString() },
+      { onConflict: 'store_id,key' }
+    )
+  }
+
+  function handleAdd() {
+    const v = newUnit.trim()
+    if (!v || list.includes(v)) return
+    save([...list, v])
+    setNewUnit('')
+  }
+
+  function handleDelete(u: string) {
+    if (DEFAULT_UNITS.includes(u)) return
+    save(list.filter(x => x !== u))
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>⚙️ 단위 관리</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+        </div>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>등록된 단위</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+          {list.map(u => (
+            <div key={u} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 20, background: DEFAULT_UNITS.includes(u) ? 'rgba(108,92,231,0.08)' : 'rgba(255,107,53,0.08)', border: DEFAULT_UNITS.includes(u) ? '1px solid rgba(108,92,231,0.2)' : '1px solid rgba(255,107,53,0.2)' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: DEFAULT_UNITS.includes(u) ? '#6C5CE7' : '#FF6B35' }}>{u}</span>
+              {!DEFAULT_UNITS.includes(u) && (
+                <button onClick={() => handleDelete(u)} style={{ background: 'none', border: 'none', color: '#E84393', cursor: 'pointer', fontSize: 11, padding: 0, lineHeight: 1, marginLeft: 2 }}>✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: '#bbb', marginBottom: 12 }}>💡 기본 단위(ea, box, kg, L, 병)는 삭제할 수 없어요</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <input value={newUnit} onChange={e => setNewUnit(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+            placeholder="새 단위 입력 (예: 봉, 팩, 개)"
+            style={{ ...inp, flex: 1 }} />
+          <button onClick={handleAdd} style={{ padding: '8px 14px', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>추가</button>
+        </div>
+        <button onClick={onClose} style={{ width: '100%', padding: '10px 0', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 13, cursor: 'pointer' }}>완료</button>
+      </div>
+    </div>
+  )
+}
+
 // ─── 발주처 관리 모달 ───
 function SupplierModal({ storeId, onClose }: { storeId: string; onClose: () => void }) {
   const supabase = createSupabaseBrowserClient()
@@ -59,16 +123,12 @@ function SupplierModal({ storeId, onClose }: { storeId: string; onClose: () => v
           <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>🏪 발주처 관리</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
         </div>
-
-        {/* 추가 폼 */}
         <div style={{ border: '2px dashed rgba(255,107,53,0.3)', borderRadius: 14, padding: 14, marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#FF6B35', marginBottom: 10 }}>새 발주처 추가</div>
           <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="발주처 이름 (예: 해산물 업체)" style={{ ...inp, marginBottom: 8 }} />
           <input value={newMemo} onChange={e => setNewMemo(e.target.value)} placeholder="메모 (선택)" style={{ ...inp, marginBottom: 10 }} />
           <button onClick={handleAdd} style={{ width: '100%', padding: '9px 0', borderRadius: 8, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>추가</button>
         </div>
-
-        {/* 목록 */}
         {suppliers.map(s => (
           editId === s.id ? (
             <div key={s.id} style={{ background: 'rgba(255,107,53,0.05)', borderRadius: 12, padding: 12, marginBottom: 8, border: '1px solid rgba(255,107,53,0.2)' }}>
@@ -99,20 +159,22 @@ function SupplierModal({ storeId, onClose }: { storeId: string; onClose: () => v
 }
 
 // ─── 발주 추가 모달 ───
-function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, onSaved }: {
+function AddOrderModal({ storeId, userName, suppliers, inventoryItems, units, onUnitsUpdate, onClose, onSaved }: {
   storeId: string; userName: string; suppliers: any[]; inventoryItems: any[]
+  units: string[]; onUnitsUpdate: (u: string[]) => void
   onClose: () => void; onSaved: () => void
 }) {
   const supabase = createSupabaseBrowserClient()
   const [itemName, setItemName] = useState('')
   const [quantity, setQuantity] = useState<number | ''>('')
-  const [unit, setUnit] = useState('ea')
+  const [unit, setUnit] = useState(units[0] || 'ea')
   const [memo, setMemo] = useState('')
   const [linkedItemId, setLinkedItemId] = useState('')
-  const [linkedUnit, setLinkedUnit] = useState('ea')
+  const [linkedUnit, setLinkedUnit] = useState(units[0] || 'ea')
   const [unlinkUnit, setUnlinkUnit] = useState(false)
   const [requestedAt, setRequestedAt] = useState('')
   const [suggestions, setSuggestions] = useState<any[]>([])
+  const [showUnitMgr, setShowUnitMgr] = useState(false)
 
   function handleItemNameChange(val: string) {
     setItemName(val)
@@ -126,8 +188,8 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
 
   function selectInventoryItem(item: any) {
     setItemName(item.name)
-    setUnit(item.unit || 'ea')
-    setLinkedUnit(item.unit || 'ea')
+    setUnit(item.unit || units[0] || 'ea')
+    setLinkedUnit(item.unit || units[0] || 'ea')
     setLinkedItemId(item.id)
     setUnlinkUnit(false)
     setSuggestions([])
@@ -151,6 +213,14 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+      {showUnitMgr && (
+        <UnitManagerModal
+          storeId={storeId}
+          units={units}
+          onClose={() => setShowUnitMgr(false)}
+          onUpdate={onUnitsUpdate}
+        />
+      )}
       <div style={{ background: '#fff', width: '100%', maxWidth: 480, borderRadius: '20px 20px 0 0', padding: 20, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e' }}>📋 발주 추가</span>
@@ -181,24 +251,23 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, 
         )}
 
         {/* 수량 / 단위 */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: linkedItemId ? 6 : 10 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
           <div style={{ flex: 2 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수량 <span style={{ color: '#E84393' }}>*</span></div>
             <input type="number" value={quantity} onChange={e => setQuantity(e.target.value === '' ? '' : Number(e.target.value))} placeholder="0" style={inp} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ fontSize: 11, color: '#888' }}>단위</div>
+              <button onClick={() => setShowUnitMgr(true)} style={{ fontSize: 10, color: '#6C5CE7', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>⚙️ 관리</button>
+            </div>
             {linkedItemId && !unlinkUnit ? (
               <div style={{ ...inp, background: '#F4F6F9', color: '#6C5CE7', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
                 🔒 {unit}
               </div>
             ) : (
               <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
-                <option value="ea">ea</option>
-                <option value="box">box</option>
-                <option value="kg">kg</option>
-                <option value="L">L</option>
-                <option value="병">병</option>
+                {units.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             )}
           </div>
@@ -260,7 +329,6 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
     }
   }, [])
 
-  // 장소 필터: 재고연동 품목이면 배치된 장소만, 아니면 전체
   const filteredPlaces = hasInventoryLink && assignedPlaces.length > 0
     ? places.filter(p => assignedPlaces.includes(p.name))
     : places
@@ -314,7 +382,6 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
       })
     }
 
-    // 재고 반영
     if (place && order.inventory_item_id) {
       const { data: existing } = await supabase.from('inventory_stock')
         .select('quantity').eq('item_id', order.inventory_item_id).eq('place', place).single()
@@ -333,7 +400,6 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
     onSaved(); onClose()
   }
 
-  // 장소 그룹핑
   const placeGroups = filteredPlaces.reduce((acc: Record<string, any[]>, p) => {
     const g = p.group_name || '기타'
     if (!acc[g]) acc[g] = []
@@ -431,9 +497,7 @@ function EditReceiptModal({ receipt, order, userName, onClose, onSaved }: { rece
   async function handleSubmit() {
     if (!newQty) return
     const before = receipt.received_quantity
-    // 수령 수량 업데이트
     await supabase.from('order_receipts').update({ received_quantity: Number(newQty) }).eq('id', receipt.id)
-    // 이력 기록
     await supabase.from('order_receipt_logs').insert({
       receipt_id: receipt.id,
       order_id: order.id,
@@ -535,37 +599,20 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
     const now = new Date().toISOString()
 
     if (resolveType === 'return') {
-      // 반품만 → 상태: returned
       await supabase.from('orders').update({ status: 'returned' }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert({
-        order_id: order.id,
-        changed_by: resolvedBy.trim(),
-        field_name: '반품 완료',
-        before_value: '이슈있음',
-        after_value: '반품완료',
-        memo: memo.trim() || null,
+        order_id: order.id, changed_by: resolvedBy.trim(), field_name: '반품 완료', before_value: '이슈있음', after_value: '반품완료', memo: memo.trim() || null
       })
     } else if (resolveType === 'exchange') {
-      // 교환 수령 → receipt 생성 + 상태: received
       const { data: receipt } = await supabase.from('order_receipts').insert({
-        order_id: order.id,
-        received_quantity: Number(recvQty) || order.quantity,
-        received_by: resolvedBy.trim(),
-        received_at: now,
-        inventory_applied: false,
-        memo: memo.trim() || null,
+        order_id: order.id, received_quantity: Number(recvQty) || order.quantity,
+        received_by: resolvedBy.trim(), received_at: now, inventory_applied: false, memo: memo.trim() || null,
       }).select().single()
       await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert({
-        order_id: order.id,
-        changed_by: resolvedBy.trim(),
-        field_name: '교환 수령',
-        before_value: '이슈있음',
-        after_value: `교환품 ${recvQty}${order.unit} 수령완료`,
-        memo: memo.trim() || null,
+        order_id: order.id, changed_by: resolvedBy.trim(), field_name: '교환 수령', before_value: '이슈있음', after_value: `교환품 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null
       })
     } else if (resolveType === 'both') {
-      // 반품+교환
       await supabase.from('order_receipts').insert({
         order_id: order.id, received_quantity: Number(recvQty) || order.quantity,
         received_by: resolvedBy.trim(), received_at: now, inventory_applied: false,
@@ -578,11 +625,9 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         { order_id: order.id, changed_by: resolvedBy.trim(), field_name: '교환 수령', before_value: '반품완료', after_value: `교환품 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null },
       ])
     } else if (resolveType === 'additional') {
-      // 추가 수령
       await supabase.from('order_receipts').insert({
         order_id: order.id, received_quantity: Number(recvQty) || order.quantity,
-        received_by: resolvedBy.trim(), received_at: now, inventory_applied: false,
-        memo: memo.trim() || null,
+        received_by: resolvedBy.trim(), received_at: now, inventory_applied: false, memo: memo.trim() || null,
       })
       await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert({
@@ -590,7 +635,6 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         before_value: '이슈있음', after_value: `추가 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null,
       })
     } else {
-      // 기타
       await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert({
         order_id: order.id, changed_by: resolvedBy.trim(), field_name: '기타 처리',
@@ -612,8 +656,6 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         <div style={{ fontSize: 12, color: '#E84393', fontWeight: 600, marginBottom: 16, background: 'rgba(232,67,147,0.08)', borderRadius: 8, padding: '6px 10px' }}>
           🚨 {order.item_name} · {order.quantity}{order.unit}
         </div>
-
-        {/* 해결 유형 */}
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>해결 방법</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -626,27 +668,20 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
             ))}
           </div>
         </div>
-
-        {/* 교환 수령 수량 */}
         {(resolveType === 'exchange' || resolveType === 'both' || resolveType === 'additional') && (
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>교환 수령 수량</div>
             <input type="number" step="0.1" value={recvQty} onChange={e => setRecvQty(e.target.value === '' ? '' : Number(e.target.value))} style={inp} />
           </div>
         )}
-
-        {/* 처리자 */}
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>처리자 <span style={{ color: '#E84393' }}>*</span></div>
           <input value={resolvedBy} onChange={e => setResolvedBy(e.target.value)} placeholder="처리한 사람 이름" style={inp} />
         </div>
-
-        {/* 메모 */}
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
           <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="처리 내용, 사유 등" style={inp} />
         </div>
-
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={handleSubmit} disabled={saving || !resolvedBy.trim()}
             style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: resolvedBy.trim() ? 'linear-gradient(135deg,#6C5CE7,#a29bfe)' : '#E8ECF0', border: 'none', color: resolvedBy.trim() ? '#fff' : '#bbb', fontSize: 13, fontWeight: 700, cursor: resolvedBy.trim() ? 'pointer' : 'default' }}>
@@ -659,13 +694,12 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
   )
 }
 
-
 // ─── 직접 이슈 등록 모달 ───
-function DirectIssueModal({ storeId, userName, onClose, onSaved }: { storeId: string; userName: string; onClose: () => void; onSaved: () => void }) {
+function DirectIssueModal({ storeId, userName, units, onClose, onSaved }: { storeId: string; userName: string; units: string[]; onClose: () => void; onSaved: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [itemName, setItemName] = useState('')
   const [quantity, setQuantity] = useState<number | ''>(1)
-  const [unit, setUnit] = useState('ea')
+  const [unit, setUnit] = useState(units[0] || 'ea')
   const [issueType, setIssueType] = useState('wrong_delivery')
   const [memo, setMemo] = useState('')
   const [saving, setSaving] = useState(false)
@@ -693,19 +727,12 @@ function DirectIssueModal({ storeId, userName, onClose, onSaved }: { storeId: st
 
     if (order) {
       await supabase.from('order_issues').insert({
-        order_id: order.id,
-        store_id: storeId,
-        issue_type: issueType,
-        memo: memo.trim() || null,
-        reported_by: userName,
+        order_id: order.id, store_id: storeId, issue_type: issueType,
+        memo: memo.trim() || null, reported_by: userName,
       })
       await supabase.from('order_receipt_logs').insert({
-        order_id: order.id,
-        changed_by: userName,
-        field_name: '이슈 직접 등록',
-        before_value: null,
-        after_value: `${issueType}: ${itemName.trim()} ${quantity}${unit}`,
-        memo: memo.trim() || null,
+        order_id: order.id, changed_by: userName, field_name: '이슈 직접 등록',
+        before_value: null, after_value: `${issueType}: ${itemName.trim()} ${quantity}${unit}`, memo: memo.trim() || null,
       })
     }
     setSaving(false)
@@ -719,8 +746,6 @@ function DirectIssueModal({ storeId, userName, onClose, onSaved }: { storeId: st
           <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>🚨 이슈 직접 등록</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
         </div>
-
-        {/* 이슈 유형 */}
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>이슈 유형</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -733,14 +758,10 @@ function DirectIssueModal({ storeId, userName, onClose, onSaved }: { storeId: st
             ))}
           </div>
         </div>
-
-        {/* 품목명 */}
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>품목명 <span style={{ color: '#E84393' }}>*</span></div>
           <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="예: 루꼴라 1kg" style={inp} />
         </div>
-
-        {/* 수량 + 단위 */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <div style={{ flex: 2 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수량</div>
@@ -749,17 +770,14 @@ function DirectIssueModal({ storeId, userName, onClose, onSaved }: { storeId: st
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
             <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
-              <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option><option>개</option>
+              {units.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
         </div>
-
-        {/* 메모 */}
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
           <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 스타필드 물건인 듯" style={inp} />
         </div>
-
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={handleSubmit} disabled={saving || !itemName.trim() || !quantity}
             style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: itemName.trim() ? 'linear-gradient(135deg,#E84393,#FF6B35)' : '#E8ECF0', border: 'none', color: itemName.trim() ? '#fff' : '#bbb', fontSize: 13, fontWeight: 700, cursor: itemName.trim() ? 'pointer' : 'default' }}>
@@ -807,7 +825,6 @@ function ConfirmOrderModal({ order, userName, suppliers, onClose, onSaved }: { o
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>주문자 <span style={{ color: '#aaa', fontWeight: 400 }}>(직접 주문한 사람)</span></div>
           <input value={confirmedBy} onChange={e => setConfirmedBy(e.target.value)} placeholder="주문자 이름" style={inp} />
         </div>
-        {/* 발주처 - 주문자가 선택 */}
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>발주처 <span style={{ color: '#aaa', fontWeight: 400 }}>(주문한 곳)</span></div>
           {suppliers.length > 0 && (
@@ -848,19 +865,13 @@ function ReturnModal({ receipt, order, userName, onClose, onSaved }: { receipt: 
 
   async function handleSubmit() {
     await supabase.from('order_receipts').update({
-      return_type: returnType,
-      return_memo: memo.trim() || null,
-      return_by: userName,
-      return_at: new Date().toISOString(),
+      return_type: returnType, return_memo: memo.trim() || null,
+      return_by: userName, return_at: new Date().toISOString(),
     }).eq('id', receipt.id)
     await supabase.from('order_receipt_logs').insert({
-      receipt_id: receipt.id,
-      order_id: order.id,
-      changed_by: userName,
+      receipt_id: receipt.id, order_id: order.id, changed_by: userName,
       field_name: returnType === 'return' ? '반품처리' : '교환처리',
-      before_value: null,
-      after_value: memo || (returnType === 'return' ? '반품' : '교환'),
-      memo: memo || null,
+      before_value: null, after_value: memo || (returnType === 'return' ? '반품' : '교환'), memo: memo || null,
     })
     onSaved(); onClose()
   }
@@ -889,13 +900,13 @@ function ReturnModal({ receipt, order, userName, onClose, onSaved }: { receipt: 
 }
 
 // ─── 빠른 발주 모달 ───
-function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose, onSaved }: {
+function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, units, onClose, onSaved }: {
   storeId: string; userName: string; suppliers: any[]; inventoryItems: any[]
-  onClose: () => void; onSaved: () => void
+  units: string[]; onClose: () => void; onSaved: () => void
 }) {
   const supabase = createSupabaseBrowserClient()
   type QuickItem = { id: number; name: string; qty: number | ''; unit: string; suggestion: any[]; linkedItemId?: string; linkedUnit?: string; unlinkUnit?: boolean }
-  const newRow = (id: number): QuickItem => ({ id, name: '', qty: '', unit: 'ea', suggestion: [] })
+  const newRow = (id: number): QuickItem => ({ id, name: '', qty: '', unit: units[0] || 'ea', suggestion: [] })
   const [rows, setRows] = useState<QuickItem[]>([newRow(1), newRow(2), newRow(3)])
   const [supplierId, setSupplierId] = useState('')
   const [saving, setSaving] = useState(false)
@@ -909,11 +920,9 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
     }
   }
   function pickSuggestion(id: number, item: any) {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, name: item.name, unit: item.unit || 'ea', linkedItemId: item.id, linkedUnit: item.unit || 'ea', unlinkUnit: false, suggestion: [] } : r))
+    setRows(prev => prev.map(r => r.id === id ? { ...r, name: item.name, unit: item.unit || units[0] || 'ea', linkedItemId: item.id, linkedUnit: item.unit || units[0] || 'ea', unlinkUnit: false, suggestion: [] } : r))
   }
-  function addRow() {
-    setRows(prev => [...prev, newRow(++nextId)])
-  }
+  function addRow() { setRows(prev => [...prev, newRow(++nextId)]) }
   function removeRow(id: number) {
     if (rows.length <= 1) return
     setRows(prev => prev.filter(r => r.id !== id))
@@ -927,15 +936,9 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
     const now = new Date().toISOString()
     await Promise.all(validRows.map(r =>
       supabase.from('orders').insert({
-        store_id: storeId,
-        item_name: r.name.trim(),
-        quantity: Number(r.qty),
-        unit: r.unit,
-        supplier_id: supplierId || null,
-        supplier_name: supplier?.name || null,
-        ordered_by: userName,
-        ordered_at: now,
-        status: 'requested',
+        store_id: storeId, item_name: r.name.trim(), quantity: Number(r.qty), unit: r.unit,
+        supplier_id: supplierId || null, supplier_name: supplier?.name || null,
+        ordered_by: userName, ordered_at: now, status: 'requested',
       })
     ))
     setSaving(false)
@@ -953,7 +956,6 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
         </div>
         <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>품목과 수량만 입력하고 한번에 등록해요</div>
 
-        {/* 발주처 선택 */}
         {suppliers.length > 0 && (
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>발주처 (전체 적용)</div>
@@ -972,7 +974,6 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
           </div>
         )}
 
-        {/* 품목 행 */}
         <div style={{ marginBottom: 8 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 55px 28px', gap: 6, marginBottom: 6, padding: '0 2px' }}>
             <span style={{ fontSize: 10, color: '#aaa' }}>품목명</span>
@@ -983,45 +984,27 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
           {rows.map((row, idx) => (
             <div key={row.id} style={{ position: 'relative', marginBottom: 6 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 55px 28px', gap: 6 }}>
-                <input
-                  value={row.name}
-                  onChange={e => updateRow(row.id, 'name', e.target.value)}
-                  placeholder={`품목 ${idx + 1}`}
-                  style={{ ...inp, padding: '8px 10px' }}
-                />
-                <input
-                  type="number"
-                  value={row.qty}
-                  onChange={e => updateRow(row.id, 'qty', e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="0"
-                  style={{ ...inp, padding: '8px 8px', textAlign: 'center' }}
-                />
+                <input value={row.name} onChange={e => updateRow(row.id, 'name', e.target.value)} placeholder={`품목 ${idx + 1}`} style={{ ...inp, padding: '8px 10px' }} />
+                <input type="number" value={row.qty} onChange={e => updateRow(row.id, 'qty', e.target.value === '' ? '' : Number(e.target.value))} placeholder="0" style={{ ...inp, padding: '8px 8px', textAlign: 'center' }} />
                 {row.linkedItemId && !row.unlinkUnit ? (
                   <div style={{ ...inp, padding: '8px 4px', background: '#F4F6F9', color: '#6C5CE7', fontWeight: 700, fontSize: 11, textAlign: 'center' as const }}>
                     🔒{row.unit}
                   </div>
                 ) : (
-                  <select value={row.unit} onChange={e => updateRow(row.id, 'unit', e.target.value)}
-                    style={{ ...inp, padding: '8px 4px', appearance: 'auto' as any }}>
-                    <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option>
+                  <select value={row.unit} onChange={e => updateRow(row.id, 'unit', e.target.value)} style={{ ...inp, padding: '8px 4px', appearance: 'auto' as any }}>
+                    {units.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 )}
-                <button onClick={() => removeRow(row.id)}
-                  style={{ width: 28, height: 36, borderRadius: 7, border: '1px solid #E8ECF0', background: '#F8F9FB', color: '#ccc', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  ✕
-                </button>
+                <button onClick={() => removeRow(row.id)} style={{ width: 28, height: 36, borderRadius: 7, border: '1px solid #E8ECF0', background: '#F8F9FB', color: '#ccc', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
               </div>
-              {/* 연동 해제 체크박스 */}
               {row.linkedItemId && (
                 <div style={{ marginTop: 2, marginBottom: 2 }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
                     <input type="checkbox" checked={!!row.unlinkUnit} onChange={e => {
                       const unlink = e.target.checked
-                      setRows(prev => prev.map(r => r.id === row.id ? { ...r, unlinkUnit: unlink, unit: unlink ? r.unit : (r.linkedUnit || 'ea') } : r))
+                      setRows(prev => prev.map(r => r.id === row.id ? { ...r, unlinkUnit: unlink, unit: unlink ? r.unit : (r.linkedUnit || units[0] || 'ea') } : r))
                     }} style={{ width: 12, height: 12, cursor: 'pointer', accentColor: '#B8860B' }} />
-                    <span style={{ fontSize: 10, color: row.unlinkUnit ? '#B8860B' : '#bbb', fontWeight: row.unlinkUnit ? 700 : 400 }}>
-                      연동이 풀려요 (다른 단위로 발주)
-                    </span>
+                    <span style={{ fontSize: 10, color: row.unlinkUnit ? '#B8860B' : '#bbb', fontWeight: row.unlinkUnit ? 700 : 400 }}>연동이 풀려요 (다른 단위로 발주)</span>
                   </label>
                 </div>
               )}
@@ -1040,8 +1023,7 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
           ))}
         </div>
 
-        <button onClick={addRow}
-          style={{ width: '100%', padding: '9px 0', borderRadius: 10, border: '2px dashed #E0E4E8', background: '#F8F9FB', color: '#aaa', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
+        <button onClick={addRow} style={{ width: '100%', padding: '9px 0', borderRadius: 10, border: '2px dashed #E0E4E8', background: '#F8F9FB', color: '#aaa', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>
           + 품목 추가
         </button>
 
@@ -1058,11 +1040,11 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, onClose
 }
 
 // ─── 발주 수정 모달 ───
-function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: { order: any; userName: string; inventoryItems: any[]; onClose: () => void; onSaved: () => void }) {
+function EditOrderModal({ order, userName, inventoryItems, units, onClose, onSaved }: { order: any; userName: string; inventoryItems: any[]; units: string[]; onClose: () => void; onSaved: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [itemName, setItemName] = useState(order.item_name)
   const [quantity, setQuantity] = useState<number | ''>(order.quantity)
-  const [unit, setUnit] = useState(order.unit || 'ea')
+  const [unit, setUnit] = useState(order.unit || units[0] || 'ea')
   const [memo, setMemo] = useState(order.memo || '')
   const [suggestions, setSuggestions] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
@@ -1075,50 +1057,25 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
   async function handleSubmit() {
     if (!itemName.trim() || !quantity) return
     setSaving(true)
-
-    // 변경된 필드만 로그 기록
     const changes: { field: string; before: string; after: string }[] = []
     if (itemName.trim() !== order.item_name) changes.push({ field: '품목명', before: order.item_name, after: itemName.trim() })
     if (Number(quantity) !== order.quantity) changes.push({ field: '수량', before: `${order.quantity}${order.unit}`, after: `${quantity}${unit}` })
     else if (unit !== order.unit) changes.push({ field: '단위', before: order.unit, after: unit })
     if ((memo.trim() || null) !== (order.memo || null)) changes.push({ field: '메모', before: order.memo || '없음', after: memo.trim() || '없음' })
 
-    await supabase.from('orders').update({
-      item_name: itemName.trim(),
-      quantity: Number(quantity),
-      unit,
-      memo: memo.trim() || null,
-    }).eq('id', order.id)
-
-    // 로그 저장
+    await supabase.from('orders').update({ item_name: itemName.trim(), quantity: Number(quantity), unit, memo: memo.trim() || null }).eq('id', order.id)
     if (changes.length > 0) {
       await Promise.all(changes.map(c =>
-        supabase.from('order_receipt_logs').insert({
-          order_id: order.id,
-          changed_by: userName,
-          field_name: `${c.field} 수정`,
-          before_value: c.before,
-          after_value: c.after,
-          memo: null,
-        })
+        supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: `${c.field} 수정`, before_value: c.before, after_value: c.after, memo: null })
       ))
     }
-
     setSaving(false)
     onSaved(); onClose()
   }
 
   async function handleDelete() {
     if (!confirm(`"${order.item_name}" 발주를 삭제할까요?`)) return
-    // 삭제 전 로그 남기기
-    await supabase.from('order_receipt_logs').insert({
-      order_id: order.id,
-      changed_by: userName,
-      field_name: '발주 삭제',
-      before_value: `${order.item_name} ${order.quantity}${order.unit}`,
-      after_value: '삭제됨',
-      memo: null,
-    })
+    await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '발주 삭제', before_value: `${order.item_name} ${order.quantity}${order.unit}`, after_value: '삭제됨', memo: null })
     await supabase.from('orders').delete().eq('id', order.id)
     onSaved(); onClose()
   }
@@ -1130,15 +1087,13 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
           <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>✏️ 발주 수정</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
         </div>
-
-        {/* 품목명 */}
         <div style={{ marginBottom: 10, position: 'relative' }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>품목명</div>
           <input value={itemName} onChange={e => handleItemNameChange(e.target.value)} style={inp} />
           {suggestions.length > 0 && (
             <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #E8ECF0', borderRadius: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, overflow: 'hidden' }}>
               {suggestions.map(s => (
-                <div key={s.id} onClick={() => { setItemName(s.name); setUnit(s.unit || 'ea'); setSuggestions([]) }}
+                <div key={s.id} onClick={() => { setItemName(s.name); setUnit(s.unit || units[0] || 'ea'); setSuggestions([]) }}
                   style={{ padding: '9px 14px', cursor: 'pointer', fontSize: 13, color: '#1a1a2e', borderBottom: '1px solid #F4F6F9' }}>
                   {s.name}
                 </div>
@@ -1146,8 +1101,6 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
             </div>
           )}
         </div>
-
-        {/* 수량 / 단위 */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <div style={{ flex: 2 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>수량</div>
@@ -1156,18 +1109,15 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단위</div>
             <select value={unit} onChange={e => setUnit(e.target.value)} style={{ ...inp, appearance: 'auto' as any }}>
-              <option>ea</option><option>box</option><option>kg</option><option>L</option><option>병</option>
+              {units.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
         </div>
-
-        {/* 메모 */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모</div>
           <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="비고 메모" style={inp} />
         </div>
 
-        {/* 주문완료 → 요청됨 되돌리기 */}
         {order.status === 'ordered' && (
           <div style={{ marginBottom: 12 }}>
             <button onClick={async () => {
@@ -1180,34 +1130,20 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
             </button>
           </div>
         )}
-        {/* 수령완료 → 주문완료 되돌리기 */}
         {order.status === 'received' && (
           <div style={{ marginBottom: 12 }}>
             <button onClick={async () => {
               if (!confirm("수령 완료를 취소하고 주문완료 상태로 되돌릴까요?\n(수령 정보가 삭제됩니다)")) return
               const { data: r } = await supabase.from("order_receipts").select("*").eq("order_id", order.id).order("created_at", { ascending: false }).limit(1).maybeSingle()
               if (r?.inventory_place && order.inventory_item_id) {
-                const { data: existing } = await supabase.from('inventory_stock')
-                  .select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).maybeSingle()
+                const { data: existing } = await supabase.from('inventory_stock').select('quantity').eq('item_id', order.inventory_item_id).eq('place', r.inventory_place).maybeSingle()
                 const currentQty = existing?.quantity ?? 0
                 const newQty = Math.max(0, currentQty - Number(r.received_quantity))
-                await supabase.from('inventory_stock')
-                  .update({
-                    quantity: newQty,
-                    updated_by: userName,
-                    updated_at: new Date().toISOString(),
-                  })
-                  .eq('item_id', order.inventory_item_id)
-                  .eq('place', r.inventory_place)
+                await supabase.from('inventory_stock').update({ quantity: newQty, updated_by: userName, updated_at: new Date().toISOString() }).eq('item_id', order.inventory_item_id).eq('place', r.inventory_place)
               }
               await supabase.from("order_receipts").delete().eq("order_id", order.id)
               await supabase.from("orders").update({ status: "ordered", received_by: null, received_at: null }).eq("id", order.id)
-              await supabase.from("order_receipt_logs").insert({
-                order_id: order.id, changed_by: userName, field_name: "수령 취소",
-                before_value: r?.inventory_place ? `수령완료 (${r.inventory_place} 재고 반영됨)` : "수령완료",
-                after_value: r?.inventory_place ? `주문완료로 되돌림 + ${r.inventory_place} 재고 차감` : "주문완료로 되돌림",
-                memo: null,
-              })
+              await supabase.from("order_receipt_logs").insert({ order_id: order.id, changed_by: userName, field_name: "수령 취소", before_value: r?.inventory_place ? `수령완료 (${r.inventory_place} 재고 반영됨)` : "수령완료", after_value: r?.inventory_place ? `주문완료로 되돌림 + ${r.inventory_place} 재고 차감` : "주문완료로 되돌림", memo: null })
               onSaved(); onClose()
             }} style={{ width: '100%', padding: '10px 0', borderRadius: 10, background: 'rgba(0,184,148,0.08)', border: '1px solid rgba(0,184,148,0.25)', color: '#00B894', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               ↩️ 수령 취소 (주문완료로 되돌리기)
@@ -1216,18 +1152,9 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
         )}
 
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={handleDelete}
-            style={{ padding: '11px 14px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            🗑 삭제
-          </button>
-          <button onClick={handleSubmit} disabled={saving}
-            style={{ flex: 1, padding: '11px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-            {saving ? '저장 중...' : '수정 완료'}
-          </button>
-          <button onClick={onClose}
-            style={{ padding: '11px 14px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>
-            취소
-          </button>
+          <button onClick={handleDelete} style={{ padding: '11px 14px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>🗑 삭제</button>
+          <button onClick={handleSubmit} disabled={saving} style={{ flex: 1, padding: '11px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{saving ? '저장 중...' : '수정 완료'}</button>
+          <button onClick={onClose} style={{ padding: '11px 14px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
         </div>
       </div>
     </div>
@@ -1236,15 +1163,11 @@ function EditOrderModal({ order, userName, inventoryItems, onClose, onSaved }: {
 
 // ─── 타임라인 아이템 ───
 function TimelineItem({ color, icon, title, who, when, note }: {
-  color: string; icon: string; title: string
-  who: string | null; when: string | null; note?: string
+  color: string; icon: string; title: string; who: string | null; when: string | null; note?: string
 }) {
   return (
     <div style={{ position: 'relative', paddingLeft: 16, paddingBottom: 14 }}>
-      {/* 점 */}
-      <div style={{ position: 'absolute', left: -8, top: 2, width: 14, height: 14, borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, zIndex: 1 }}>
-        {icon}
-      </div>
+      <div style={{ position: 'absolute', left: -8, top: 2, width: 14, height: 14, borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, zIndex: 1 }}>{icon}</div>
       <div style={{ background: '#F8F9FB', borderRadius: 8, padding: '8px 10px', border: `1px solid ${color}22` }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>{title}</div>
         {(who || when) && (
@@ -1261,7 +1184,7 @@ function TimelineItem({ color, icon, title, who, when, note }: {
 }
 
 // ─── 발주 카드 상세 ───
-function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places, highlighted, onRefresh }: { order: any; userName: string; isEdit: boolean; suppliers: any[]; inventoryItems: any[]; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
+function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, units, places, highlighted, onRefresh }: { order: any; userName: string; isEdit: boolean; suppliers: any[]; inventoryItems: any[]; units: string[]; places: any[]; highlighted?: boolean; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
   const [receipt, setReceipt] = useState<any>(null)
@@ -1275,30 +1198,18 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
   const [showEdit, setShowEdit] = useState(false)
   const [showResolve, setShowResolve] = useState(false)
 
-  useEffect(() => {
-    if (expanded) loadDetail()
-  }, [expanded])
-
-  // 수령완료 상태면 마운트 시 바로 receipt 로드 (헤더 표시용)
-  useEffect(() => {
-    if (order.status === 'received' && !receipt) loadReceipt()
-  }, [])
-
-  // 이슈 상태면 마운트 시 바로 issueData 로드
-  useEffect(() => {
-    if (order.status === 'issue') loadIssueData()
-  }, [])
+  useEffect(() => { if (expanded) loadDetail() }, [expanded])
+  useEffect(() => { if (order.status === 'received' && !receipt) loadReceipt() }, [])
+  useEffect(() => { if (order.status === 'issue') loadIssueData() }, [])
 
   async function loadIssueData() {
     const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('reported_at', { ascending: false }).limit(1).maybeSingle()
     setIssueData(iss || null)
   }
-
   async function loadReceipt() {
     const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
     setReceipt(r || null)
   }
-
   async function loadDetail() {
     const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
     setReceipt(r || null)
@@ -1312,33 +1223,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
   const orderedAt = new Date(order.ordered_at)
   const diffDays = (now.getTime() - orderedAt.getTime()) / (1000 * 60 * 60 * 24)
   const isOverdue = (order.status === 'requested' || order.status === 'ordered') && diffDays > 2
-
-  const statusColor: Record<string, string> = {
-    requested: '#FF6B35',
-    ordered: '#6C5CE7',
-    received: '#00B894',
-    issue: '#E84393',
-    returned: '#888',
-    pending: '#B8860B',
-  }
-  const statusLabel: Record<string, string> = {
-    requested: '요청됨',
-    ordered: '주문완료',
-    received: '수령완료',
-    issue: '이슈있음',
-    returned: '반품완료',
-    pending: '미수령',
-  }
-  const statusBg: Record<string, string> = {
-    requested: 'rgba(255,107,53,0.12)',
-    ordered: 'rgba(108,92,231,0.12)',
-    received: 'rgba(0,184,148,0.1)',
-    issue: 'rgba(232,67,147,0.1)',
-    returned: 'rgba(136,136,136,0.1)',
-    pending: 'rgba(184,134,11,0.1)',
-  }
-  const borderColor = isOverdue ? '#E84393' : statusColor[order.status] || '#E8ECF0'
-
+  const statusColor: Record<string, string> = { requested: '#FF6B35', ordered: '#6C5CE7', received: '#00B894', issue: '#E84393', returned: '#888', pending: '#B8860B' }
   const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending
 
   return (
@@ -1348,189 +1233,103 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
       {showIssue && <IssueModal order={order} userName={userName} onClose={() => setShowIssue(false)} onSaved={onRefresh} />}
       {showReturn && receipt && <ReturnModal receipt={receipt} order={order} userName={userName} onClose={() => setShowReturn(false)} onSaved={() => { loadDetail() }} />}
       {showConfirm && <ConfirmOrderModal order={order} userName={userName} suppliers={suppliers} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
-      {showEdit && <EditOrderModal order={order} userName={userName} inventoryItems={inventoryItems} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
+      {showEdit && <EditOrderModal order={order} userName={userName} inventoryItems={inventoryItems} units={units} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
       {showResolve && <ResolveIssueModal order={order} userName={userName} onClose={() => setShowResolve(false)} onSaved={onRefresh} />}
 
       <div data-order-id={order.id} style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${isOverdue ? 'rgba(232,67,147,0.35)' : statusColor[order.status] + '33' || '#E8ECF0'}`, overflow: 'hidden', boxShadow: highlighted ? '0 0 0 3px #6C5CE7, 0 2px 12px rgba(108,92,231,0.25)' : '0 1px 5px rgba(0,0,0,0.05)', transition: 'box-shadow 0.3s' }}>
-        {/* 컬러 헤더 띠 */}
         <div style={{ background: cfg.headerBg, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{cfg.label}</span>
             {isOverdue && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'rgba(0,0,0,0.2)', color: '#fff', fontWeight: 700 }}>⏰ {Math.floor(diffDays)}일 지연</span>}
-            {order.status === 'received' && order.received_by && (
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {order.received_by}</span>
-            )}
+            {order.status === 'received' && order.received_by && <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.9)' }}>· {order.received_by}</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {(order.status === 'requested' || order.status === 'ordered' || order.status === 'received') && (
-              <button onClick={e => { e.stopPropagation(); setShowEdit(true) }}
-                style={{ fontSize: 10, padding: '1px 7px', borderRadius: 5, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer' }}>
-                ✏️
-              </button>
+              <button onClick={e => { e.stopPropagation(); setShowEdit(true) }} style={{ fontSize: 10, padding: '1px 7px', borderRadius: 5, border: '1px solid rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.2)', color: '#fff', cursor: 'pointer' }}>✏️</button>
             )}
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.85)' }}>
-              {new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })}
-            </span>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.85)' }}>{new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })}</span>
           </div>
         </div>
 
-        {/* 상단 요약 */}
         <div onClick={() => setExpanded(v => !v)} style={{ cursor: 'pointer', padding: '10px 14px 10px 14px' }}>
-          {/* 1행: 품목명 */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', wordBreak: 'break-word' }}>{order.item_name}</span>
             </div>
             <span style={{ fontSize: 11, color: '#ccc', marginLeft: 8 }}>{expanded ? '▲' : '▼'}</span>
           </div>
-          {/* 2행: 수량 · 발주처 · 재고연동 */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
             <span style={{ fontSize: 16, fontWeight: 800, color: '#1a1a2e', background: '#F0F2F8', padding: '2px 10px', borderRadius: 6, letterSpacing: '-0.3px' }}>{order.quantity}<span style={{ fontSize: 12, fontWeight: 600, color: '#888', marginLeft: 2 }}>{order.unit}</span></span>
             {order.supplier_name && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 5, background: 'rgba(45,198,214,0.1)', color: '#2DC6D6' }}>🏪 {order.supplier_name}</span>}
             {order.inventory_item_id && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>재고연동</span>}
           </div>
-          {/* 3행: 요청자 · 날짜 · (주문자 정보) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, color: '#aaa' }}>요청: {order.ordered_by}</span>
             <span style={{ fontSize: 10, color: '#ddd' }}>·</span>
             <span style={{ fontSize: 11, color: '#aaa' }}>{new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
-            {(order.status === 'ordered' || order.status === 'received') && order.confirmed_by && (
-              <span style={{ fontSize: 11, color: '#6C5CE7', marginLeft: 4 }}>· 주문: {order.confirmed_by}</span>
-            )}
-            {order.confirmed_at && (order.status === 'ordered' || order.status === 'received') && (
-              <span style={{ fontSize: 10, color: '#a29bfe' }}>
-                {new Date(order.confirmed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.confirmed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-              </span>
-            )}
+            {(order.status === 'ordered' || order.status === 'received') && order.confirmed_by && <span style={{ fontSize: 11, color: '#6C5CE7', marginLeft: 4 }}>· 주문: {order.confirmed_by}</span>}
+            {order.confirmed_at && (order.status === 'ordered' || order.status === 'received') && <span style={{ fontSize: 10, color: '#a29bfe' }}>{new Date(order.confirmed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.confirmed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>}
             {order.memo && <span style={{ fontSize: 10, color: '#bbb', marginLeft: 4 }}>📝 {order.memo}</span>}
           </div>
         </div>
 
-        {/* 액션 버튼 — 3단계 워크플로우 */}
         {(order.status === 'requested') && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
-            <button onClick={() => setShowConfirm(true)}
-              style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>
-              ✅ 주문 확인
-            </button>
+            <button onClick={() => setShowConfirm(true)} style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>✅ 주문 확인</button>
             <div style={{ width: 1, background: 'rgba(255,255,255,0.3)' }} />
-            <button onClick={() => setShowIssue(true)}
-              style={{ width: 80, padding: '10px 0', background: 'rgba(232,67,147,0.08)', border: 'none', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>
-              🚨 이슈
-            </button>
+            <button onClick={() => setShowIssue(true)} style={{ width: 80, padding: '10px 0', background: 'rgba(232,67,147,0.08)', border: 'none', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
           </div>
         )}
         {(order.status === 'ordered' || order.status === 'pending') && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
-            <button onClick={() => setShowReceive(true)}
-              style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>
-              📦 수령처리
-            </button>
+            <button onClick={() => setShowReceive(true)} style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>📦 수령처리</button>
             <div style={{ width: 1, background: 'rgba(255,255,255,0.3)' }} />
-            <button onClick={() => setShowIssue(true)}
-              style={{ width: 80, padding: '10px 0', background: 'rgba(232,67,147,0.08)', border: 'none', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>
-              🚨 이슈
-            </button>
+            <button onClick={() => setShowIssue(true)} style={{ width: 80, padding: '10px 0', background: 'rgba(232,67,147,0.08)', border: 'none', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
           </div>
         )}
         {order.status === 'issue' && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
-            <button onClick={() => setShowResolve(true)}
-              style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>
-              ✅ 이슈 해결
-            </button>
+            <button onClick={() => setShowResolve(true)} style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>✅ 이슈 해결</button>
             <button onClick={async () => {
               if (!confirm('이슈를 취소하고 주문완료 상태로 되돌릴까요?')) return
               const sb = createSupabaseBrowserClient()
               await sb.from('orders').update({ status: 'ordered' }).eq('id', order.id)
               await sb.from('order_receipt_logs').insert({ order_id: order.id, changed_by: userName, field_name: '이슈 취소', before_value: '이슈있음', after_value: '주문완료로 되돌림', memo: null })
               onRefresh()
-            }} style={{ padding: '10px 14px', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>
-              ↩️ 이슈취소
-            </button>
+            }} style={{ padding: '10px 14px', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>↩️ 이슈취소</button>
           </div>
         )}
 
-        {/* 이슈 메모 배너 — expanded 밖에서 항상 표시 */}
         {order.status === 'issue' && issueData?.memo && (
           <div style={{ margin: '0 14px 8px 14px', padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.07)', border: '1px solid rgba(232,67,147,0.2)' }}>
             <div style={{ fontSize: 10, color: '#E84393', fontWeight: 700, marginBottom: 2 }}>
-              🚨 {issueData.issue_type === 'quantity_mismatch' ? '수량 불일치' :
-                  issueData.issue_type === 'wrong_delivery' ? '잘못 온 물품' :
-                  issueData.issue_type === 'wrong_store' ? '지점 오배송' :
-                  issueData.issue_type === 'damaged' ? '파손 도착' :
-                  issueData.issue_type === 'wrong_quantity' ? '수량 오류' :
-                  issueData.issue_type === 'wrong_item' ? '품목 오류' :
-                  issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'}
+              🚨 {issueData.issue_type === 'quantity_mismatch' ? '수량 불일치' : issueData.issue_type === 'wrong_delivery' ? '잘못 온 물품' : issueData.issue_type === 'wrong_store' ? '지점 오배송' : issueData.issue_type === 'damaged' ? '파손 도착' : issueData.issue_type === 'wrong_quantity' ? '수량 오류' : issueData.issue_type === 'wrong_item' ? '품목 오류' : issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'}
               {issueData.reported_by && <span style={{ color: '#aaa', fontWeight: 400 }}> · {issueData.reported_by}</span>}
             </div>
             <div style={{ fontSize: 12, color: '#1a1a2e', fontWeight: 600 }}>📝 {issueData.memo}</div>
           </div>
         )}
 
-        {/* 상세 펼치기 */}
         {expanded && (
           <div style={{ margin: '0 14px 14px 14px', paddingTop: 12, borderTop: '1px solid #F4F6F9' }}>
-
-            {/* ── 타임라인 ── */}
             <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 10 }}>📋 처리 흐름</div>
             <div style={{ position: 'relative', paddingLeft: 20 }}>
-              {/* 세로선 */}
               <div style={{ position: 'absolute', left: 6, top: 6, bottom: 6, width: 2, background: '#E8ECF0', borderRadius: 2 }} />
-
-              {/* 1. 요청 */}
-              <TimelineItem color="#FF6B35" icon="📋"
-                title="발주 요청"
-                who={order.ordered_by}
-                when={order.ordered_at} />
-
-              {/* 2. 주문확인 */}
-              {order.confirmed_by && (
-                <TimelineItem color="#6C5CE7" icon="✅"
-                  title={`주문 확인${order.supplier_name ? ` · ${order.supplier_name}` : ''}`}
-                  who={order.confirmed_by}
-                  when={order.confirmed_at} />
-              )}
-
-              {/* 3. 이슈 신고 */}
+              <TimelineItem color="#FF6B35" icon="📋" title="발주 요청" who={order.ordered_by} when={order.ordered_at} />
+              {order.confirmed_by && <TimelineItem color="#6C5CE7" icon="✅" title={`주문 확인${order.supplier_name ? ` · ${order.supplier_name}` : ''}`} who={order.confirmed_by} when={order.confirmed_at} />}
               {order.status === 'issue' && (
                 <TimelineItem color="#E84393" icon="🚨"
-                  title={`이슈 신고${issueData?.issue_type ? ` · ${
-                    issueData.issue_type === 'quantity_mismatch' ? '수량 불일치' :
-                    issueData.issue_type === 'wrong_delivery' ? '잘못 온 물품' :
-                    issueData.issue_type === 'wrong_store' ? '지점 오배송' :
-                    issueData.issue_type === 'damaged' ? '파손 도착' :
-                    issueData.issue_type === 'wrong_quantity' ? '수량 오류' :
-                    issueData.issue_type === 'wrong_item' ? '품목 오류' :
-                    issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'
-                  }` : ''}`}
-                  who={issueData?.reported_by || null}
-                  when={issueData?.reported_at || null}
-                  note={issueData?.memo || '이슈 처리 대기 중'} />
+                  title={`이슈 신고${issueData?.issue_type ? ` · ${issueData.issue_type === 'quantity_mismatch' ? '수량 불일치' : issueData.issue_type === 'wrong_delivery' ? '잘못 온 물품' : issueData.issue_type === 'wrong_store' ? '지점 오배송' : issueData.issue_type === 'damaged' ? '파손 도착' : issueData.issue_type === 'wrong_quantity' ? '수량 오류' : issueData.issue_type === 'wrong_item' ? '품목 오류' : issueData.issue_type === 'other_branch' ? '타지점 물품' : '기타'}` : ''}`}
+                  who={issueData?.reported_by || null} when={issueData?.reported_at || null} note={issueData?.memo || '이슈 처리 대기 중'} />
               )}
-
-              {/* 4. 수령 */}
               {(receipt || order.received_by) && (
-                <TimelineItem color="#00B894" icon="📦"
-                  title={`수령 완료${receipt ? ` · ${receipt.received_quantity}${order.unit}` : ''}`}
-                  who={receipt?.received_by || order.received_by}
-                  when={receipt?.received_at || order.received_at}
-                  note={receipt?.inventory_applied ? `✓ ${receipt.inventory_place || '재고'} 반영 (${receipt.inventory_applied_by})` : undefined} />
+                <TimelineItem color="#00B894" icon="📦" title={`수령 완료${receipt ? ` · ${receipt.received_quantity}${order.unit}` : ''}`} who={receipt?.received_by || order.received_by} when={receipt?.received_at || order.received_at} note={receipt?.inventory_applied ? `✓ ${receipt.inventory_place || '재고'} 반영 (${receipt.inventory_applied_by})` : undefined} />
               )}
-
-              {/* 5. 반품/교환 */}
               {receipt?.return_type && (
-                <TimelineItem
-                  color={receipt.return_type === 'return' ? '#E84393' : '#6C5CE7'}
-                  icon={receipt.return_type === 'return' ? '↩️' : '🔄'}
-                  title={receipt.return_type === 'return' ? '반품 처리' : '교환 처리'}
-                  who={receipt.return_by}
-                  when={receipt.return_at}
-                  note={receipt.return_memo || undefined} />
+                <TimelineItem color={receipt.return_type === 'return' ? '#E84393' : '#6C5CE7'} icon={receipt.return_type === 'return' ? '↩️' : '🔄'} title={receipt.return_type === 'return' ? '반품 처리' : '교환 처리'} who={receipt.return_by} when={receipt.return_at} note={receipt.return_memo || undefined} />
               )}
             </div>
 
-            {/* ── 수정 버튼들 ── */}
             {receipt && (
               <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                 <button onClick={() => setShowEditReceipt(true)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.2)', color: '#FF6B35', fontSize: 10, cursor: 'pointer' }}>✏️ 수령 수정</button>
@@ -1538,7 +1337,6 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, places,
               </div>
             )}
 
-            {/* ── 수정 이력 (발주 자체 수정) ── */}
             {logs.length > 0 && (
               <div style={{ marginTop: 14 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>🔍 수정 이력</div>
@@ -1575,43 +1373,20 @@ function OrderHistoryTab({ storeId, year, month }: { storeId: string; year: numb
     setLoading(true)
     const from = new Date(year, month - 1, 1).toISOString()
     const to = new Date(year, month, 1).toISOString()
-
-    // 해당 월의 orders 먼저 가져오기
-    const { data: monthOrders } = await supabase
-      .from('orders')
-      .select('id, item_name')
-      .eq('store_id', storeId)
-      .gte('ordered_at', from)
-      .lt('ordered_at', to)
-
+    const { data: monthOrders } = await supabase.from('orders').select('id, item_name').eq('store_id', storeId).gte('ordered_at', from).lt('ordered_at', to)
     if (!monthOrders || monthOrders.length === 0) { setLogs([]); setLoading(false); return }
-
     const orderIds = monthOrders.map(o => o.id)
     const orderMap = Object.fromEntries(monthOrders.map(o => [o.id, o.item_name]))
-
-    const { data } = await supabase
-      .from('order_receipt_logs')
-      .select('*')
-      .in('order_id', orderIds)
-      .order('changed_at', { ascending: false })
-
+    const { data } = await supabase.from('order_receipt_logs').select('*').in('order_id', orderIds).order('changed_at', { ascending: false })
     setLogs((data || []).map(l => ({ ...l, item_name: orderMap[l.order_id] || '(삭제된 품목)' })))
     setLoading(false)
   }
 
   const fieldColor: Record<string, string> = {
-    '품목명 수정': '#FF6B35',
-    '수량 수정': '#FF6B35',
-    '단위 수정': '#FF6B35',
-    '메모 수정': '#FF6B35',
-    '발주 삭제': '#E84393',
-    '주문 취소': '#6C5CE7',
-    '최초수령': '#00B894',
-    '수령수량수정': '#FF6B35',
-    '반품처리': '#E84393',
-    '교환처리': '#6C5CE7',
-    '반품 완료': '#E84393',
-    '교환 수령': '#6C5CE7',
+    '품목명 수정': '#FF6B35', '수량 수정': '#FF6B35', '단위 수정': '#FF6B35', '메모 수정': '#FF6B35',
+    '발주 삭제': '#E84393', '주문 취소': '#6C5CE7', '최초수령': '#00B894',
+    '수령수량수정': '#FF6B35', '반품처리': '#E84393', '교환처리': '#6C5CE7',
+    '반품 완료': '#E84393', '교환 수령': '#6C5CE7',
   }
 
   if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>불러오는 중...</div>
@@ -1625,13 +1400,9 @@ function OrderHistoryTab({ storeId, year, month }: { storeId: string; year: numb
           <div key={log.id} style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8ECF0', padding: '12px 14px', marginBottom: 8, borderLeft: `4px solid ${color}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                {/* 품목명 */}
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>{log.item_name}</div>
-                {/* 변경 내용 */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 5, background: `rgba(${color === '#FF6B35' ? '255,107,53' : color === '#E84393' ? '232,67,147' : color === '#6C5CE7' ? '108,92,231' : '0,184,148'},0.1)`, color, fontWeight: 700 }}>
-                    {log.field_name}
-                  </span>
+                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 5, background: `rgba(${color === '#FF6B35' ? '255,107,53' : color === '#E84393' ? '232,67,147' : color === '#6C5CE7' ? '108,92,231' : '0,184,148'},0.1)`, color, fontWeight: 700 }}>{log.field_name}</span>
                   {log.before_value && (
                     <span style={{ fontSize: 11, color: '#aaa' }}>
                       <span style={{ textDecoration: 'line-through' }}>{log.before_value}</span>
@@ -1639,19 +1410,13 @@ function OrderHistoryTab({ storeId, year, month }: { storeId: string; year: numb
                       <span style={{ color: '#1a1a2e', fontWeight: 600 }}>{log.after_value}</span>
                     </span>
                   )}
-                  {!log.before_value && log.after_value && (
-                    <span style={{ fontSize: 11, color: '#555' }}>{log.after_value}</span>
-                  )}
+                  {!log.before_value && log.after_value && <span style={{ fontSize: 11, color: '#555' }}>{log.after_value}</span>}
                 </div>
-                {/* 메모 */}
                 {log.memo && <div style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>📝 {log.memo}</div>}
               </div>
-              {/* 오른쪽: 처리자 + 시간 */}
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>{log.changed_by}</div>
-                <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>
-                  {new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}
-                </div>
+                <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>{new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
               </div>
             </div>
           </div>
@@ -1689,7 +1454,6 @@ function OrderStats({ storeId, year, month }: { storeId: string; year: number; m
   const received = orders.filter(o => o.status === 'received').length
   const pending = orders.filter(o => o.status === 'pending').length
   const issues = orders.filter(o => o.status === 'issue').length
-
   const card = { background: '#fff', borderRadius: 14, border: '1px solid #E8ECF0', padding: 14, marginBottom: 10 }
 
   return (
@@ -1704,10 +1468,7 @@ function OrderStats({ storeId, year, month }: { storeId: string; year: number; m
               </div>
             ))}
           </div>
-          {issues > 0 && <div style={{ ...card, background: 'rgba(232,67,147,0.05)', border: '1px solid rgba(232,67,147,0.2)', textAlign: 'center', marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: '#E84393', fontWeight: 700 }}>🚨 이슈 {issues}건</div>
-          </div>}
-
+          {issues > 0 && <div style={{ ...card, background: 'rgba(232,67,147,0.05)', border: '1px solid rgba(232,67,147,0.2)', textAlign: 'center', marginBottom: 10 }}><div style={{ fontSize: 11, color: '#E84393', fontWeight: 700 }}>🚨 이슈 {issues}건</div></div>}
           {Object.keys(bySupplier).length > 0 && (
             <div style={card}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>🏪 발주처별</div>
@@ -1758,6 +1519,7 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
   const supabase = createSupabaseBrowserClient()
   const [orders, setOrders] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
+  const [units, setUnits] = useState<string[]>(DEFAULT_UNITS)
   const [subTab, setSubTab] = useState<'pending' | 'requested' | 'all' | 'issues' | 'history' | 'stats'>('pending')
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [showQuickOrder, setShowQuickOrder] = useState(false)
@@ -1768,7 +1530,14 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
   const [selYear, setSelYear] = useState(now.getFullYear())
   const [selMonth, setSelMonth] = useState(now.getMonth() + 1)
 
-  useEffect(() => { if (storeId) { loadOrders(); loadSuppliers() } }, [storeId])
+  useEffect(() => { if (storeId) { loadOrders(); loadSuppliers(); loadUnits() } }, [storeId])
+
+  async function loadUnits() {
+    const { data } = await supabase.from('store_settings').select('value').eq('store_id', storeId).eq('key', 'custom_units').maybeSingle()
+    if (data?.value) {
+      try { setUnits(JSON.parse(data.value)) } catch {}
+    }
+  }
 
   async function loadOrders() {
     setLoading(true)
@@ -1781,58 +1550,39 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
     setSuppliers(data || [])
   }
 
-  // 날짜 피커 팝업 상태
   const [showPicker, setShowPicker] = useState(false)
   const [pickerYear, setPickerYear] = useState(now.getFullYear())
 
-  // 선택된 달 기준 필터 (전체/이슈/통계용)
   const filteredOrders = useMemo(() => orders.filter(o => {
     const d = new Date(o.ordered_at)
     return d.getFullYear() === selYear && d.getMonth() + 1 === selMonth
   }), [orders, selYear, selMonth])
 
-  // 미완료 목록: 미수령(requested/ordered) + 이슈 포함
-  const pendingOrders = useMemo(() => orders.filter(o =>
-    o.status === 'pending' || o.status === 'requested' || o.status === 'ordered' || o.status === 'issue'
-  ), [orders])
+  const pendingOrders = useMemo(() => orders.filter(o => o.status === 'pending' || o.status === 'requested' || o.status === 'ordered' || o.status === 'issue'), [orders])
   const requestedOrders = useMemo(() => orders.filter(o => o.status === 'requested'), [orders])
   const overdueOrders = useMemo(() => pendingOrders.filter(o => {
     const diff = (now.getTime() - new Date(o.ordered_at).getTime()) / (1000 * 60 * 60 * 24)
     return diff > 2
   }), [pendingOrders])
   const issueOrders = useMemo(() => orders.filter(o => o.status === 'issue'), [orders])
-  const monthlyIssueOrders = useMemo(() => filteredOrders.filter(o => o.status === 'issue'), [filteredOrders])
 
-  // 검색
   const [searchQ, setSearchQ] = useState('')
   const [highlightId, setHighlightId] = useState<string | null>(null)
 
   const searchResults = useMemo(() => {
     const q = searchQ.trim()
     if (!q) return []
-    return orders.filter(o =>
-      o.item_name?.includes(q) || o.ordered_by?.includes(q) || o.memo?.includes(q) || o.supplier_name?.includes(q)
-    ).slice(0, 20)
+    return orders.filter(o => o.item_name?.includes(q) || o.ordered_by?.includes(q) || o.memo?.includes(q) || o.supplier_name?.includes(q)).slice(0, 20)
   }, [searchQ, orders])
 
   function goToOrder(orderId: string) {
     const target = orders.find(o => o.id === orderId)
-    if (target) {
-      const d = new Date(target.ordered_at)
-      setSelYear(d.getFullYear())
-      setSelMonth(d.getMonth() + 1)
-    }
-    setSubTab('all')
-    setSearchQ('')
-    setHighlightId(orderId)
-    setTimeout(() => {
-      const el = document.querySelector(`[data-order-id="${orderId}"]`)
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 300)
+    if (target) { const d = new Date(target.ordered_at); setSelYear(d.getFullYear()); setSelMonth(d.getMonth() + 1) }
+    setSubTab('all'); setSearchQ(''); setHighlightId(orderId)
+    setTimeout(() => { const el = document.querySelector(`[data-order-id="${orderId}"]`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, 300)
     setTimeout(() => setHighlightId(null), 3000)
   }
 
-  // 날짜별 그룹핑
   function groupByDate(list: any[]) {
     const map: Record<string, any[]> = {}
     list.forEach(o => {
@@ -1841,11 +1591,9 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
       if (!map[key]) map[key] = []
       map[key].push(o)
     })
-    // 날짜 내 정렬: 요청됨 → 주문완료 → 수령완료 순, 같은 상태끼리는 created_at 오름차순
     const statusOrder: Record<string, number> = { requested: 0, ordered: 1, issue: 2, received: 3, returned: 4 }
     Object.values(map).forEach(items => items.sort((a, b) => {
-      const sa = statusOrder[a.status] ?? 5
-      const sb = statusOrder[b.status] ?? 5
+      const sa = statusOrder[a.status] ?? 5; const sb = statusOrder[b.status] ?? 5
       if (sa !== sb) return sa - sb
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     }))
@@ -1860,16 +1608,11 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
         {groups.map(([dateKey, items]) => {
           const d = new Date(dateKey)
           const label = `${d.getMonth()+1}월 ${d.getDate()}일`
-          const statusCounts = items.reduce((acc: any, o) => {
-            acc[o.status] = (acc[o.status] || 0) + 1; return acc
-          }, {})
+          const statusCounts = items.reduce((acc: any, o) => { acc[o.status] = (acc[o.status] || 0) + 1; return acc }, {})
           return (
             <div key={dateKey} style={{ marginBottom: 16 }}>
-              {/* 날짜 헤더 */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '4px 10px', borderRadius: 20, flexShrink: 0 }}>
-                  📅 {label}
-                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '4px 10px', borderRadius: 20, flexShrink: 0 }}>📅 {label}</div>
                 <div style={{ flex: 1, height: 1, background: '#E8ECF0' }} />
                 <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                   {statusCounts.requested > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(255,107,53,0.12)', color: '#FF6B35', fontWeight: 700 }}>요청 {statusCounts.requested}</span>}
@@ -1879,9 +1622,8 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
                   {statusCounts.issue > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>이슈 {statusCounts.issue}</span>}
                 </div>
               </div>
-              {/* 카드 그리드 */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 0 }}>
-                {items.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} suppliers={suppliers} inventoryItems={inventoryItems} places={places} highlighted={highlightId === o.id} onRefresh={loadOrders} />)}
+                {items.map(o => <OrderCard key={o.id} order={o} userName={userName} isEdit={isEdit} suppliers={suppliers} inventoryItems={inventoryItems} units={units} places={places} highlighted={highlightId === o.id} onRefresh={loadOrders} />)}
               </div>
             </div>
           )
@@ -1893,32 +1635,21 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
   const tabBtn = (key: typeof subTab, label: string, badgeCnt?: number) => (
     <button onClick={() => setSubTab(key)} style={{
       flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 11,
-      fontWeight: subTab === key ? 700 : 400,
-      background: subTab === key ? '#fff' : 'transparent',
-      color: subTab === key ? '#1a1a2e' : '#aaa',
-      boxShadow: subTab === key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-      position: 'relative' as const,
+      fontWeight: subTab === key ? 700 : 400, background: subTab === key ? '#fff' : 'transparent',
+      color: subTab === key ? '#1a1a2e' : '#aaa', boxShadow: subTab === key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', position: 'relative' as const,
     }}>
       {label}
-      {badgeCnt !== undefined && badgeCnt > 0 && (
-        <span style={{ marginLeft: 4, fontSize: 9, padding: '1px 5px', borderRadius: 8, background: '#E84393', color: '#fff', fontWeight: 700 }}>{badgeCnt}</span>
-      )}
+      {badgeCnt !== undefined && badgeCnt > 0 && <span style={{ marginLeft: 4, fontSize: 9, padding: '1px 5px', borderRadius: 8, background: '#E84393', color: '#fff', fontWeight: 700 }}>{badgeCnt}</span>}
     </button>
   )
 
   return (
     <div>
-      {showAddOrder && (
-        <AddOrderModal
-          storeId={storeId} userName={userName} suppliers={suppliers} inventoryItems={inventoryItems}
-          onClose={() => setShowAddOrder(false)} onSaved={loadOrders}
-        />
-      )}
+      {showAddOrder && <AddOrderModal storeId={storeId} userName={userName} suppliers={suppliers} inventoryItems={inventoryItems} units={units} onUnitsUpdate={setUnits} onClose={() => setShowAddOrder(false)} onSaved={loadOrders} />}
       {showSupplierMgr && <SupplierModal storeId={storeId} onClose={() => { setShowSupplierMgr(false); loadSuppliers() }} />}
-      {showQuickOrder && <QuickOrderModal storeId={storeId} userName={userName} suppliers={suppliers} inventoryItems={inventoryItems} onClose={() => setShowQuickOrder(false)} onSaved={loadOrders} />}
-      {showDirectIssue && <DirectIssueModal storeId={storeId} userName={userName} onClose={() => setShowDirectIssue(false)} onSaved={() => { loadOrders(); setSubTab('issues') }} />}
+      {showQuickOrder && <QuickOrderModal storeId={storeId} userName={userName} suppliers={suppliers} inventoryItems={inventoryItems} units={units} onClose={() => setShowQuickOrder(false)} onSaved={loadOrders} />}
+      {showDirectIssue && <DirectIssueModal storeId={storeId} userName={userName} units={units} onClose={() => setShowDirectIssue(false)} onSaved={() => { loadOrders(); setSubTab('issues') }} />}
 
-      {/* 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>📋 발주 관리</span>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -1929,7 +1660,6 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
         </div>
       </div>
 
-      {/* 탭 */}
       <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 10, gap: 1 }}>
         {tabBtn('pending', `미완료`, pendingOrders.length)}
         {tabBtn('requested', '주문요청', requestedOrders.length)}
@@ -1939,57 +1669,37 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
         {tabBtn('stats', '📊 통계')}
       </div>
 
-      {/* 년/월 팝업 피커 — 미수령/주문요청/이슈 탭 제외 */}
       {subTab !== 'pending' && subTab !== 'requested' && subTab !== 'issues' && (
         <div style={{ marginBottom: 12 }}>
-          <button
-            onClick={() => { setPickerYear(selYear); setShowPicker(true) }}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#1a1a2e', fontSize: 14, fontWeight: 700, cursor: 'pointer', width: '100%', justifyContent: 'center' }}
-          >
+          <button onClick={() => { setPickerYear(selYear); setShowPicker(true) }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#1a1a2e', fontSize: 14, fontWeight: 700, cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
             📅 {selYear}년 {selMonth}월 ▾
           </button>
-
           {showPicker && (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-              onClick={() => setShowPicker(false)}>
-              <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}
-                onClick={e => e.stopPropagation()}>
-
-                {/* 연도 네비게이션 */}
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setShowPicker(false)}>
+              <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                   <button onClick={() => setPickerYear(y => y - 1)} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 16, color: '#888' }}>‹</button>
                   <span style={{ fontSize: 17, fontWeight: 700, color: '#1a1a2e' }}>{pickerYear}년</span>
                   <button onClick={() => setPickerYear(y => y + 1)} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', fontSize: 16, color: '#888' }}>›</button>
                 </div>
-
-                {/* 연도 빠른 선택 */}
                 <div style={{ display: 'flex', gap: 6, marginBottom: 16, justifyContent: 'center' }}>
                   {[pickerYear - 2, pickerYear - 1, pickerYear, pickerYear + 1, pickerYear + 2].map(y => (
-                    <button key={y} onClick={() => setPickerYear(y)}
-                      style={{ padding: '5px 8px', borderRadius: 8, border: y === pickerYear ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: y === pickerYear ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: y === pickerYear ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: y === pickerYear ? 700 : 400, cursor: 'pointer' }}>
-                      {y}
-                    </button>
+                    <button key={y} onClick={() => setPickerYear(y)} style={{ padding: '5px 8px', borderRadius: 8, border: y === pickerYear ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: y === pickerYear ? 'rgba(108,92,231,0.1)' : '#F4F6F9', color: y === pickerYear ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: y === pickerYear ? 700 : 400, cursor: 'pointer' }}>{y}</button>
                   ))}
                 </div>
-
-                {/* 월 그리드 */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
                     const isSelected = pickerYear === selYear && m === selMonth
                     return (
-                      <button key={m}
-                        onClick={() => { setSelYear(pickerYear); setSelMonth(m); setShowPicker(false) }}
+                      <button key={m} onClick={() => { setSelYear(pickerYear); setSelMonth(m); setShowPicker(false) }}
                         style={{ padding: '12px 0', borderRadius: 12, border: isSelected ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: isSelected ? 'linear-gradient(135deg,#6C5CE7,#a29bfe)' : '#F8F9FB', color: isSelected ? '#fff' : '#1a1a2e', fontSize: 14, fontWeight: isSelected ? 700 : 400, cursor: 'pointer' }}>
                         {m}월
                       </button>
                     )
                   })}
                 </div>
-
-                <button onClick={() => setShowPicker(false)}
-                  style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: '1px solid #E8ECF0', background: '#F4F6F9', color: '#888', fontSize: 13, cursor: 'pointer' }}>
-                  닫기
-                </button>
+                <button onClick={() => setShowPicker(false)} style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: '1px solid #E8ECF0', background: '#F4F6F9', color: '#888', fontSize: 13, cursor: 'pointer' }}>닫기</button>
               </div>
             </div>
           )}
@@ -2002,87 +1712,47 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
         <>
           {subTab === 'pending' && (
             <>
-              {overdueOrders.length > 0 && (
-                <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', marginBottom: 8, fontSize: 11, color: '#E84393', fontWeight: 600 }}>
-                  🔴 2일 이상 미수령 {overdueOrders.length}건 있어요!
-                </div>
-              )}
-              {issueOrders.length > 0 && (
-                <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.06)', border: '1px solid rgba(232,67,147,0.15)', marginBottom: 12, fontSize: 11, color: '#E84393', fontWeight: 600 }}>
-                  ⚠️ 이슈 발주 {issueOrders.length}건 포함
-                </div>
-              )}
-              {pendingOrders.length === 0
-                ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>🎉 미완료 발주가 없어요!</div>
-                : <DateGroupedList list={pendingOrders} />
-              }
+              {overdueOrders.length > 0 && <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', marginBottom: 8, fontSize: 11, color: '#E84393', fontWeight: 600 }}>🔴 2일 이상 미수령 {overdueOrders.length}건 있어요!</div>}
+              {issueOrders.length > 0 && <div style={{ padding: '8px 12px', borderRadius: 10, background: 'rgba(232,67,147,0.06)', border: '1px solid rgba(232,67,147,0.15)', marginBottom: 12, fontSize: 11, color: '#E84393', fontWeight: 600 }}>⚠️ 이슈 발주 {issueOrders.length}건 포함</div>}
+              {pendingOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>🎉 미완료 발주가 없어요!</div> : <DateGroupedList list={pendingOrders} />}
             </>
           )}
-          {subTab === 'requested' && (
-            requestedOrders.length === 0
-              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>📋 주문요청 대기 중인 발주가 없어요</div>
-              : <DateGroupedList list={requestedOrders} />
-          )}
+          {subTab === 'requested' && (requestedOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>📋 주문요청 대기 중인 발주가 없어요</div> : <DateGroupedList list={requestedOrders} />)}
           {subTab === 'all' && (
             <>
-              {/* 검색창 */}
               <div style={{ position: 'relative', marginBottom: 12 }}>
                 <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#aaa' }}>🔍</span>
-                <input
-                  value={searchQ}
-                  onChange={e => setSearchQ(e.target.value)}
-                  placeholder="품목명, 발주자, 메모 검색..."
-                  style={{ width: '100%', padding: '9px 32px 9px 32px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, color: '#1a1a2e' }}
-                />
-                {searchQ && (
-                  <button onClick={() => setSearchQ('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>
-                )}
-                {/* 검색 결과 드롭다운 */}
+                <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="품목명, 발주자, 메모 검색..."
+                  style={{ width: '100%', padding: '9px 32px 9px 32px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, color: '#1a1a2e' }} />
+                {searchQ && <button onClick={() => setSearchQ('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>}
                 {searchQ.trim() && searchResults.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', borderRadius: 12, border: '1px solid #E0E4E8', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', marginTop: 4, maxHeight: 320, overflowY: 'auto' }}>
                     {searchResults.map(o => {
-                      const cfg = STATUS_CONFIG[o.status]
-                      const d = new Date(o.ordered_at)
+                      const cfg = STATUS_CONFIG[o.status]; const d = new Date(o.ordered_at)
                       return (
                         <div key={o.id} onClick={() => goToOrder(o.id)}
                           style={{ padding: '10px 14px', borderBottom: '1px solid #F4F6F9', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}
-                          onMouseEnter={e => (e.currentTarget.style.background = '#F8F9FB')}
-                          onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-                        >
+                          onMouseEnter={e => (e.currentTarget.style.background = '#F8F9FB')} onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
                           <div style={{ width: 8, height: 8, borderRadius: '50%', background: cfg?.color || '#aaa', flexShrink: 0 }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 2 }}>{o.item_name}</div>
-                            <div style={{ fontSize: 11, color: '#aaa' }}>
-                              {d.getFullYear()}년 {d.getMonth()+1}월 {d.getDate()}일 · {o.ordered_by} · {o.quantity}{o.unit}
-                            </div>
+                            <div style={{ fontSize: 11, color: '#aaa' }}>{d.getFullYear()}년 {d.getMonth()+1}월 {d.getDate()}일 · {o.ordered_by} · {o.quantity}{o.unit}</div>
                           </div>
-                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: cfg?.color + '18' || '#F4F6F9', color: cfg?.color || '#888', fontWeight: 700, flexShrink: 0 }}>
-                            {cfg?.label || o.status}
-                          </span>
+                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: cfg?.color + '18' || '#F4F6F9', color: cfg?.color || '#888', fontWeight: 700, flexShrink: 0 }}>{cfg?.label || o.status}</span>
                         </div>
                       )
                     })}
-                    {searchResults.length === 20 && (
-                      <div style={{ padding: '8px 14px', fontSize: 11, color: '#bbb', textAlign: 'center' }}>상위 20건만 표시됩니다</div>
-                    )}
+                    {searchResults.length === 20 && <div style={{ padding: '8px 14px', fontSize: 11, color: '#bbb', textAlign: 'center' }}>상위 20건만 표시됩니다</div>}
                   </div>
                 )}
                 {searchQ.trim() && searchResults.length === 0 && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', borderRadius: 12, border: '1px solid #E0E4E8', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', marginTop: 4, padding: '16px', textAlign: 'center', fontSize: 13, color: '#bbb' }}>
-                    검색 결과가 없어요
-                  </div>
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', borderRadius: 12, border: '1px solid #E0E4E8', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', marginTop: 4, padding: '16px', textAlign: 'center', fontSize: 13, color: '#bbb' }}>검색 결과가 없어요</div>
                 )}
               </div>
-              {filteredOrders.length === 0
-                ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div>
-                : <DateGroupedList list={filteredOrders} />}
+              {filteredOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div> : <DateGroupedList list={filteredOrders} />}
             </>
           )}
-          {subTab === 'issues' && (
-            issueOrders.length === 0
-              ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>✅ 이슈 내역이 없어요</div>
-              : <DateGroupedList list={issueOrders} />
-          )}
+          {subTab === 'issues' && (issueOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>✅ 이슈 내역이 없어요</div> : <DateGroupedList list={issueOrders} />)}
           {subTab === 'history' && <OrderHistoryTab storeId={storeId} year={selYear} month={selMonth} />}
           {subTab === 'stats' && <OrderStats storeId={storeId} year={selYear} month={selMonth} />}
         </>
