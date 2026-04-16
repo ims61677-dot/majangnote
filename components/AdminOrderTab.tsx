@@ -242,6 +242,14 @@ function AdminEditOrderModal({ order, suppliers, units, onClose, onSaved }: { or
   const [supplierId, setSupplierId] = useState(order.supplier_id || '')
   const [supplierName, setSupplierName] = useState(order.supplier_name || '')
   const [status, setStatus] = useState(order.status)
+  // ─── 결산 연동 필드 ───
+  const [amount, setAmount] = useState<number | ''>(order.settlement_amount || '')
+  const [unitPrice, setUnitPrice] = useState<number | ''>(order.settlement_unit_price || '')
+  const [priceUnit, setPriceUnit] = useState(order.price_unit || units[0] || 'ea')
+  const [hasDelivery, setHasDelivery] = useState(!!(order.delivery_fee && order.delivery_fee > 0))
+  const [deliveryFee, setDeliveryFee] = useState<number | ''>(order.delivery_fee || '')
+  const [paymentMethod, setPaymentMethod] = useState(order.payment_method || '')
+  const [showSettlement, setShowSettlement] = useState(!!(order.settlement_amount || order.payment_method))
 
   async function handleSubmit() {
     if (!itemName.trim() || !quantity) return
@@ -251,6 +259,11 @@ function AdminEditOrderModal({ order, suppliers, units, onClose, onSaved }: { or
       item_name: itemName.trim(), quantity: Number(quantity), unit,
       memo: memo.trim() || null, status,
       supplier_id: supplierId || null, supplier_name: finalSupplierName,
+      settlement_amount: amount !== '' ? Number(amount) : null,
+      settlement_unit_price: unitPrice !== '' ? Number(unitPrice) : null,
+      price_unit: unitPrice !== '' ? priceUnit : null,
+      delivery_fee: hasDelivery && deliveryFee !== '' ? Number(deliveryFee) : null,
+      payment_method: paymentMethod || null,
     }).eq('id', order.id)
     onSaved(); onClose()
   }
@@ -263,7 +276,7 @@ function AdminEditOrderModal({ order, suppliers, units, onClose, onSaved }: { or
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 380 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 380, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>✏️ 발주 수정 (관리자)</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
@@ -309,10 +322,63 @@ function AdminEditOrderModal({ order, suppliers, units, onClose, onSaved }: { or
             ))}
           </div>
         </div>
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모</div>
           <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="비고 메모" style={inp} />
         </div>
+
+        {/* 결산 정보 */}
+        <button onClick={() => setShowSettlement(v => !v)}
+          style={{ width: '100%', padding: '10px 0', borderRadius: 10, border: `1px dashed ${showSettlement ? 'rgba(0,184,148,0.4)' : '#E0E4E8'}`, background: showSettlement ? 'rgba(0,184,148,0.04)' : 'transparent', color: showSettlement ? '#00B894' : '#aaa', fontSize: 12, fontWeight: 600, cursor: 'pointer', marginBottom: showSettlement ? 12 : 16 }}>
+          {showSettlement ? '▲ 결산 정보 닫기' : '💹 결산 정보 수정하기'}
+        </button>
+        {showSettlement && (
+          <div style={{ background: 'rgba(0,184,148,0.04)', borderRadius: 14, border: '1px solid rgba(0,184,148,0.2)', padding: 14, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#00B894', marginBottom: 12 }}>💹 결산 연동 정보</div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>구매 금액</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input type="number" value={amount} onChange={e => setAmount(e.target.value === '' ? '' : Number(e.target.value))} placeholder="실제 결제 금액" style={inp} />
+                <span style={{ fontSize: 11, color: '#aaa', flexShrink: 0 }}>원</span>
+              </div>
+              {amount !== '' && Number(amount) > 0 && <div style={{ fontSize: 11, color: '#00B894', marginTop: 3, fontWeight: 600 }}>{Number(amount).toLocaleString()}원</div>}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단가 (통계용)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6 }}>
+                <input type="number" value={unitPrice} onChange={e => setUnitPrice(e.target.value === '' ? '' : Number(e.target.value))} placeholder="개당 가격" style={inp} />
+                <select value={priceUnit} onChange={e => setPriceUnit(e.target.value)} style={{ ...inp, width: 'auto', minWidth: 70 }}>
+                  {units.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>배송비</div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: hasDelivery ? 8 : 0 }}>
+                <button onClick={() => setHasDelivery(false)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: !hasDelivery ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: !hasDelivery ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: !hasDelivery ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: !hasDelivery ? 700 : 400, cursor: 'pointer' }}>없음</button>
+                <button onClick={() => setHasDelivery(true)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: hasDelivery ? '2px solid #FF6B35' : '1px solid #E8ECF0', background: hasDelivery ? 'rgba(255,107,53,0.1)' : '#F8F9FB', color: hasDelivery ? '#FF6B35' : '#888', fontSize: 12, fontWeight: hasDelivery ? 700 : 400, cursor: 'pointer' }}>있음</button>
+              </div>
+              {hasDelivery && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="number" value={deliveryFee} onChange={e => setDeliveryFee(e.target.value === '' ? '' : Number(e.target.value))} placeholder="배송비 금액" style={inp} />
+                  <span style={{ fontSize: 11, color: '#aaa', flexShrink: 0 }}>원</span>
+                </div>
+              )}
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>결제방법</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {DEFAULT_PAYMENT_METHODS.map(m => (
+                  <button key={m} onClick={() => setPaymentMethod(paymentMethod === m ? '' : m)}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: paymentMethod === m ? `2px solid ${PAYMENT_COLORS[m] || '#6C5CE7'}` : '1px solid #E8ECF0', background: paymentMethod === m ? `${PAYMENT_COLORS[m] || '#6C5CE7'}18` : '#F8F9FB', color: paymentMethod === m ? PAYMENT_COLORS[m] || '#6C5CE7' : '#888', fontSize: 12, fontWeight: paymentMethod === m ? 700 : 400, cursor: 'pointer' }}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={handleDelete} style={{ padding: '11px 14px', borderRadius: 10, background: 'rgba(232,67,147,0.08)', border: '1px solid rgba(232,67,147,0.2)', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>🗑 삭제</button>
           <button onClick={handleSubmit} style={{ flex: 1, padding: '11px 0', borderRadius: 10, background: 'linear-gradient(135deg,#FF6B35,#E84393)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>수정 완료</button>
