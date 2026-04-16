@@ -759,14 +759,22 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
         {groups.map(([dateKey, items]) => {
           const d = new Date(dateKey)
           const label = `${d.getMonth()+1}월 ${d.getDate()}일`
+          const statusCounts = items.reduce((acc: any, o: any) => { acc[o.status] = (acc[o.status] || 0) + 1; return acc }, {})
           return (
-            <div key={dateKey} style={{ marginBottom: 14 }}>
+            <div key={dateKey} style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '3px 10px', borderRadius: 20 }}>📅 {label}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', background: 'rgba(108,92,231,0.1)', padding: '4px 10px', borderRadius: 20, flexShrink: 0 }}>📅 {label}</div>
                 <div style={{ flex: 1, height: 1, background: '#E8ECF0' }} />
-                <span style={{ fontSize: 10, color: '#aaa' }}>{items.length}건</span>
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                  {(statusCounts.requested||0) > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(255,107,53,0.12)', color: '#FF6B35', fontWeight: 700 }}>요청 {statusCounts.requested}</span>}
+                  {(statusCounts.ordered||0) > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(108,92,231,0.12)', color: '#6C5CE7', fontWeight: 700 }}>주문 {statusCounts.ordered}</span>}
+                  {(statusCounts.received||0) > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(0,184,148,0.1)', color: '#00B894', fontWeight: 700 }}>수령 {statusCounts.received}</span>}
+                  {(statusCounts.issue||0) > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>이슈 {statusCounts.issue}</span>}
+                </div>
               </div>
-              {items.map(o => <AdminOrderCard key={o.id} order={o} suppliers={suppliers} units={units} onRefresh={loadAll} />)}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+                {items.map((o: any) => <AdminOrderCard key={o.id} order={o} suppliers={suppliers} units={units} onRefresh={loadAll} />)}
+              </div>
             </div>
           )
         })}
