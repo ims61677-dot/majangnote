@@ -422,18 +422,156 @@ function DirectIssueModal({ storeId, units, onClose, onSaved }: { storeId: strin
   )
 }
 
+// ─── 관리자 주문 확인 모달 ───
+function AdminConfirmOrderModal({ order, suppliers, units, onClose, onSaved }: {
+  order: any; suppliers: any[]; units: string[]; onClose: () => void; onSaved: () => void
+}) {
+  const supabase = createSupabaseBrowserClient()
+  const [supplierId, setSupplierId] = useState(order.supplier_id || '')
+  const [supplierName, setSupplierName] = useState(order.supplier_name || '')
+  const [memo, setMemo] = useState('')
+  // ─── 결산 연동 필드 (선택) ───
+  const [amount, setAmount] = useState<number | ''>('')
+  const [unitPrice, setUnitPrice] = useState<number | ''>('')
+  const [priceUnit, setPriceUnit] = useState(units[0] || 'ea')
+  const [hasDelivery, setHasDelivery] = useState(false)
+  const [deliveryFee, setDeliveryFee] = useState<number | ''>('')
+  const [paymentMethod, setPaymentMethod] = useState('')
+  const [showSettlement, setShowSettlement] = useState(false)
+
+  async function handleSubmit() {
+    const selSupplier = suppliers.find(s => s.id === supplierId)
+    const finalSupplierName = selSupplier?.name || supplierName.trim() || null
+    await supabase.from('orders').update({
+      status: 'ordered',
+      confirmed_by: '관리자',
+      confirmed_at: new Date().toISOString(),
+      supplier_id: supplierId || null,
+      supplier_name: finalSupplierName,
+      memo: memo.trim() ? (order.memo ? order.memo + ' / ' + memo.trim() : memo.trim()) : order.memo,
+      ...(amount !== '' ? { settlement_amount: Number(amount) } : {}),
+      ...(unitPrice !== '' ? { settlement_unit_price: Number(unitPrice), price_unit: priceUnit } : {}),
+      ...(hasDelivery && deliveryFee !== '' ? { delivery_fee: Number(deliveryFee) } : {}),
+      ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+    }).eq('id', order.id)
+    onSaved(); onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 380, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>✅ 주문 확인 (관리자)</div>
+        <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} · {order.quantity}{order.unit}</div>
+        <div style={{ background: '#F8F9FB', borderRadius: 10, padding: '10px 12px', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>📋 요청 정보</div>
+          <div style={{ fontSize: 12, color: '#1a1a2e' }}>{order.ordered_by} · {new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
+        </div>
+
+        {/* 발주처 */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>발주처</div>
+          {suppliers.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+              <button onClick={() => { setSupplierId(''); setSupplierName('') }}
+                style={{ padding: '4px 10px', borderRadius: 16, border: !supplierId && !supplierName ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: !supplierId && !supplierName ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: !supplierId && !supplierName ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>미지정</button>
+              {suppliers.map(s => (
+                <button key={s.id} onClick={() => { setSupplierId(s.id); setSupplierName('') }}
+                  style={{ padding: '4px 10px', borderRadius: 16, border: supplierId === s.id ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: supplierId === s.id ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: supplierId === s.id ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>{s.name}</button>
+              ))}
+            </div>
+          )}
+          <input value={supplierId ? '' : supplierName} onChange={e => { setSupplierName(e.target.value); setSupplierId('') }} placeholder="직접 입력" style={{ ...inp, fontSize: 12 }} disabled={!!supplierId} />
+        </div>
+
+        {/* 메모 */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>메모 (선택)</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 배송 3-4일 예정" style={inp} />
+        </div>
+
+        {/* 결산 연동 토글 */}
+        <button onClick={() => setShowSettlement(v => !v)}
+          style={{ width: '100%', padding: '10px 0', borderRadius: 10, border: `1px dashed ${showSettlement ? 'rgba(0,184,148,0.4)' : '#E0E4E8'}`, background: showSettlement ? 'rgba(0,184,148,0.04)' : 'transparent', color: showSettlement ? '#00B894' : '#aaa', fontSize: 12, fontWeight: 600, cursor: 'pointer', marginBottom: showSettlement ? 12 : 16 }}>
+          {showSettlement ? '▲ 결산 정보 닫기' : '💹 결산 정보 입력하기 (선택)'}
+        </button>
+
+        {/* 결산 연동 필드 */}
+        {showSettlement && (
+          <div style={{ background: 'rgba(0,184,148,0.04)', borderRadius: 14, border: '1px solid rgba(0,184,148,0.2)', padding: 14, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#00B894', marginBottom: 12 }}>💹 결산 연동 정보 <span style={{ fontWeight: 400, color: '#aaa' }}>(미입력 시 결산에서 직접 입력)</span></div>
+
+            {/* 구매 금액 */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>구매 금액</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input type="number" value={amount} onChange={e => setAmount(e.target.value === '' ? '' : Number(e.target.value))} placeholder="실제 결제 금액" style={inp} />
+                <span style={{ fontSize: 11, color: '#aaa', flexShrink: 0 }}>원</span>
+              </div>
+              {amount !== '' && Number(amount) > 0 && <div style={{ fontSize: 11, color: '#00B894', marginTop: 3, fontWeight: 600 }}>{Number(amount).toLocaleString()}원</div>}
+            </div>
+
+            {/* 단가 + 단위 */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>단가 (통계용)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6 }}>
+                <input type="number" value={unitPrice} onChange={e => setUnitPrice(e.target.value === '' ? '' : Number(e.target.value))} placeholder="개당 가격" style={inp} />
+                <select value={priceUnit} onChange={e => setPriceUnit(e.target.value)} style={{ ...inp, width: 'auto', minWidth: 70 }}>
+                  {units.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* 배송비 */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>배송비</div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: hasDelivery ? 8 : 0 }}>
+                <button onClick={() => setHasDelivery(false)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: !hasDelivery ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: !hasDelivery ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: !hasDelivery ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: !hasDelivery ? 700 : 400, cursor: 'pointer' }}>없음</button>
+                <button onClick={() => setHasDelivery(true)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: hasDelivery ? '2px solid #FF6B35' : '1px solid #E8ECF0', background: hasDelivery ? 'rgba(255,107,53,0.1)' : '#F8F9FB', color: hasDelivery ? '#FF6B35' : '#888', fontSize: 12, fontWeight: hasDelivery ? 700 : 400, cursor: 'pointer' }}>있음</button>
+              </div>
+              {hasDelivery && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="number" value={deliveryFee} onChange={e => setDeliveryFee(e.target.value === '' ? '' : Number(e.target.value))} placeholder="배송비 금액" style={inp} />
+                  <span style={{ fontSize: 11, color: '#aaa', flexShrink: 0 }}>원</span>
+                </div>
+              )}
+            </div>
+
+            {/* 결제방법 */}
+            <div>
+              <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>결제방법</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {DEFAULT_PAYMENT_METHODS.map(m => (
+                  <button key={m} onClick={() => setPaymentMethod(paymentMethod === m ? '' : m)}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: paymentMethod === m ? `2px solid ${PAYMENT_COLORS[m] || '#6C5CE7'}` : '1px solid #E8ECF0', background: paymentMethod === m ? `${PAYMENT_COLORS[m] || '#6C5CE7'}18` : '#F8F9FB', color: paymentMethod === m ? PAYMENT_COLORS[m] || '#6C5CE7' : '#888', fontSize: 12, fontWeight: paymentMethod === m ? 700 : 400, cursor: 'pointer' }}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} style={{ flex: 1, padding: '12px 0', borderRadius: 10, background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>주문 완료 처리</button>
+          <button onClick={onClose} style={{ padding: '12px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── 관리자 발주 카드 ───
 function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; suppliers: any[]; units: string[]; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [expanded, setExpanded] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const store = STORES.find(s => s.id === order.store_id)
   const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending
 
   async function handleStatusChange(newStatus: string) {
     await supabase.from('orders').update({
       status: newStatus,
-      ...(newStatus === 'ordered' ? { confirmed_at: new Date().toISOString(), confirmed_by: '관리자' } : {}),
       ...(newStatus === 'received' ? { received_at: new Date().toISOString(), received_by: '관리자' } : {}),
     }).eq('id', order.id)
     onRefresh()
@@ -442,6 +580,7 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
   return (
     <>
       {showEdit && <AdminEditOrderModal order={order} suppliers={suppliers} units={units} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
+      {showConfirm && <AdminConfirmOrderModal order={order} suppliers={suppliers} units={units} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
       <div style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: '0 1px 5px rgba(0,0,0,0.05)' }}>
         <div style={{ background: cfg.headerBg, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -471,7 +610,7 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
 
         {order.status === 'requested' && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
-            <button onClick={() => handleStatusChange('ordered')} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>✅ 주문완료</button>
+            <button onClick={() => setShowConfirm(true)} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>✅ 주문완료</button>
             <button onClick={() => handleStatusChange('received')} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', borderLeft: '1px solid rgba(255,255,255,0.3)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomRightRadius: 10 }}>📦 수령완료</button>
           </div>
         )}
