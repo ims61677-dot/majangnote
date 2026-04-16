@@ -692,7 +692,7 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [units, setUnits] = useState<string[]>(DEFAULT_UNITS)
   const [selStore, setSelStore] = useState<string | 'all'>('all')
-  const [subTab, setSubTab] = useState<'pending' | 'all' | 'issues' | 'stats'>('pending')
+  const [subTab, setSubTab] = useState<'pending' | 'requested' | 'all' | 'issues' | 'stats'>('pending')
   const [showAddOrder, setShowAddOrder] = useState(false)
   const [showDirectIssue, setShowDirectIssue] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -737,6 +737,7 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
   }, [allOrders, selStore, subTab, selYear, selMonth])
 
   const pendingOrders = useMemo(() => filteredOrders.filter(o => ['requested', 'ordered', 'pending', 'issue'].includes(o.status)), [filteredOrders])
+  const requestedOrders = useMemo(() => allOrders.filter(o => o.status === 'requested' && (selStore === 'all' || o.store_id === selStore)), [allOrders, selStore])
   const issueOrders = useMemo(() => allOrders.filter(o => o.status === 'issue' && (selStore === 'all' || o.store_id === selStore)), [allOrders, selStore])
 
   function groupByDate(list: any[]) {
@@ -817,6 +818,7 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
       {/* 서브 탭 */}
       <div style={{ display: 'flex', background: '#F4F6F9', borderRadius: 10, padding: 3, marginBottom: 10, gap: 1 }}>
         {tabBtn('pending', `미완료`, pendingOrders.length)}
+        {tabBtn('requested', '주문요청', requestedOrders.length)}
         {tabBtn('all', '전체내역')}
         {tabBtn('issues', '이슈', issueOrders.length)}
         {tabBtn('stats', '📊 통계')}
@@ -859,6 +861,7 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
       ) : (
         <>
           {subTab === 'pending' && (pendingOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>🎉 미완료 발주가 없어요!</div> : <DateGroupedList list={pendingOrders} />)}
+          {subTab === 'requested' && (requestedOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>📋 주문요청 대기 중인 발주가 없어요</div> : <DateGroupedList list={requestedOrders} />)}
           {subTab === 'all' && (filteredOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div> : <DateGroupedList list={filteredOrders} />)}
           {subTab === 'issues' && (issueOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>✅ 이슈가 없어요</div> : <DateGroupedList list={issueOrders} />)}
           {subTab === 'stats' && <AdminStats orders={selStore === 'all' ? allOrders : allOrders.filter(o => o.store_id === selStore)} />}
