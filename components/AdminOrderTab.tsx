@@ -543,7 +543,7 @@ function AdminStats({ orders }: { orders: any[] }) {
 // ═══════════════════════════════════════
 // 메인 AdminOrderTab
 // ═══════════════════════════════════════
-export default function AdminOrderTab() {
+export default function AdminOrderTab({ userName, places }: { userName?: string; places?: any[] } = {}) {
   const supabase = createSupabaseBrowserClient()
   const [allOrders, setAllOrders] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
