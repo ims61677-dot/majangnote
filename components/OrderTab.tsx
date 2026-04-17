@@ -1566,6 +1566,7 @@ function OrderStats({ storeId, year, month, userRole }: { storeId: string; year:
   const [allOrders, setAllOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [searchQ, setSearchQ] = useState('')
   const isOwner = userRole === 'owner'
 
   useEffect(() => { load() }, [year, month])
@@ -1626,6 +1627,16 @@ function OrderStats({ storeId, year, month, userRole }: { storeId: string; year:
   const received = monthOrders.filter(o => o.status === 'received').length
   const issues = monthOrders.filter(o => o.status === 'issue').length
   const card = { background: '#fff', borderRadius: 14, border: '1px solid #E8ECF0', padding: 14, marginBottom: 10 }
+
+  const filteredMonthStats = useMemo(() => {
+    if (!searchQ.trim()) return monthItemStats
+    return monthItemStats.filter(s => s.name.includes(searchQ.trim()))
+  }, [monthItemStats, searchQ])
+
+  const filteredItemStats = useMemo(() => {
+    if (!searchQ.trim()) return itemStats
+    return itemStats.filter(s => s.name.includes(searchQ.trim()))
+  }, [itemStats, searchQ])
 
   // ── 엑셀 내보내기 ──
   async function exportExcel() {
@@ -1822,11 +1833,19 @@ function OrderStats({ storeId, year, month, userRole }: { storeId: string; year:
         </button>
       )}
 
+      {/* 검색 */}
+      <div style={{ position: 'relative', marginBottom: 14 }}>
+        <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#aaa' }}>🔍</span>
+        <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="품목명 검색..."
+          style={{ width: '100%', padding: '9px 32px 9px 32px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, color: '#1a1a2e' }} />
+        {searchQ && <button onClick={() => setSearchQ('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>}
+      </div>
+
       {/* 이번 달 품목별 */}
-      {monthItemStats.length > 0 && (
+      {filteredMonthStats.length > 0 && (
         <div style={card}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📦 {month}월 품목별 발주 현황</div>
-          {monthItemStats.map((s, i) => (
+          {filteredMonthStats.map((s, i) => (
             <div key={s.name} style={{ padding: '10px 0', borderBottom: '1px solid #F4F6F9' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1839,7 +1858,6 @@ function OrderStats({ storeId, year, month, userRole }: { storeId: string; year:
                   {s.totalSpend > 0 && <span style={{ fontSize: 11, color: '#FF6B35', fontWeight: 700 }}>{s.totalSpend.toLocaleString()}원</span>}
                 </div>
               </div>
-              {/* 주기 정보 */}
               {(() => {
                 const allStat = itemStats.find(a => a.name === s.name)
                 if (!allStat || allStat.avgCycle === 0) return null
@@ -1857,19 +1875,20 @@ function OrderStats({ storeId, year, month, userRole }: { storeId: string; year:
               })()}
             </div>
           ))}
+          {filteredMonthStats.length === 0 && searchQ && <div style={{ textAlign: 'center', padding: 16, color: '#bbb', fontSize: 13 }}>검색 결과가 없어요</div>}
         </div>
       )}
 
       {/* 전체 기간 자주 시키는 것 TOP 10 */}
-      {itemStats.length > 0 && (
+      {filteredItemStats.length > 0 && (
         <div style={card}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>🏆 전체 기간 자주 발주한 품목 TOP 10</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>🏆 전체 기간 자주 발주한 품목 {searchQ ? `"${searchQ}" 검색결과` : 'TOP 10'}</div>
           <div style={{ fontSize: 10, color: '#aaa', marginBottom: 12 }}>전체 기간 기준</div>
-          {itemStats.slice(0, 10).map((s, i) => (
+          {(searchQ ? filteredItemStats : filteredItemStats.slice(0, 10)).map((s, i) => (
             <div key={s.name} style={{ padding: '8px 0', borderBottom: '1px solid #F4F6F9' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: i < 3 ? '#FF6B35' : '#ccc', minWidth: 20 }}>#{i + 1}</span>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: i < 3 && !searchQ ? '#FF6B35' : '#ccc', minWidth: 20 }}>#{i + 1}</span>
                   <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{s.name}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -1887,6 +1906,7 @@ function OrderStats({ storeId, year, month, userRole }: { storeId: string; year:
               )}
             </div>
           ))}
+          {filteredItemStats.length === 0 && searchQ && <div style={{ textAlign: 'center', padding: 16, color: '#bbb', fontSize: 13 }}>검색 결과가 없어요</div>}
         </div>
       )}
 
