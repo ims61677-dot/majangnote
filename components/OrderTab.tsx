@@ -994,7 +994,6 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, units, 
   type QuickItem = { id: number; name: string; qty: number | ''; unit: string; suggestion: any[]; linkedItemId?: string; linkedUnit?: string; unlinkUnit?: boolean }
   const newRow = (id: number): QuickItem => ({ id, name: '', qty: '', unit: units[0] || 'ea', suggestion: [] })
   const [rows, setRows] = useState<QuickItem[]>([newRow(1), newRow(2), newRow(3)])
-  const [supplierId, setSupplierId] = useState('')
   const [saving, setSaving] = useState(false)
   let nextId = rows.length + 1
 
@@ -1018,12 +1017,10 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, units, 
     const validRows = rows.filter(r => r.name.trim() && r.qty !== '' && Number(r.qty) > 0)
     if (validRows.length === 0) return
     setSaving(true)
-    const supplier = suppliers.find(s => s.id === supplierId)
     const now = new Date().toISOString()
     await Promise.all(validRows.map(r =>
       supabase.from('orders').insert({
         store_id: storeId, item_name: r.name.trim(), quantity: Number(r.qty), unit: r.unit,
-        supplier_id: supplierId || null, supplier_name: supplier?.name || null,
         ordered_by: userName, ordered_at: now, status: 'requested',
       })
     ))
@@ -1041,24 +1038,6 @@ function QuickOrderModal({ storeId, userName, suppliers, inventoryItems, units, 
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
         </div>
         <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>품목과 수량만 입력하고 한번에 등록해요</div>
-
-        {suppliers.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>발주처 (전체 적용)</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button onClick={() => setSupplierId('')}
-                style={{ padding: '5px 12px', borderRadius: 20, border: supplierId === '' ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: supplierId === '' ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: supplierId === '' ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: supplierId === '' ? 700 : 400, cursor: 'pointer' }}>
-                미지정
-              </button>
-              {suppliers.map(s => (
-                <button key={s.id} onClick={() => setSupplierId(s.id)}
-                  style={{ padding: '5px 12px', borderRadius: 20, border: supplierId === s.id ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: supplierId === s.id ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: supplierId === s.id ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: supplierId === s.id ? 700 : 400, cursor: 'pointer' }}>
-                  {s.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         <div style={{ marginBottom: 8 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 55px 28px', gap: 6, marginBottom: 6, padding: '0 2px' }}>
