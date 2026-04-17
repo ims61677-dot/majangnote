@@ -760,7 +760,20 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
 }
 
 // ─── 관리자 통계 ───
-function AdminStats({ orders }: { orders: any[] }) {
+function AdminStats({ orders, selStore, year, month }: { orders: any[]; selStore: string; year: number; month: number }) {
+  const supabase = createSupabaseBrowserClient()
+  const [allOrders, setAllOrders] = useState<any[]>([])
+  const [exporting, setExporting] = useState(false)
+
+  useEffect(() => { loadAll() }, [selStore])
+
+  async function loadAll() {
+    const q = supabase.from('orders').select('id,item_name,quantity,unit,ordered_at,settlement_amount,store_id')
+    const { data } = selStore === 'all' ? await q : await q.eq('store_id', selStore)
+    setAllOrders(data || [])
+  }
+
+  // 지점별 현황
   const byStore: Record<string, { total: number; received: number; issue: number }> = {}
   STORES.forEach(s => { byStore[s.id] = { total: 0, received: 0, issue: 0 } })
   orders.forEach(o => {
@@ -770,17 +783,129 @@ function AdminStats({ orders }: { orders: any[] }) {
     if (o.status === 'issue') byStore[o.store_id].issue++
   })
 
-  const byStatus: Record<string, number> = {}
-  orders.forEach(o => { byStatus[o.status] = (byStatus[o.status] || 0) + 1 })
+  // 품목별 통계 (전체 기간)
+  const itemStats = useMemo(() => {
+    const src = selStore === 'all' ? allOrders : allOrders.filter(o => o.store_id === selStore)
+    const map: Record<string, { count: number; totalQty: number; unit: string; totalSpend: number; dates: string[] }> = {}
+    src.forEach(o => {
+      const key = o.item_name
+      if (!map[key]) map[key] = { count: 0, totalQty: 0, unit: o.unit || '', totalSpend: 0, dates: [] }
+      map[key].count++
+      map[key].totalQty += Number(o.quantity) || 0
+      map[key].totalSpend += Number(o.settlement_amount) || 0
+      map[key].dates.push(o.ordered_at)
+    })
+    return Object.entries(map).map(([name, s]) => {
+      const sorted = s.dates.map(d => new Date(d).getTime()).sort((a, b) => a - b)
+      let avgCycle = 0
+      if (sorted.length >= 2) {
+        const gaps = sorted.slice(1).map((d, i) => (d - sorted[i]) / (1000 * 60 * 60 * 24))
+        avgCycle = Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length)
+      }
+      const lastDate = sorted.length > 0 ? new Date(sorted[sorted.length - 1]) : null
+      const daysSinceLast = lastDate ? Math.floor((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24)) : null
+      return { name, ...s, avgCycle, lastDate, daysSinceLast }
+    }).sort((a, b) => b.count - a.count)
+  }, [allOrders, selStore])
+
+  // 이번 달 품목별
+  const monthItemStats = useMemo(() => {
+    const map: Record<string, { count: number; totalQty: number; unit: string; totalSpend: number }> = {}
+    orders.forEach(o => {
+      const key = o.item_name
+      if (!map[key]) map[key] = { count: 0, totalQty: 0, unit: o.unit || '', totalSpend: 0 }
+      map[key].count++
+      map[key].totalQty += Number(o.quantity) || 0
+      map[key].totalSpend += Number(o.settlement_amount) || 0
+    })
+    return Object.entries(map).map(([name, s]) => ({ name, ...s })).sort((a, b) => b.count - a.count)
+  }, [orders])
+
+  const totalSpend = orders.reduce((s, o) => s + (Number(o.settlement_amount) || 0), 0)
+  const card = { background: '#fff', borderRadius: 14, border: '1px solid #E8ECF0', padding: 14, marginBottom: 10 }
+
+  // ── 엑셀 내보내기 ──
+  async function exportExcel() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      const thin = () => ({ style: 'thin' as const, color: { argb: 'FFE0E4E8' } })
+      const med = () => ({ style: 'medium' as const, color: { argb: 'FFaaaaaa' } })
+      const storeLabel = selStore === 'all' ? '전지점' : (STORES.find(s => s.id === selStore)?.name || '')
+
+      // 시트1: 품목별 통계
+      const ws1 = wb.addWorksheet(`📊 품목별통계`)
+      const t1 = ws1.addRow([`📦 ${year}년 ${month}월 발주 품목별 통계 (${storeLabel})`])
+      ws1.mergeCells(1, 1, 1, 7)
+      const tc1 = t1.getCell(1)
+      tc1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A1A2E' } }
+      tc1.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 13 }
+      tc1.alignment = { horizontal: 'center', vertical: 'middle' }; t1.height = 28
+
+      const h1 = ws1.addRow(['품목명', '이번달 횟수', '이번달 수량', '이번달 지출', '전체 횟수', '평균 주기(일)', '마지막 발주'])
+      h1.eachCell((cell, ci) => {
+        const colors = ['FF2C3E50', 'FF6C5CE7', 'FF6C5CE7', 'FFFF6B35', 'FF2DC6D6', 'FF00B894', 'FFE84393']
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colors[ci - 1] || 'FF2C3E50' } }
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 }
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        cell.border = { bottom: med(), right: thin() }
+      }); ws1.getRow(2).height = 20
+
+      const monthMap: Record<string, any> = {}
+      monthItemStats.forEach(s => { monthMap[s.name] = s })
+      const allNames = new Set([...monthItemStats.map(s => s.name), ...itemStats.map(s => s.name)])
+      ;[...allNames].forEach(name => {
+        const ms = monthMap[name]; const as_ = itemStats.find(s => s.name === name)
+        const lastDateStr = as_?.lastDate ? new Date(as_.lastDate).toLocaleDateString('ko') : '-'
+        const row = ws1.addRow([name, ms?.count || 0, ms ? `${ms.totalQty}${ms.unit}` : '-', ms?.totalSpend ? `${ms.totalSpend.toLocaleString()}원` : '-', as_?.count || 0, as_?.avgCycle ? `${as_.avgCycle}일` : '-', lastDateStr])
+        row.height = 18
+        row.eachCell((cell, ci) => {
+          cell.alignment = { horizontal: ci === 1 ? 'left' : 'center', vertical: 'middle' }
+          cell.border = { top: thin(), bottom: thin(), left: thin(), right: thin() }
+          if (ci === 4 && (ms?.totalSpend || 0) > 0) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEEE6' } }; cell.font = { bold: true, color: { argb: 'FFFF6B35' } } }
+        })
+      })
+      const sumRow = ws1.addRow(['합계', orders.length, '-', totalSpend > 0 ? `${totalSpend.toLocaleString()}원` : '-', allOrders.length, '-', '-'])
+      sumRow.height = 22
+      sumRow.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE8CC' } }; cell.font = { bold: true, size: 10 }; cell.alignment = { horizontal: 'center', vertical: 'middle' }; cell.border = { top: med(), bottom: thin(), left: thin(), right: thin() } })
+      ws1.getColumn(1).width = 22; [2, 3, 4, 5, 6, 7].forEach(i => { ws1.getColumn(i).width = 14 })
+      ws1.views = [{ state: 'frozen', xSplit: 0, ySplit: 2 }]
+
+      // 시트2: 지점별 현황 (전체일 때만)
+      if (selStore === 'all') {
+        const ws2 = wb.addWorksheet(`🏪 지점별현황`)
+        const t2 = ws2.addRow([`🏪 ${year}년 ${month}월 지점별 발주 현황`])
+        ws2.mergeCells(1, 1, 1, 5)
+        t2.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A1A2E' } }
+        t2.getCell(1).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 13 }
+        t2.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' }; t2.height = 28
+        const h2 = ws2.addRow(['지점', '총 발주', '수령완료', '이슈', '수령률'])
+        h2.eachCell(cell => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4A148C' } }; cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 }; cell.alignment = { horizontal: 'center', vertical: 'middle' }; cell.border = { bottom: med(), right: thin() } })
+        STORES.forEach(s => {
+          const stat = byStore[s.id]; const pct = stat.total > 0 ? Math.round(stat.received / stat.total * 100) : 0
+          const row = ws2.addRow([s.name, stat.total, stat.received, stat.issue, `${pct}%`])
+          row.height = 18; row.eachCell((cell, ci) => { cell.alignment = { horizontal: ci === 1 ? 'left' : 'center', vertical: 'middle' }; cell.border = { top: thin(), bottom: thin(), left: thin(), right: thin() } })
+        }); ws2.getColumn(1).width = 16; [2, 3, 4, 5].forEach(i => { ws2.getColumn(i).width = 12 })
+      }
+
+      const buf = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `발주통계_${storeLabel}_${year}년${month}월.xlsx`; a.click(); URL.revokeObjectURL(url)
+    } catch (e: any) { alert('내보내기 실패: ' + (e?.message || '')) }
+    finally { setExporting(false) }
+  }
 
   return (
     <div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>지점별 현황</div>
-      {STORES.map(s => {
-        const stat = byStore[s.id]
-        const pct = stat.total > 0 ? Math.round(stat.received / stat.total * 100) : 0
+      {/* 지점별 현황 */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>🏪 지점별 현황</div>
+      {STORES.filter(s => selStore === 'all' || s.id === selStore).map(s => {
+        const stat = byStore[s.id]; const pct = stat.total > 0 ? Math.round(stat.received / stat.total * 100) : 0
         return (
-          <div key={s.id} style={{ ...bx }}>
+          <div key={s.id} style={{ ...card }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: s.color }}>{s.name}</span>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -796,19 +921,73 @@ function AdminStats({ orders }: { orders: any[] }) {
           </div>
         )
       })}
-      <div style={{ ...bx }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>상태별 현황</div>
-        {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
-          const cnt = byStatus[key] || 0
-          if (cnt === 0) return null
-          return (
-            <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F4F6F9' }}>
-              <span style={{ fontSize: 12, color: '#555' }}>{cfg.label}</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: cfg.color }}>{cnt}건</span>
+
+      {/* 엑셀 다운로드 */}
+      <button onClick={exportExcel} disabled={exporting}
+        style={{ width: '100%', padding: '11px 0', borderRadius: 12, background: exporting ? '#E8ECF0' : 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: exporting ? '#bbb' : '#fff', fontSize: 13, fontWeight: 700, cursor: exporting ? 'default' : 'pointer', marginBottom: 14 }}>
+        {exporting ? '⏳ 생성 중...' : '📥 발주 통계 엑셀 다운로드'}
+      </button>
+
+      {/* 이번 달 품목별 */}
+      {monthItemStats.length > 0 && (
+        <div style={card}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 12 }}>📦 {month}월 품목별 발주 현황</div>
+          {monthItemStats.map((s, i) => (
+            <div key={s.name} style={{ padding: '10px 0', borderBottom: '1px solid #F4F6F9' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: i < 3 ? '#FF6B35' : '#aaa', minWidth: 20 }}>#{i + 1}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{s.name}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 700 }}>{s.count}회</span>
+                  <span style={{ fontSize: 11, color: '#888' }}>{s.totalQty}{s.unit}</span>
+                  {s.totalSpend > 0 && <span style={{ fontSize: 11, color: '#FF6B35', fontWeight: 700 }}>{s.totalSpend.toLocaleString()}원</span>}
+                </div>
+              </div>
+              {(() => {
+                const as_ = itemStats.find(a => a.name === s.name)
+                if (!as_ || as_.avgCycle === 0) return null
+                const isSoon = as_.daysSinceLast !== null && as_.daysSinceLast >= as_.avgCycle * 0.8
+                return (
+                  <div style={{ display: 'flex', gap: 8, paddingLeft: 28 }}>
+                    <span style={{ fontSize: 10, color: '#aaa' }}>🔄 평균 {as_.avgCycle}일 주기</span>
+                    {as_.daysSinceLast !== null && <span style={{ fontSize: 10, color: isSoon ? '#E84393' : '#00B894', fontWeight: isSoon ? 700 : 400 }}>{isSoon ? `⚠️ ${as_.daysSinceLast}일 경과 (발주 필요)` : `마지막 ${as_.daysSinceLast}일 전`}</span>}
+                  </div>
+                )
+              })()}
             </div>
-          )
-        })}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {/* 전체 TOP 10 */}
+      {itemStats.length > 0 && (
+        <div style={card}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>🏆 자주 발주한 품목 TOP 10</div>
+          <div style={{ fontSize: 10, color: '#aaa', marginBottom: 12 }}>전체 기간 기준</div>
+          {itemStats.slice(0, 10).map((s, i) => (
+            <div key={s.name} style={{ padding: '8px 0', borderBottom: '1px solid #F4F6F9' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: i < 3 ? '#FF6B35' : '#ccc', minWidth: 20 }}>#{i + 1}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{s.name}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <span style={{ fontSize: 11, color: '#6C5CE7', fontWeight: 700 }}>{s.count}회</span>
+                  {s.avgCycle > 0 && <span style={{ fontSize: 10, color: '#00B894', padding: '1px 6px', borderRadius: 8, background: 'rgba(0,184,148,0.1)' }}>🔄 {s.avgCycle}일</span>}
+                </div>
+              </div>
+              <div style={{ paddingLeft: 28 }}>
+                <div style={{ height: 4, borderRadius: 2, background: '#F0F2F5', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', borderRadius: 2, background: 'linear-gradient(90deg,#FF6B35,#E84393)', width: `${Math.min((s.count / itemStats[0].count) * 100, 100)}%` }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {orders.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>이 달 발주 내역이 없어요</div>}
     </div>
   )
 }
@@ -1175,7 +1354,7 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
           {subTab === 'requested' && (requestedOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>📋 주문요청 대기 중인 발주가 없어요</div> : <DateGroupedList list={requestedOrders} />)}
           {subTab === 'all' && (filteredOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div> : <DateGroupedList list={filteredOrders} />)}
           {subTab === 'issues' && (issueOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>✅ 이슈가 없어요</div> : <DateGroupedList list={issueOrders} />)}
-          {subTab === 'stats' && <AdminStats orders={selStore === 'all' ? allOrders : allOrders.filter(o => o.store_id === selStore)} />}
+          {subTab === 'stats' && <AdminStats orders={selStore === 'all' ? allOrders : allOrders.filter(o => o.store_id === selStore)} selStore={selStore} year={selYear} month={selMonth} />}
         </>
       )}
     </div>
