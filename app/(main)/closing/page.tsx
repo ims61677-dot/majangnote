@@ -1481,6 +1481,13 @@ export default function ClosingPage() {
       setChecks({}); setSoldouts([]); setNextTodos([]); setTodoChecks({})
       setReviews({}); setSkippedChecks(new Set()); setReviewTouched(new Set())
       prevDataRef.current = null
+      // ★ ref도 반드시 초기화 (미초기화 시 이전 날 데이터가 다음 날에 복사되는 버그 방지)
+      writerRef.current = ''; closeStaffRef.current = ''; staffCountRef.current = 0
+      openTimeRef.current = ''; closeTimeRef.current = ''; discountAmountRef.current = 0
+      cashAmountRef.current = 0; noteRef.current = ''; memoRef.current = ''
+      salesRef.current = {}; countsRef.current = {}; cancelCountsRef.current = {}
+      // ★ 혹시 남아있는 autoSave 타이머도 취소
+      if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null }
       setShowForm(date === todayStr)
     }
   }
@@ -1754,6 +1761,46 @@ export default function ClosingPage() {
     if (!confirm('삭제할까요?')) return
     await supabase.from('closing_review_platforms').delete().eq('id', id)
     setReviewPlatforms(p => p.filter(x => x.id !== id))
+  }
+
+  // ★ 마감일지 전체 삭제 (매니저/대표 전용)
+  async function deleteClosing() {
+    if (!isManager) { alert('매니저/대표만 삭제할 수 있습니다.'); return }
+    const cl = closingRef.current
+    if (!cl?.id) return
+    const confirmed = confirm(`${selectedDate.replace(/-/g,'.')} 마감일지를 완전히 삭제할까요?\n\n매출, 체크리스트, 리뷰, 전달사항 등 모든 데이터가 삭제됩니다.`)
+    if (!confirmed) return
+    try {
+      // 연관 데이터 삭제
+      await Promise.all([
+        supabase.from('closing_sales').delete().eq('closing_id', cl.id),
+        supabase.from('closing_checks').delete().eq('closing_id', cl.id),
+        supabase.from('closing_reviews').delete().eq('closing_id', cl.id),
+        supabase.from('closing_soldout').delete().eq('closing_id', cl.id),
+        supabase.from('closing_next_todos').delete().eq('closing_id', cl.id),
+      ])
+      await supabase.from('closings').delete().eq('id', cl.id)
+      // 상태 초기화
+      setClosing(null); closingRef.current = null
+      setWriter(''); setCloseStaff(''); setCancelCount(0)
+      setCashAmount(0); setNote(''); setMemo(''); setDiscountAmount(0)
+      setStaffCount(0); setOpenTime(''); setCloseTime('')
+      setSales({}); setCounts({}); setCancelCounts({})
+      setChecks({}); setSoldouts([]); setNextTodos([]); setTodoChecks({})
+      setReviews({}); setSkippedChecks(new Set()); setReviewTouched(new Set())
+      writerRef.current = ''; closeStaffRef.current = ''; staffCountRef.current = 0
+      openTimeRef.current = ''; closeTimeRef.current = ''; discountAmountRef.current = 0
+      cashAmountRef.current = 0; noteRef.current = ''; memoRef.current = ''
+      salesRef.current = {}; countsRef.current = {}; cancelCountsRef.current = {}
+      prevDataRef.current = null
+      if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null }
+      // 캘린더 매출맵에서도 제거
+      setSalesMap(prev => { const n = {...prev}; delete n[selectedDate]; return n })
+      setShowForm(false)
+      alert('삭제되었습니다.')
+    } catch (e: any) {
+      alert('삭제 실패: ' + (e?.message || '다시 시도해주세요'))
+    }
   }
 
   const totalSales = useMemo(() => platforms.reduce((sum, p) => sum + (sales[p.name]||0), 0), [platforms, sales])
@@ -2256,14 +2303,22 @@ export default function ClosingPage() {
       {!isToday && (
         (!isSaved || isManager) ? (
           <button onClick={() => performSave(false)} disabled={isSaving}
-            style={{ width:'100%', padding:'15px 0', borderRadius:14, background: isSaving?'#ddd':'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor: isSaving?'not-allowed':'pointer', marginBottom:24 }}>
+            style={{ width:'100%', padding:'15px 0', borderRadius:14, background: isSaving?'#ddd':'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:15, fontWeight:700, cursor: isSaving?'not-allowed':'pointer', marginBottom:12 }}>
             {isSaving ? '저장 중...' : isSaved ? '✏️ 마감일지 수정 저장' : '💾 마감일지 저장'}
           </button>
         ) : (
-          <div style={{ width:'100%', padding:'15px 0', borderRadius:14, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#bbb', fontSize:14, fontWeight:600, textAlign:'center', marginBottom:24 }}>
+          <div style={{ width:'100%', padding:'15px 0', borderRadius:14, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#bbb', fontSize:14, fontWeight:600, textAlign:'center', marginBottom:12 }}>
             🔒 저장된 일지 수정은 매니저/대표만 가능합니다
           </div>
         )
+      )}
+
+      {/* 🗑️ 마감일지 삭제 버튼 (매니저/대표만, 저장된 일지만) */}
+      {isSaved && isManager && (
+        <button onClick={deleteClosing}
+          style={{ width:'100%', padding:'11px 0', borderRadius:14, background:'transparent', border:'1px solid rgba(232,67,147,0.35)', color:'#E84393', fontSize:13, fontWeight:600, cursor:'pointer', marginBottom:24, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+          🗑️ 이 날짜 마감일지 내용 전체 삭제
+        </button>
       )}
     </>
   )
