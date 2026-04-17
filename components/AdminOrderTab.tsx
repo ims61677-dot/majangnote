@@ -96,8 +96,7 @@ function UnitManagerModal({ storeId, units, onClose, onUpdate }: {
 }
 
 // ─── 관리자 발주 추가 모달 ───
-function AdminAddOrderModal({ suppliers, units, onUnitsUpdate, onClose, onSaved }: {
-  suppliers: any[]
+function AdminAddOrderModal({ units, onUnitsUpdate, onClose, onSaved }: {
   units: string[]; onUnitsUpdate: (u: string[]) => void
   onClose: () => void; onSaved: () => void
 }) {
@@ -108,22 +107,16 @@ function AdminAddOrderModal({ suppliers, units, onUnitsUpdate, onClose, onSaved 
   const [unit, setUnit] = useState(units[0] || 'ea')
   const [memo, setMemo] = useState('')
   const [requestedAt, setRequestedAt] = useState('')
-  const [supplierId, setSupplierId] = useState('')
-  const [supplierName, setSupplierName] = useState('')
   const [status, setStatus] = useState('requested')
   const [showUnitMgr, setShowUnitMgr] = useState(false)
 
   async function handleSubmit() {
     if (!itemName.trim() || !quantity || !storeId) return
-    const selSupplier = suppliers.find(s => s.id === supplierId)
-    const finalSupplierName = selSupplier?.name || supplierName.trim() || null
     await supabase.from('orders').insert({
       store_id: storeId,
       item_name: itemName.trim(),
       quantity: Number(quantity),
       unit,
-      supplier_id: supplierId || null,
-      supplier_name: finalSupplierName,
       memo: memo.trim() || null,
       requested_at: requestedAt ? new Date(requestedAt).toISOString() : null,
       ordered_by: '관리자',
@@ -182,22 +175,6 @@ function AdminAddOrderModal({ suppliers, units, onUnitsUpdate, onClose, onSaved 
               {units.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
-        </div>
-
-        {/* 발주처 */}
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>발주처</div>
-          {suppliers.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
-              <button onClick={() => { setSupplierId(''); setSupplierName('') }}
-                style={{ padding: '4px 10px', borderRadius: 16, border: !supplierId ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: !supplierId ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: !supplierId ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>미지정</button>
-              {suppliers.map(s => (
-                <button key={s.id} onClick={() => { setSupplierId(s.id); setSupplierName('') }}
-                  style={{ padding: '4px 10px', borderRadius: 16, border: supplierId === s.id ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: supplierId === s.id ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: supplierId === s.id ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>{s.name}</button>
-              ))}
-            </div>
-          )}
-          <input value={supplierId ? '' : supplierName} onChange={e => { setSupplierName(e.target.value); setSupplierId('') }} placeholder="직접 입력" style={{ ...inp, fontSize: 12 }} disabled={!!supplierId} />
         </div>
 
         {/* 상태 */}
@@ -493,10 +470,11 @@ function DirectIssueModal({ storeId, units, onClose, onSaved }: { storeId: strin
 }
 
 // ─── 관리자 주문 확인 모달 ───
-function AdminConfirmOrderModal({ order, suppliers, units, onClose, onSaved }: {
-  order: any; suppliers: any[]; units: string[]; onClose: () => void; onSaved: () => void
+function AdminConfirmOrderModal({ order, units, onClose, onSaved }: {
+  order: any; units: string[]; onClose: () => void; onSaved: () => void
 }) {
   const supabase = createSupabaseBrowserClient()
+  const [storeSuppliers, setStoreSuppliers] = useState<any[]>([])
   const [supplierId, setSupplierId] = useState(order.supplier_id || '')
   const [supplierName, setSupplierName] = useState(order.supplier_name || '')
   const [memo, setMemo] = useState('')
@@ -509,8 +487,14 @@ function AdminConfirmOrderModal({ order, suppliers, units, onClose, onSaved }: {
   const [paymentMethod, setPaymentMethod] = useState('')
   const [showSettlement, setShowSettlement] = useState(false)
 
+  // 해당 지점 발주처만 로드
+  useEffect(() => {
+    supabase.from('order_suppliers').select('*').eq('store_id', order.store_id).order('created_at')
+      .then(({ data }) => setStoreSuppliers(data || []))
+  }, [order.store_id])
+
   async function handleSubmit() {
-    const selSupplier = suppliers.find(s => s.id === supplierId)
+    const selSupplier = storeSuppliers.find(s => s.id === supplierId)
     const finalSupplierName = selSupplier?.name || supplierName.trim() || null
     await supabase.from('orders').update({
       status: 'ordered',
@@ -540,11 +524,11 @@ function AdminConfirmOrderModal({ order, suppliers, units, onClose, onSaved }: {
         {/* 발주처 */}
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>발주처</div>
-          {suppliers.length > 0 && (
+          {storeSuppliers.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
               <button onClick={() => { setSupplierId(''); setSupplierName('') }}
                 style={{ padding: '4px 10px', borderRadius: 16, border: !supplierId && !supplierName ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: !supplierId && !supplierName ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: !supplierId && !supplierName ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>미지정</button>
-              {suppliers.map(s => (
+              {storeSuppliers.map(s => (
                 <button key={s.id} onClick={() => { setSupplierId(s.id); setSupplierName('') }}
                   style={{ padding: '4px 10px', borderRadius: 16, border: supplierId === s.id ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: supplierId === s.id ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: supplierId === s.id ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>{s.name}</button>
               ))}
@@ -702,7 +686,7 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
   return (
     <>
       {showEdit && <AdminEditOrderModal order={order} suppliers={suppliers} units={units} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
-      {showConfirm && <AdminConfirmOrderModal order={order} suppliers={suppliers} units={units} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
+      {showConfirm && <AdminConfirmOrderModal order={order} units={units} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
       {showReceive && <AdminReceiveModal order={order} onClose={() => setShowReceive(false)} onSaved={onRefresh} />}
       <div style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: '0 1px 5px rgba(0,0,0,0.05)' }}>
         <div style={{ background: cfg.headerBg, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1339,7 +1323,7 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
 
   return (
     <div>
-      {showAddOrder && <AdminAddOrderModal suppliers={suppliers} units={units} onUnitsUpdate={setUnits} onClose={() => setShowAddOrder(false)} onSaved={loadAll} />}
+      {showAddOrder && <AdminAddOrderModal units={units} onUnitsUpdate={setUnits} onClose={() => setShowAddOrder(false)} onSaved={loadAll} />}
       {showDirectIssue && <DirectIssueModal storeId={STORES[0].id} units={units} onClose={() => setShowDirectIssue(false)} onSaved={loadAll} />}
       {showSupplierMgr && <AdminSupplierModal onClose={() => setShowSupplierMgr(false)} onSaved={loadAll} />}
       {showQuickOrder && <AdminQuickOrderModal suppliers={suppliers} units={units} onClose={() => setShowQuickOrder(false)} onSaved={loadAll} />}
