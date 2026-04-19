@@ -673,6 +673,101 @@ function AdminReceiveModal({ order, onClose, onSaved }: { order: any; onClose: (
   )
 }
 
+// ─── 관리자 이슈 신고 모달 ───
+function AdminIssueModal({ order, onClose, onSaved }: { order: any; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [issueType, setIssueType] = useState('wrong_quantity')
+  const [memo, setMemo] = useState('')
+
+  async function handleSubmit() {
+    await supabase.from('order_issues').insert({
+      order_id: order.id,
+      store_id: order.store_id,
+      issue_type: issueType,
+      memo: memo.trim() || null,
+      reported_by: '관리자',
+    })
+    await supabase.from('orders').update({ status: 'issue' }).eq('id', order.id)
+    onSaved(); onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 16 }}>🚨 이슈 신고</div>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>이슈 유형</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+          {Object.entries(ISSUE_TYPES).map(([k, v]) => (
+            <button key={k} onClick={() => setIssueType(k)}
+              style={{ padding: '10px 0', borderRadius: 10, border: issueType === k ? '2px solid #E84393' : '1px solid #E8ECF0', background: issueType === k ? 'rgba(232,67,147,0.08)' : '#F8F9FB', color: issueType === k ? '#E84393' : '#888', fontSize: 12, fontWeight: issueType === k ? 700 : 400, cursor: 'pointer' }}>
+              {v}
+            </button>
+          ))}
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>상세 내용</div>
+          <input value={memo} onChange={e => setMemo(e.target.value)} placeholder="상세 내용 입력" style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} style={{ flex: 1, padding: '10px 0', borderRadius: 10, background: 'linear-gradient(135deg,#E84393,#FF6B35)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>신고</button>
+          <button onClick={onClose} style={{ padding: '10px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── 관리자 이슈 해결 모달 ───
+function AdminResolveIssueModal({ order, onClose, onSaved }: { order: any; onClose: () => void; onSaved: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [resolution, setResolution] = useState('')
+  const [newStatus, setNewStatus] = useState<'received' | 'returned' | 'ordered'>('received')
+
+  async function handleSubmit() {
+    await supabase.from('orders').update({
+      status: newStatus,
+      memo: order.memo ? order.memo + ' / [해결] ' + resolution.trim() : '[해결] ' + resolution.trim(),
+    }).eq('id', order.id)
+    if (order.issue_id) {
+      await supabase.from('order_issues').update({ resolved_at: new Date().toISOString(), resolution: resolution.trim() || null }).eq('order_id', order.id)
+    }
+    onSaved(); onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 360 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>✅ 이슈 해결</div>
+        <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>{order.item_name} · {order.quantity}{order.unit}</div>
+        <div style={{ background: 'rgba(232,67,147,0.04)', borderRadius: 10, padding: '10px 12px', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#E84393', fontWeight: 700, marginBottom: 2 }}>🚨 이슈 발주</div>
+          <div style={{ fontSize: 12, color: '#555' }}>{order.ordered_by} · {new Date(order.ordered_at).toLocaleDateString('ko')}</div>
+          {order.memo && <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>📝 {order.memo}</div>}
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>처리 결과</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {([['received', '✅ 수령완료'], ['ordered', '🔄 재주문'], ['returned', '↩️ 반품']] as const).map(([s, label]) => (
+              <button key={s} onClick={() => setNewStatus(s)}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 10, border: newStatus === s ? '2px solid #6C5CE7' : '1px solid #E8ECF0', background: newStatus === s ? 'rgba(108,92,231,0.1)' : '#F8F9FB', color: newStatus === s ? '#6C5CE7' : '#888', fontSize: 11, fontWeight: newStatus === s ? 700 : 400, cursor: 'pointer' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>해결 내용 (선택)</div>
+          <input value={resolution} onChange={e => setResolution(e.target.value)} placeholder="예: 재발주 완료, 환불 처리 등" style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} style={{ flex: 1, padding: '11px 0', borderRadius: 10, background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>해결 완료</button>
+          <button onClick={onClose} style={{ padding: '11px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── 관리자 발주 카드 ───
 function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; suppliers: any[]; units: string[]; onRefresh: () => void }) {
   const supabase = createSupabaseBrowserClient()
@@ -680,14 +775,18 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
   const [showEdit, setShowEdit] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [showReceive, setShowReceive] = useState(false)
+  const [showIssue, setShowIssue] = useState(false)
+  const [showResolve, setShowResolve] = useState(false)
   const store = STORES.find(s => s.id === order.store_id)
   const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending
 
   return (
     <>
-      {showEdit && <AdminEditOrderModal order={order} suppliers={suppliers} units={units} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
+      {showEdit && !['issue'].includes(order.status) && <AdminEditOrderModal order={order} suppliers={suppliers} units={units} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
+      {showEdit && order.status === 'issue' && <AdminResolveIssueModal order={order} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
       {showConfirm && <AdminConfirmOrderModal order={order} units={units} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
       {showReceive && <AdminReceiveModal order={order} onClose={() => setShowReceive(false)} onSaved={onRefresh} />}
+      {showIssue && <AdminIssueModal order={order} onClose={() => setShowIssue(false)} onSaved={onRefresh} />}
       <div style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: '0 1px 5px rgba(0,0,0,0.05)' }}>
         <div style={{ background: cfg.headerBg, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -719,11 +818,7 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
         {order.status === 'requested' && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
             <button onClick={() => setShowConfirm(true)} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>✅ 주문완료</button>
-            <button onClick={async () => {
-              if (!confirm('이슈로 등록할까요?')) return
-              await supabase.from('orders').update({ status: 'issue' }).eq('id', order.id)
-              onRefresh()
-            }} style={{ width: 80, padding: '9px 0', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
+            <button onClick={() => setShowIssue(true)} style={{ width: 80, padding: '9px 0', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
           </div>
         )}
 
@@ -731,11 +826,7 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
         {(order.status === 'ordered' || order.status === 'pending') && (
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
             <button onClick={() => setShowReceive(true)} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>📦 수령처리</button>
-            <button onClick={async () => {
-              if (!confirm('이슈로 등록할까요?')) return
-              await supabase.from('orders').update({ status: 'issue' }).eq('id', order.id)
-              onRefresh()
-            }} style={{ width: 80, padding: '9px 0', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
+            <button onClick={() => setShowIssue(true)} style={{ width: 80, padding: '9px 0', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
           </div>
         )}
       </div>
@@ -1230,6 +1321,7 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
   const [selMonth, setSelMonth] = useState(now.getMonth() + 1)
   const [showPicker, setShowPicker] = useState(false)
   const [pickerYear, setPickerYear] = useState(now.getFullYear())
+  const [allSearchQ, setAllSearchQ] = useState('')
 
   useEffect(() => { loadAll() }, [])
 
@@ -1260,9 +1352,10 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
         const d = new Date(o.ordered_at)
         return d.getFullYear() === selYear && d.getMonth() + 1 === selMonth
       })
+      if (allSearchQ.trim()) list = list.filter(o => o.item_name?.includes(allSearchQ.trim()) || o.supplier_name?.includes(allSearchQ.trim()) || o.memo?.includes(allSearchQ.trim()))
     }
     return list
-  }, [allOrders, selStore, subTab, selYear, selMonth])
+  }, [allOrders, selStore, subTab, selYear, selMonth, allSearchQ])
 
   const pendingOrders = useMemo(() => filteredOrders.filter(o => ['requested', 'ordered', 'pending', 'issue'].includes(o.status)), [filteredOrders])
   const requestedOrders = useMemo(() => allOrders.filter(o => o.status === 'requested' && (selStore === 'all' || o.store_id === selStore)), [allOrders, selStore])
@@ -1367,9 +1460,16 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
       {subTab === 'all' && (
         <div style={{ marginBottom: 12 }}>
           <button onClick={() => { setPickerYear(selYear); setShowPicker(true) }}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#1a1a2e', fontSize: 14, fontWeight: 700, cursor: 'pointer', width: '100%', justifyContent: 'center' }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', color: '#1a1a2e', fontSize: 14, fontWeight: 700, cursor: 'pointer', width: '100%', justifyContent: 'center', marginBottom: 8 }}>
             📅 {selYear}년 {selMonth}월 ▾
           </button>
+          {/* 검색창 */}
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: '#aaa' }}>🔍</span>
+            <input value={allSearchQ} onChange={e => setAllSearchQ(e.target.value)} placeholder="품목명, 발주처, 메모 검색..."
+              style={{ width: '100%', padding: '9px 32px 9px 32px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#F8F9FB', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, color: '#1a1a2e' }} />
+            {allSearchQ && <button onClick={() => setAllSearchQ('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 14 }}>✕</button>}
+          </div>
           {showPicker && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setShowPicker(false)}>
               <div style={{ background: '#fff', borderRadius: 20, padding: 20, width: '100%', maxWidth: 340 }} onClick={e => e.stopPropagation()}>
