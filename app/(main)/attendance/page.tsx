@@ -112,6 +112,8 @@ const STATUS_MAP: Record<string, { label: string; color: string; bg: string; ico
   no_clockin:  { label: '출근누락',     color: '#FF6B35', bg: 'rgba(255,107,53,0.15)', icon: '🚫' },
   working:     { label: '근무중',       color: '#FF6B35', bg: 'rgba(255,107,53,0.1)',   icon: '💼' },
   pending:     { label: '대기',         color: '#bbb',    bg: 'rgba(170,170,170,0.08)',icon: '⏳' },
+  half:        { label: '반차',         color: '#FF6B35', bg: 'rgba(255,107,53,0.1)',   icon: '🌓' },
+  etc:         { label: '기타',         color: '#8E44AD', bg: 'rgba(142,68,173,0.1)',   icon: '📌' },
 }
 
 const bx: React.CSSProperties = {
@@ -604,7 +606,7 @@ export default function AttendancePage() {
   }
 
   async function loadBoard(sid: string) {
-    const { data: todaySchedules } = await supabase.from('schedules').select('staff_name, status').eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half','absent'])
+    const { data: todaySchedules } = await supabase.from('schedules').select('staff_name, status').eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half','absent','early','etc'])
     const { data: activeData } = await supabase.from('store_members').select('profile_id, expected_clock_in, expected_clock_out, inactive_from').eq('store_id', sid).eq('active', true)
     const { data: inactiveData } = await supabase.from('store_members').select('profile_id, expected_clock_in, expected_clock_out, inactive_from').eq('store_id', sid).eq('active', false).gte('inactive_from', today)
     const allMembers = [...(activeData||[]), ...(inactiveData||[])].filter((m: any) => !m.inactive_from || m.inactive_from > today)
@@ -631,6 +633,7 @@ export default function AttendancePage() {
       const info = nameToInfo[s.staff_name] || {}; const pid = info.id || ''; const att = attMap[pid] || null
       let status = 'pending'
       if (s.status === 'absent') { status = 'absent' }
+      else if (s.status === 'etc') { status = att?.clock_in ? (att.clock_out ? 'normal' : 'working') : 'etc' }
       else if (att) {
         const isLate  = info.expected_in  && att.clock_in  ? tsToMinutes(att.clock_in)  > timeToMinutes(info.expected_in)  : false
         const isEarly = info.expected_out && att.clock_out ? tsToMinutes(att.clock_out) < timeToMinutes(info.expected_out) : false
@@ -654,7 +657,7 @@ export default function AttendancePage() {
     const result: Record<string, any[]> = {}
     await Promise.all(stores.map(async (store: any) => {
       const sid = store.id
-      const { data: todaySchedules } = await supabase.from('schedules').select('staff_name, status').eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half','absent'])
+      const { data: todaySchedules } = await supabase.from('schedules').select('staff_name, status').eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half','absent','early','etc'])
       const { data: activeMemData } = await supabase.from('store_members').select('profile_id, expected_clock_in, expected_clock_out').eq('store_id', sid).eq('active', true)
       const { data: inactMemData } = await supabase.from('store_members').select('profile_id, expected_clock_in, expected_clock_out, inactive_from').eq('store_id', sid).eq('active', false).gte('inactive_from', today)
       const members = [...(activeMemData||[]), ...(inactMemData||[])].filter((m: any) => !m.inactive_from || m.inactive_from > today)
@@ -671,6 +674,7 @@ export default function AttendancePage() {
         const info = nameToInfo[s.staff_name] || {}; const pid = info.id || ''; const att = attMap[pid] || null
         let status = 'pending'
         if (s.status==='absent') { status='absent' }
+        else if (s.status==='etc') { status = att?.clock_in ? (att.clock_out ? 'normal' : 'working') : 'etc' }
         else if (att) {
           const isLate  = info.expected_in  && att.clock_in  ? tsToMinutes(att.clock_in)  > timeToMinutes(info.expected_in)  : false
           const isEarly = info.expected_out && att.clock_out ? tsToMinutes(att.clock_out) < timeToMinutes(info.expected_out) : false
