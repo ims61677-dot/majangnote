@@ -112,12 +112,21 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
   const label = dates.length === 1 ? fmt(sorted[0]) : `${fmt(sorted[0])} ~ ${fmt(sorted[sorted.length-1])}`
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={onClose}>
-      <div style={{ background:'#fff', borderRadius:20, padding:22, width:'100%', maxWidth:320, boxShadow:'0 8px 40px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+      <div style={{ background:'#fff', borderRadius:20, padding:22, width:'100%', maxWidth:320, boxShadow:'0 8px 40px rgba(0,0,0,0.2)', maxHeight:'90vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ marginBottom:16 }}>
           <div style={{ fontSize:15, fontWeight:700, color:'#1a1a2e' }}>{staffName}</div>
           <div style={{ fontSize:12, color:'#888', marginTop:6, padding:'6px 12px', background:'rgba(108,92,231,0.07)', borderRadius:9, display:'inline-block' }}>
             📅 {label} · <strong style={{ color:'#6C5CE7' }}>{dates.length}일</strong> 일괄 적용
           </div>
+        </div>
+        {/* 메모 입력 - 상태 버튼 위에 배치 */}
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>메모 <span style={{ color:'#bbb' }}>(선택 · {dates.length}일 전체 적용)</span></div>
+          <input
+            value={memo} onChange={e => setMemo(e.target.value)}
+            placeholder="야간, 오픈, 마감, 병원... (비워두면 메모 없음)"
+            style={{ width:'100%', padding:'9px 12px', borderRadius:10, border:'1px solid #E0E4E8', background:'#F8F9FB', fontSize:13, outline:'none', boxSizing:'border-box' as const }}
+          />
         </div>
         <div style={{ fontSize:11, color:'#aaa', marginBottom:10 }}>적용할 상태를 선택하세요</div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8 }}>
@@ -135,15 +144,6 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
               {STATUS_LABEL[s]}
             </button>
           ))}
-        </div>
-        {/* 메모 입력 */}
-        <div style={{ marginBottom:10 }}>
-          <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>메모 <span style={{ color:'#bbb' }}>(선택 · {dates.length}일 전체 적용)</span></div>
-          <input
-            value={memo} onChange={e => setMemo(e.target.value)}
-            placeholder="야간, 오픈, 마감, 병원... (비워두면 메모 없음)"
-            style={{ width:'100%', padding:'9px 12px', borderRadius:10, border:'1px solid #E0E4E8', background:'#F8F9FB', fontSize:13, outline:'none', boxSizing:'border-box' as const }}
-          />
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:8, marginBottom:8 }}>
           <button onClick={onClose}
