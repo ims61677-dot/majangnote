@@ -232,6 +232,17 @@ function AdminEditOrderModal({ order, suppliers, units, onClose, onSaved }: { or
     if (!itemName.trim() || !quantity) return
     const selSupplier = suppliers.find(s => s.id === supplierId)
     const finalSupplierName = selSupplier?.name || supplierName.trim() || null
+
+    // 변경 내역 로그 생성
+    const logEntries: any[] = []
+    const now = new Date().toISOString()
+    if (itemName.trim() !== order.item_name) logEntries.push({ order_id: order.id, changed_by: '관리자', field_name: '품목명 수정', before_value: order.item_name, after_value: itemName.trim(), changed_at: now })
+    if (Number(quantity) !== order.quantity) logEntries.push({ order_id: order.id, changed_by: '관리자', field_name: '수량 수정', before_value: String(order.quantity), after_value: String(quantity), changed_at: now })
+    if (unit !== order.unit) logEntries.push({ order_id: order.id, changed_by: '관리자', field_name: '단위 수정', before_value: order.unit, after_value: unit, changed_at: now })
+    if (status !== order.status) logEntries.push({ order_id: order.id, changed_by: '관리자', field_name: '상태 변경', before_value: STATUS_CONFIG[order.status]?.label || order.status, after_value: STATUS_CONFIG[status]?.label || status, changed_at: now })
+    if (finalSupplierName !== (order.supplier_name || null)) logEntries.push({ order_id: order.id, changed_by: '관리자', field_name: '발주처 수정', before_value: order.supplier_name || '미지정', after_value: finalSupplierName || '미지정', changed_at: now })
+    if (memo.trim() !== (order.memo || '')) logEntries.push({ order_id: order.id, changed_by: '관리자', field_name: '메모 수정', before_value: order.memo || '', after_value: memo.trim(), changed_at: now })
+
     await supabase.from('orders').update({
       item_name: itemName.trim(), quantity: Number(quantity), unit,
       memo: memo.trim() || null, status,
@@ -242,11 +253,13 @@ function AdminEditOrderModal({ order, suppliers, units, onClose, onSaved }: { or
       delivery_fee: hasDelivery && deliveryFee !== '' ? Number(deliveryFee) : null,
       payment_method: paymentMethod || null,
     }).eq('id', order.id)
+    if (logEntries.length > 0) await supabase.from('order_receipt_logs').insert(logEntries)
     onSaved(); onClose()
   }
 
   async function handleDelete() {
     if (!confirm(`"${order.item_name}" 발주를 삭제할까요?`)) return
+    await supabase.from('order_receipt_logs').insert({ order_id: order.id, changed_by: '관리자', field_name: '발주 삭제', before_value: `${order.item_name} ${order.quantity}${order.unit}`, after_value: null, changed_at: new Date().toISOString() })
     await supabase.from('orders').delete().eq('id', order.id)
     onSaved(); onClose()
   }
@@ -844,8 +857,25 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
   const [showReceive, setShowReceive] = useState(false)
   const [showIssue, setShowIssue] = useState(false)
   const [showResolve, setShowResolve] = useState(false)
+  const [logs, setLogs] = useState<any[]>([])
+  const [receipt, setReceipt] = useState<any>(null)
+  const [issueData, setIssueData] = useState<any>(null)
   const store = STORES.find(s => s.id === order.store_id)
   const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending
+
+  async function loadDetail() {
+    const { data: r } = await supabase.from('order_receipts').select('*').eq('order_id', order.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    setReceipt(r || null)
+    const { data: l } = await supabase.from('order_receipt_logs').select('*').eq('order_id', order.id).order('changed_at', { ascending: false })
+    setLogs(l || [])
+    const { data: iss } = await supabase.from('order_issues').select('*').eq('order_id', order.id).order('reported_at', { ascending: false }).limit(1).maybeSingle()
+    setIssueData(iss || null)
+  }
+
+  function handleExpand() {
+    if (!expanded) loadDetail()
+    setExpanded(v => !v)
+  }
 
   return (
     <>
@@ -866,7 +896,7 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
           </div>
         </div>
 
-        <div onClick={() => setExpanded(v => !v)} style={{ cursor: 'pointer', padding: '10px 14px' }}>
+        <div onClick={handleExpand} style={{ cursor: 'pointer', padding: '10px 14px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>{order.item_name}</span>
             <span style={{ fontSize: 11, color: '#ccc' }}>{expanded ? '▲' : '▼'}</span>
@@ -880,6 +910,76 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
             {order.memo && <span style={{ color: '#bbb' }}> · 📝 {order.memo}</span>}
           </div>
         </div>
+
+        {/* 펼침 - 처리 흐름 + 수정이력 */}
+        {expanded && (
+          <div style={{ margin: '0 14px 14px 14px', paddingTop: 12, borderTop: '1px solid #F4F6F9' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 10 }}>📋 처리 흐름</div>
+            <div style={{ position: 'relative', paddingLeft: 20 }}>
+              <div style={{ position: 'absolute', left: 6, top: 6, bottom: 6, width: 2, background: '#E8ECF0', borderRadius: 2 }} />
+              {/* 발주 요청 */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#FF6B35', flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1a1a2e' }}>📋 발주 요청</div>
+                  <div style={{ fontSize: 10, color: '#aaa' }}>{order.ordered_by} · {new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
+                  {store && <div style={{ fontSize: 10, color: store.color, fontWeight: 600 }}>{store.name}</div>}
+                </div>
+              </div>
+              {/* 주문 확인 */}
+              {order.confirmed_by && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                  <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#6C5CE7', flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1a1a2e' }}>✅ 주문 확인{order.supplier_name ? ` · ${order.supplier_name}` : ''}</div>
+                    <div style={{ fontSize: 10, color: '#aaa' }}>{order.confirmed_by} · {order.confirmed_at && new Date(order.confirmed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {order.confirmed_at && new Date(order.confirmed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
+                  </div>
+                </div>
+              )}
+              {/* 이슈 */}
+              {order.status === 'issue' && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                  <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#E84393', flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#E84393' }}>🚨 이슈 신고{issueData?.issue_type ? ` · ${ISSUE_TYPES[issueData.issue_type] || issueData.issue_type}` : ''}</div>
+                    {issueData && <div style={{ fontSize: 10, color: '#aaa' }}>{issueData.reported_by} · {new Date(issueData.reported_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })}</div>}
+                    {issueData?.memo && <div style={{ fontSize: 10, color: '#bbb' }}>📝 {issueData.memo}</div>}
+                  </div>
+                </div>
+              )}
+              {/* 수령 */}
+              {(receipt || order.received_by) && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                  <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#00B894', flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1a1a2e' }}>📦 수령 완료{receipt ? ` · ${receipt.received_quantity}${order.unit}` : ''}</div>
+                    <div style={{ fontSize: 10, color: '#aaa' }}>{receipt?.received_by || order.received_by} · {(receipt?.received_at || order.received_at) && new Date(receipt?.received_at || order.received_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 수정 이력 */}
+            {logs.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', marginBottom: 6 }}>🔍 수정 이력</div>
+                {logs.map((log, i) => (
+                  <div key={log.id || i} style={{ fontSize: 10, color: '#888', padding: '4px 0', borderBottom: '1px solid #F4F6F9', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span>
+                      <strong style={{ color: log.field_name?.includes('수정') ? '#FF6B35' : log.field_name?.includes('삭제') || log.field_name?.includes('취소') ? '#E84393' : '#6C5CE7' }}>{log.changed_by}</strong>
+                      {' · '}{log.field_name}
+                      {log.before_value && <span style={{ color: '#ccc' }}> <span style={{ textDecoration: 'line-through' }}>{log.before_value}</span> → <span style={{ color: '#1a1a2e' }}>{log.after_value}</span></span>}
+                      {!log.before_value && log.after_value && <span> {log.after_value}</span>}
+                      {log.memo && <span style={{ color: '#bbb' }}> "{log.memo}"</span>}
+                    </span>
+                    <span style={{ flexShrink: 0 }}>{new Date(log.changed_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(log.changed_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {logs.length === 0 && <div style={{ fontSize: 10, color: '#ccc', marginTop: 8 }}>수정 이력 없음</div>}
+          </div>
+        )}
 
         {/* 주문요청 → 주문완료 + 이슈 */}
         {order.status === 'requested' && (
