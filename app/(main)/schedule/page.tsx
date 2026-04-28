@@ -104,8 +104,9 @@ async function logScheduleEdit(
 }
 
 function BulkPopup({ staffName, dates, onApply, onClose }: {
-  staffName: string; dates: string[]; onApply: (s: string) => void | Promise<void>; onClose: () => void
+  staffName: string; dates: string[]; onApply: (s: string, note: string) => void | Promise<void>; onClose: () => void
 }) {
+  const [memo, setMemo] = useState('')
   const sorted = [...dates].sort()
   const fmt = (d: string) => d.split('-').slice(1).map(Number).join('/')
   const label = dates.length === 1 ? fmt(sorted[0]) : `${fmt(sorted[0])} ~ ${fmt(sorted[sorted.length-1])}`
@@ -121,7 +122,7 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
         <div style={{ fontSize:11, color:'#aaa', marginBottom:10 }}>적용할 상태를 선택하세요</div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8 }}>
           {(['work','off','half'] as const).map(s => (
-            <button key={s} onClick={() => onApply(s)}
+            <button key={s} onClick={() => onApply(s, memo)}
               style={{ padding:'14px 0', borderRadius:12, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:13, fontWeight:700, cursor:'pointer' }}>
               {STATUS_LABEL[s]}
             </button>
@@ -129,11 +130,20 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8 }}>
           {(['absent','early','etc'] as const).map(s => (
-            <button key={s} onClick={() => onApply(s)}
+            <button key={s} onClick={() => onApply(s, memo)}
               style={{ padding:'14px 0', borderRadius:12, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:13, fontWeight:700, cursor:'pointer' }}>
               {STATUS_LABEL[s]}
             </button>
           ))}
+        </div>
+        {/* 메모 입력 */}
+        <div style={{ marginBottom:10 }}>
+          <div style={{ fontSize:11, color:'#888', marginBottom:6 }}>메모 <span style={{ color:'#bbb' }}>(선택 · {dates.length}일 전체 적용)</span></div>
+          <input
+            value={memo} onChange={e => setMemo(e.target.value)}
+            placeholder="야간, 오픈, 마감, 병원... (비워두면 메모 없음)"
+            style={{ width:'100%', padding:'9px 12px', borderRadius:10, border:'1px solid #E0E4E8', background:'#F8F9FB', fontSize:13, outline:'none', boxSizing:'border-box' as const }}
+          />
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:8, marginBottom:8 }}>
           <button onClick={onClose}
@@ -141,7 +151,7 @@ function BulkPopup({ staffName, dates, onApply, onClose }: {
             취소
           </button>
         </div>
-        <button onClick={() => onApply('__delete__')}
+        <button onClick={() => onApply('__delete__', '')}
           style={{ width:'100%', padding:'12px 0', borderRadius:12, border:'1.5px solid rgba(232,67,147,0.4)', background:'rgba(232,67,147,0.07)', color:'#E84393', fontSize:13, fontWeight:700, cursor:'pointer' }}>
           🗑 선택 {dates.length}일 전체 삭제
         </button>
@@ -656,11 +666,19 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
     if (!manageCopied) return
     const src = storeData[manageCopied.sid]?.schedules.filter((s: any) => s.staff_name === manageCopied.staff) || []
     if (src.length === 0) { alert(`${manageCopied.staff}의 스케줄이 없습니다`); setManageCopied(null); return }
-    if (!window.confirm(`${manageCopied.staff}의 스케줄(${src.length}건)을 ${targetStaff}에 붙여넣을까요?\n기존 스케줄은 덮어씌워집니다.`)) return
-    await supabase.from('schedules').upsert(
-      src.map((s: any) => ({ store_id: targetSid, staff_name: targetStaff, schedule_date: s.schedule_date, status: s.status, position: s.position, note: s.note })),
-      { onConflict: 'store_id,staff_name,schedule_date' }
-    )
+    const pad = (n: number) => String(n).padStart(2,'0')
+    const mStr = `${year}-${pad(month+1)}`
+    const startDate = `${mStr}-01`; const endDate = `${mStr}-${pad(getDaysInMonth(year, month))}`
+    if (!window.confirm(`${manageCopied.staff}의 스케줄을 ${targetStaff}에 붙여넣을까요?\n${targetStaff}의 ${month+1}월 스케줄 전체가 교체됩니다.`)) return
+    await supabase.from('schedules').delete()
+      .eq('store_id', targetSid).eq('staff_name', targetStaff)
+      .gte('schedule_date', startDate).lte('schedule_date', endDate)
+    if (src.length > 0) {
+      await supabase.from('schedules').upsert(
+        src.map((s: any) => ({ store_id: targetSid, staff_name: targetStaff, schedule_date: s.schedule_date, status: s.status, position: s.position, note: s.note })),
+        { onConflict: 'store_id,staff_name,schedule_date' }
+      )
+    }
     setManageCopied(null); loadAll()
   }
 
@@ -816,7 +834,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
     const expanded: Record<string, boolean> = {}; myStores.forEach((m: any) => { if (m.stores?.id) expanded[m.stores.id] = true }); setGridExpanded(expanded)
   }
 
-  async function handleManageBulkApply(status: string) {
+  async function handleManageBulkApply(status: string, note: string) {
     if (!manageBulkTarget) return
     const { sid, staff, dates } = manageBulkTarget
     const d = storeData[sid]; const schedMap: Record<string,any> = {}
@@ -825,7 +843,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
       await supabase.from('schedules').delete().eq('store_id', sid).eq('staff_name', staff).in('schedule_date', dates)
       await Promise.all(dates.map(async dateStr => { const prev = schedMap[`${staff}-${dateStr}`]; await syncAttendance(supabase, sid, staff, dateStr, 'work'); await logScheduleEdit(supabase, sid, myName, staff, dateStr, 'bulk_delete', prev?.status || null, null) }))
     } else {
-      await supabase.from('schedules').upsert(dates.map(dateStr => ({ store_id: sid, staff_name: staff, schedule_date: dateStr, status, position: null, note: null })), { onConflict: 'store_id,staff_name,schedule_date' })
+      await supabase.from('schedules').upsert(dates.map(dateStr => ({ store_id: sid, staff_name: staff, schedule_date: dateStr, status, position: null, note: note || null })), { onConflict: 'store_id,staff_name,schedule_date' })
       await Promise.all(dates.map(async dateStr => { const prev = schedMap[`${staff}-${dateStr}`]; await syncAttendance(supabase, sid, staff, dateStr, status); await logScheduleEdit(supabase, sid, myName, staff, dateStr, 'bulk_upsert', prev?.status || null, status) }))
     }
     setManageBulkTarget(null); loadAll()
@@ -1408,14 +1426,14 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
     return day >= min && day <= max
   }
 
-  async function handleBulkApply(status: string) {
+  async function handleBulkApply(status: string, note: string) {
     if (!bulkTarget) return
     const { staff, dates } = bulkTarget
     if (status === '__delete__') {
       await supabase.from('schedules').delete().eq('store_id', storeId).eq('staff_name', staff).in('schedule_date', dates)
       await Promise.all(dates.map(async dateStr => { const prev = scheduleMap[`${staff}-${dateStr}`]; await syncAttendance(supabase, storeId, staff, dateStr, 'work'); await logScheduleEdit(supabase, storeId, myName, staff, dateStr, 'bulk_delete', prev?.status || null, null) }))
     } else {
-      await supabase.from('schedules').upsert(dates.map(dateStr => ({ store_id: storeId, staff_name: staff, schedule_date: dateStr, status, position: null, note: null })), { onConflict: 'store_id,staff_name,schedule_date' })
+      await supabase.from('schedules').upsert(dates.map(dateStr => ({ store_id: storeId, staff_name: staff, schedule_date: dateStr, status, position: null, note: note || null })), { onConflict: 'store_id,staff_name,schedule_date' })
       await Promise.all(dates.map(async dateStr => { const prev = scheduleMap[`${staff}-${dateStr}`]; await syncAttendance(supabase, storeId, staff, dateStr, status); await logScheduleEdit(supabase, storeId, myName, staff, dateStr, 'bulk_upsert', prev?.status || null, status) }))
     }
     setBulkTarget(null); onSaved()
@@ -1425,8 +1443,18 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
     if (!copiedStaff || copiedStaff === targetStaff) return
     const src = schedules.filter(s => s.staff_name === copiedStaff)
     if (src.length === 0) { alert(`${copiedStaff}의 스케줄이 없습니다`); setCopiedStaff(null); return }
-    if (!confirm(`${copiedStaff}의 스케줄(${src.length}건)을 ${targetStaff}에 붙여넣을까요?\n기존 스케줄은 덮어씌워집니다.`)) return
-    await supabase.from('schedules').upsert(src.map(s => ({ store_id: storeId, staff_name: targetStaff, schedule_date: s.schedule_date, status: s.status, position: s.position, note: s.note })), { onConflict: 'store_id,staff_name,schedule_date' })
+    const pad = (n: number) => String(n).padStart(2,'0')
+    const startDate = `${monthStr}-01`; const endDate = `${monthStr}-${pad(daysInMonth)}`
+    if (!confirm(`${copiedStaff}의 스케줄을 ${targetStaff}에 붙여넣을까요?\n${targetStaff}의 ${month+1}월 스케줄 전체가 교체됩니다.`)) return
+    await supabase.from('schedules').delete()
+      .eq('store_id', storeId).eq('staff_name', targetStaff)
+      .gte('schedule_date', startDate).lte('schedule_date', endDate)
+    if (src.length > 0) {
+      await supabase.from('schedules').upsert(
+        src.map(s => ({ store_id: storeId, staff_name: targetStaff, schedule_date: s.schedule_date, status: s.status, position: s.position, note: s.note })),
+        { onConflict: 'store_id,staff_name,schedule_date' }
+      )
+    }
     setCopiedStaff(null); onSaved()
   }
 
@@ -1752,13 +1780,14 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
   function canClick(staff: string, hasSchedule: boolean) { if(isOwner)return true; if(isManager)return hasSchedule; return false }
   function toggleSelectCell(staff: string, dateStr: string) { const key = `${staff}|${dateStr}`; setSelected(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next }) }
 
+  const [bulkMemo, setBulkMemo] = useState('')
   async function applyBulk(status: string) {
     for (const key of selected) {
       const [staff, dateStr] = key.split('|'); const prev = scheduleMap[`${staff}-${dateStr}`]
       if (status === '__delete__') { await supabase.from('schedules').delete().eq('store_id', storeId).eq('staff_name', staff).eq('schedule_date', dateStr); await syncAttendance(supabase, storeId, staff, dateStr, 'work'); await logScheduleEdit(supabase, storeId, myName, staff, dateStr, 'bulk_delete', prev?.status || null, null)
-      } else { await supabase.from('schedules').upsert({ store_id: storeId, staff_name: staff, schedule_date: dateStr, status, position: null, note: null }, { onConflict: 'store_id,staff_name,schedule_date' }); await syncAttendance(supabase, storeId, staff, dateStr, status); await logScheduleEdit(supabase, storeId, myName, staff, dateStr, 'bulk_upsert', prev?.status || null, status) }
+      } else { await supabase.from('schedules').upsert({ store_id: storeId, staff_name: staff, schedule_date: dateStr, status, position: null, note: bulkMemo || null }, { onConflict: 'store_id,staff_name,schedule_date' }); await syncAttendance(supabase, storeId, staff, dateStr, status); await logScheduleEdit(supabase, storeId, myName, staff, dateStr, 'bulk_upsert', prev?.status || null, status) }
     }
-    setSelected(new Set()); setMultiMode(false); onSaved()
+    setSelected(new Set()); setMultiMode(false); setBulkMemo(''); onSaved()
   }
 
   async function handleSave(status: string, position: string, note: string, confirmed?: boolean) {
@@ -1873,7 +1902,8 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
       </div>
       {multiMode && selected.size > 0 && (
         <div style={{ position:'fixed', bottom:72, left:0, right:0, padding:'12px 16px', background:'#fff', borderTop:'2px solid #E8ECF0', boxShadow:'0 -4px 20px rgba(0,0,0,0.12)', zIndex:200 }}>
-          <div style={{ fontSize:12, color:'#6C5CE7', fontWeight:700, marginBottom:10, textAlign:'center' }}>{selected.size}개 선택됨 — 적용할 상태를 선택하세요</div>
+          <div style={{ fontSize:12, color:'#6C5CE7', fontWeight:700, marginBottom:8, textAlign:'center' }}>{selected.size}개 선택됨 — 적용할 상태를 선택하세요</div>
+          <input value={bulkMemo} onChange={e => setBulkMemo(e.target.value)} placeholder="메모 입력 (선택 · 전체 적용)" style={{ width:'100%', padding:'8px 12px', borderRadius:10, border:'1px solid #E0E4E8', background:'#F8F9FB', fontSize:12, outline:'none', boxSizing:'border-box' as const, marginBottom:8 }} />
           <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:8 }}>
             {(['work','off','half','absent','early','etc'] as const).map(s => (<button key={s} onClick={() => applyBulk(s)} style={{ flex:1, minWidth:56, padding:'10px 0', borderRadius:10, border:`1.5px solid ${STATUS_COLOR[s]}`, background:STATUS_BG[s], color:STATUS_COLOR[s], fontSize:12, fontWeight:700, cursor:'pointer' }}>{STATUS_LABEL[s]}</button>))}
           </div>
