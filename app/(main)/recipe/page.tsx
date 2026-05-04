@@ -246,7 +246,9 @@ export default function RecipePage() {
     setIngr(''); setSteps(''); setNote(''); setShowForm(false)
   }
   async function saveRecipe() {
-    if (!nm.trim() || !storeId || !parentCat) return
+    if (!nm.trim()) { alert('레시피 이름을 입력해주세요.'); return }
+    if (!parentCat) { alert('대분류 카테고리를 선택해주세요.'); return }
+    if (!storeId) { alert('매장 정보를 불러오지 못했어요. 새로고침 후 다시 시도해주세요.'); return }
     const allRecs = recipes.filter(r => r.category === parentCat && r.sub_category === (subCat || null))
     const maxOrd  = allRecs.length > 0 ? Math.max(...allRecs.map(r => r.order_index ?? 0)) + 1 : 0
     const payload = {
@@ -691,7 +693,8 @@ export default function RecipePage() {
                 <input value={ic} onChange={e => setIc(e.target.value)} placeholder="이모지" style={{ ...inp, width: 48, flexShrink: 0 }} />
                 <input value={nm} onChange={e => setNm(e.target.value)} placeholder="레시피 이름" style={inp} />
               </div>
-              <CatSelects pVal={parentCat} pSet={setParentCat} sVal={subCat} sSet={setSubCat} />
+              <div style={{ fontSize: 11, color: '#FF6B35', marginBottom: 4, marginLeft: 2 }}>* 대분류 필수 선택</div>
+          <CatSelects pVal={parentCat} pSet={setParentCat} sVal={subCat} sSet={setSubCat} />
               <textarea value={ingr} onChange={e => setIngr(e.target.value)} rows={4}
                 placeholder={"재료 (한 줄에 하나씩)\n예: 토마토홀 6캔"}
                 style={{ ...inp, resize: 'vertical', marginBottom: 8 }} />
