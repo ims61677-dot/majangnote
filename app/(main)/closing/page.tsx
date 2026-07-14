@@ -1390,7 +1390,7 @@ export default function ClosingPage() {
   async function loadSalesMap(sid: string) {
     const { data: cls } = await supabase.from('closings').select('id, closing_date, weather_code, temp_max, temp_min').eq('store_id', sid)
     if (!cls || cls.length === 0) return
-    const { data: sv } = await supabase.from('closing_sales').select('closing_id, amount').in('closing_id', cls.map((c:any) => c.id))
+    const { data: sv } = await supabase.from('closing_sales').select('closing_id, amount').in('closing_id', cls.map((c:any) => c.id)).limit(10000)
     const map: Record<string, number> = {}
     const wmap: Record<string, { code: number; tmax: number; tmin: number }> = {}
     cls.forEach((c:any) => {
