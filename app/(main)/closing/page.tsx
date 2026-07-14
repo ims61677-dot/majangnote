@@ -1390,11 +1390,18 @@ export default function ClosingPage() {
   async function loadSalesMap(sid: string) {
     const { data: cls } = await supabase.from('closings').select('id, closing_date, weather_code, temp_max, temp_min').eq('store_id', sid)
     if (!cls || cls.length === 0) return
-    const { data: sv } = await supabase.from('closing_sales').select('closing_id, amount').in('closing_id', cls.map((c:any) => c.id)).limit(10000)
+    // ★ 50개씩 나눠서 조회 (URL 길이 제한 우회)
+    const allSales: any[] = []
+    const batchSize = 50
+    for (let i = 0; i < cls.length; i += batchSize) {
+      const batchIds = cls.slice(i, i + batchSize).map((c:any) => c.id)
+      const { data: batchSv } = await supabase.from('closing_sales').select('closing_id, amount').in('closing_id', batchIds)
+      if (batchSv) allSales.push(...batchSv)
+    }
     const map: Record<string, number> = {}
     const wmap: Record<string, { code: number; tmax: number; tmin: number }> = {}
     cls.forEach((c:any) => {
-      const total = sv ? sv.filter((s:any) => s.closing_id === c.id).reduce((sum:number, s:any) => sum + (s.amount||0), 0) : 0
+      const total = allSales.filter((s:any) => s.closing_id === c.id).reduce((sum:number, s:any) => sum + (s.amount||0), 0)
       if (total > 0) map[c.closing_date] = total
       if (c.weather_code !== null && c.weather_code !== undefined) {
         wmap[c.closing_date] = { code: c.weather_code, tmax: c.temp_max, tmin: c.temp_min }
