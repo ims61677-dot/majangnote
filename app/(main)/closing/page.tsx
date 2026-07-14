@@ -1395,7 +1395,7 @@ export default function ClosingPage() {
     const wmap: Record<string, { code: number; tmax: number; tmin: number }> = {}
     cls.forEach((c:any) => {
       const total = sv ? sv.filter((s:any) => s.closing_id === c.id).reduce((sum:number, s:any) => sum + (s.amount||0), 0) : 0
-      map[c.closing_date] = total
+      if (total > 0) map[c.closing_date] = total
       if (c.weather_code !== null && c.weather_code !== undefined) {
         wmap[c.closing_date] = { code: c.weather_code, tmax: c.temp_max, tmin: c.temp_min }
       }
