@@ -77,6 +77,78 @@ const AGREEMENTS = [
   { id: 'a5', text: '본 신청 및 동의 내용은 차용증의 효력을 가지며, 위 모든 내용을 충분히 이해하고 자의로 신청합니다.' },
 ]
 
+
+// ─── 상세보기 모달 ───────────────────────────────────────
+function DetailModal({ item, onClose }: { item: any; onClose: () => void }) {
+  function fmtDate(d: string) {
+    if (!d) return '-'
+    return new Date(d).toLocaleString('ko', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+  }
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+      <div style={{ width:'100%', maxWidth:480, background:'#F4F6F9', borderRadius:'20px 20px 0 0', padding:'20px 16px 40px', maxHeight:'92vh', overflowY:'auto' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+          <span style={{ fontSize:16, fontWeight:700, color:'#1a1a2e' }}>📋 신청 상세</span>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, color:'#bbb', cursor:'pointer' }}>✕</button>
+        </div>
+        <div style={{ ...bx, border:'1px solid rgba(255,107,53,0.2)' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#aaa', marginBottom:10 }}>신청 정보</div>
+          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:'#888' }}>신청자</span><span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{item.author_name}</span></div>
+          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:'#888' }}>신청 금액</span><span style={{ fontSize:15, fontWeight:800, color:'#FF6B35' }}>{Number(item.amount).toLocaleString()}원</span></div>
+          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:'#888' }}>신청일</span><span style={{ fontSize:13, color:'#1a1a2e' }}>{fmtDate(item.created_at)}</span></div>
+          {item.payday && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:'#888' }}>무이자 상환 기한</span><span style={{ fontSize:13, fontWeight:700, color:'#00B894' }}>{item.payday.replace(/-/g,'.')} (급여일)</span></div>}
+          <div style={{ display:'flex', justifyContent:'space-between' }}>
+            <span style={{ fontSize:13, color:'#888' }}>상태</span>
+            <span style={{ fontSize:12, fontWeight:700, color: item.repaid?'#00B894':item.status==='approved'?'#B8860B':item.status==='rejected'?'#E84393':item.status==='manager_approved'?'#6C5CE7':'#FF6B35' }}>
+              {item.repaid?'✓ 상환완료':item.status==='approved'?'⚠️ 미상환':item.status==='rejected'?'✗ 반려':item.status==='manager_approved'?'관리자승인 → 대표검토중':'검토 대기'}
+            </span>
+          </div>
+        </div>
+        <div style={{ ...bx }}>
+          <div style={{ fontSize:11, fontWeight:700, color:'#aaa', marginBottom:8 }}>신청 사유 (전체)</div>
+          <div style={{ fontSize:13, color:'#444', lineHeight:1.8, background:'#F8F9FB', borderRadius:10, padding:12, border:'1px solid #E8ECF0', whiteSpace:'pre-wrap' }}>{item.reason}</div>
+        </div>
+        {item.manager_approved_by && (
+          <div style={{ ...bx, border:'1px solid rgba(108,92,231,0.2)', background:'rgba(108,92,231,0.02)' }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginBottom:10 }}>✓ 관리자 승인 내역</div>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:13, color:'#888' }}>승인자</span><span style={{ fontSize:13, fontWeight:700, color:'#6C5CE7' }}>{item.manager_approved_by}</span></div>
+            {item.manager_approved_at && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:13, color:'#888' }}>승인 일시</span><span style={{ fontSize:13, color:'#1a1a2e' }}>{fmtDate(item.manager_approved_at)}</span></div>}
+            {item.manager_comment && (
+              <div style={{ marginTop:8 }}>
+                <div style={{ fontSize:11, color:'#aaa', marginBottom:4 }}>승인 의견</div>
+                <div style={{ fontSize:13, color:'#444', lineHeight:1.7, background:'#F8F9FB', borderRadius:8, padding:'10px 12px', border:'1px solid rgba(108,92,231,0.1)', whiteSpace:'pre-wrap' }}>{item.manager_comment}</div>
+              </div>
+            )}
+          </div>
+        )}
+        {item.owner_approved_by && (
+          <div style={{ ...bx, border:'1px solid rgba(255,107,53,0.2)', background:'rgba(255,107,53,0.02)' }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'#FF6B35', marginBottom:10 }}>✓ 대표 최종 승인 내역</div>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:13, color:'#888' }}>승인자</span><span style={{ fontSize:13, fontWeight:700, color:'#FF6B35' }}>{item.owner_approved_by}</span></div>
+            {item.owner_approved_at && <div style={{ display:'flex', justifyContent:'space-between' }}><span style={{ fontSize:13, color:'#888' }}>승인 일시</span><span style={{ fontSize:13, color:'#1a1a2e' }}>{fmtDate(item.owner_approved_at)}</span></div>}
+          </div>
+        )}
+        {item.status==='rejected' && item.reject_reason && (
+          <div style={{ ...bx, border:'1px solid rgba(232,67,147,0.2)', background:'rgba(232,67,147,0.02)' }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'#E84393', marginBottom:8 }}>✗ 반려 내역</div>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}><span style={{ fontSize:13, color:'#888' }}>반려자</span><span style={{ fontSize:13, fontWeight:700, color:'#E84393' }}>{item.rejected_by||'-'}</span></div>
+            {item.rejected_at && <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span style={{ fontSize:13, color:'#888' }}>반려 일시</span><span style={{ fontSize:13, color:'#1a1a2e' }}>{fmtDate(item.rejected_at)}</span></div>}
+            <div style={{ fontSize:11, color:'#aaa', marginBottom:4 }}>반려 사유</div>
+            <div style={{ fontSize:13, color:'#E84393', background:'rgba(232,67,147,0.05)', borderRadius:8, padding:'10px 12px', border:'1px solid rgba(232,67,147,0.15)', lineHeight:1.7 }}>{item.reject_reason}</div>
+          </div>
+        )}
+        {item.repaid && item.repaid_at && (
+          <div style={{ ...bx, border:'1px solid rgba(0,184,148,0.25)', background:'rgba(0,184,148,0.03)' }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'#00B894', marginBottom:8 }}>✓ 상환 완료</div>
+            <div style={{ display:'flex', justifyContent:'space-between' }}><span style={{ fontSize:13, color:'#888' }}>처리 일시</span><span style={{ fontSize:13, fontWeight:700, color:'#00B894' }}>{fmtDate(item.repaid_at)}</span></div>
+          </div>
+        )}
+        <button onClick={onClose} style={{ width:'100%', padding:'12px 0', borderRadius:12, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:14, fontWeight:600, cursor:'pointer', marginTop:4 }}>닫기</button>
+      </div>
+    </div>
+  )
+}
+
 function ApplyForm({ storeId, userName, userId, onSaved, onClose }: {
   storeId: string; userName: string; userId: string; onSaved: () => void; onClose: () => void
 }) {
@@ -414,6 +486,7 @@ export default function AdvancePage() {
   const [showApply, setShowApply] = useState(false)
   const [approveItem, setApproveItem] = useState<any>(null)
   const [filterStatus, setFilterStatus] = useState('all')
+  const [detailItem, setDetailItem] = useState<any>(null)
 
   const isOwner = userRole === 'owner'
   const isManager = userRole === 'manager' || userRole === 'owner'
@@ -569,7 +642,16 @@ export default function AdvancePage() {
 
             <ProgressSteps item={item} />
 
-            {isManager && <div style={{ fontSize:12, color:'#666', background:'#F8F9FB', borderRadius:8, padding:'8px 10px', marginBottom:10, lineHeight:1.6 }}>{item.reason.length>80?item.reason.slice(0,80)+'...':item.reason}</div>}
+            {/* 사유 미리보기 + 상세보기 버튼 */}
+            <div onClick={() => setDetailItem(item)} style={{ fontSize:12, color:'#666', background:'#F8F9FB', borderRadius:8, padding:'8px 10px', marginBottom:6, lineHeight:1.6, cursor:'pointer', border:'1px solid transparent', transition:'border 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.borderColor='rgba(108,92,231,0.2)'}
+              onMouseLeave={e => e.currentTarget.style.borderColor='transparent'}>
+              {item.reason.length>60?item.reason.slice(0,60)+'...':item.reason}
+            </div>
+            <button onClick={() => setDetailItem(item)} style={{ width:'100%', padding:'7px 0', borderRadius:8, background:'transparent', border:'1px solid rgba(108,92,231,0.2)', color:'#6C5CE7', fontSize:11, fontWeight:600, cursor:'pointer', marginBottom:8 }}>
+              📋 상세보기 (사유 전체 / 승인 이력)
+            </button>
+
             {item.status==='rejected' && item.reject_reason && <div style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.05)', borderRadius:8, padding:'8px 10px', marginBottom:8, border:'1px solid rgba(232,67,147,0.15)' }}>반려 사유: {item.reject_reason}</div>}
 
             {canManagerApprove && <button onClick={() => setApproveItem(item)} style={{ width:'100%', padding:'10px 0', borderRadius:10, cursor:'pointer', background:'linear-gradient(135deg,#6C5CE7,#E84393)', border:'none', color:'#fff', fontSize:13, fontWeight:700, marginBottom:6 }}>📋 관리자 검토하기</button>}
@@ -587,6 +669,7 @@ export default function AdvancePage() {
       {showApply && <ApplyForm storeId={storeId} userName={userName} userId={userId} onSaved={() => { setShowApply(false); loadData(storeId, userName, userRole, userId) }} onClose={() => setShowApply(false)} />}
       {approveItem && !isOwner && <ManagerApproveModal item={approveItem} managerName={userName} onDone={() => { setApproveItem(null); loadData(storeId, userName, userRole, userId) }} onClose={() => setApproveItem(null)} />}
       {approveItem && isOwner && <OwnerApproveModal item={approveItem} ownerName={userName} onDone={() => { setApproveItem(null); loadData(storeId, userName, userRole, userId) }} onClose={() => setApproveItem(null)} />}
+      {detailItem && <DetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   )
 }
