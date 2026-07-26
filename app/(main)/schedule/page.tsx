@@ -380,6 +380,15 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
                     <button onClick={() => { onOffRequestApprove?.(); onClose() }} style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#00B894,#6C5CE7)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700 }}>✓ 승인</button>
                   </div>
                 )}
+                {offRequest.status === 'approved' && (
+                  <div style={{ marginTop:8 }}>
+                    <div style={{ fontSize:10, color:'#aaa', marginBottom:6, textAlign:'center' }}>승인된 휴무 — 취소하시겠어요?</div>
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button onClick={() => { onOffRequestReject?.(); onClose() }} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'rgba(230,126,34,0.08)', border:'1px solid rgba(230,126,34,0.3)', color:'#E67E22', fontSize:12, cursor:'pointer', fontWeight:600 }}>거부로 전환</button>
+                      <button onClick={() => { onOffRequestCancel?.(); onClose() }} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.25)', color:'#E84393', fontSize:12, cursor:'pointer', fontWeight:600 }}>🗑 요청 삭제</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
