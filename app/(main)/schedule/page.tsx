@@ -718,12 +718,16 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
         const startDate = `${monthStr}-01`; const endDate = `${monthStr}-${pad(daysInMonthE)}`
         await Promise.all(storeItems.map(async (member: any) => {
           const sid = member.stores?.id
-          const [schedsRes, staffRes, offReqsRes] = await Promise.all([
+          const [schedsRes, staffRes, inactiveStaffRes, offReqsRes] = await Promise.all([
             supabase.from('schedules').select('*').eq('store_id', sid).gte('schedule_date', startDate).lte('schedule_date', endDate),
             supabase.from('store_members').select('profile_id, sort_order, profiles(nm)').eq('store_id', sid).eq('active', true),
+            supabase.from('store_members').select('profile_id, profiles(nm)').eq('store_id', sid).eq('active', false),
             supabase.from('off_requests').select('*').eq('store_id', sid).eq('target_month', monthStr),
           ])
-          const staffNames = (staffRes.data || []).map((m: any) => ({ nm: m.profiles?.nm || '', order: m.sort_order ?? 9999 })).filter((m: any) => m.nm).sort((a: any, b: any) => a.order - b.order).map((m: any) => m.nm)
+          const activeNames = (staffRes.data || []).map((m: any) => ({ nm: m.profiles?.nm || '', order: m.sort_order ?? 9999 })).filter((m: any) => m.nm).sort((a: any, b: any) => a.order - b.order).map((m: any) => m.nm)
+          const schedNamesInExport = new Set((schedsRes.data || []).map((s: any) => s.staff_name))
+          const inactiveWithSched = (inactiveStaffRes.data || []).map((m: any) => m.profiles?.nm || '').filter((nm: string) => nm && !activeNames.includes(nm) && schedNamesInExport.has(nm))
+          const staffNames = [...activeNames, ...inactiveWithSched]
           const schedMap: Record<string,any> = {}; (schedsRes.data || []).forEach((s: any) => { schedMap[`${s.staff_name}-${s.schedule_date}`] = s })
           const offReqMap: Record<string,any> = {}; (offReqsRes.data || []).forEach((r: any) => { offReqMap[`${r.staff_name}-${r.request_date}`] = r })
           storeMonthData.push({ name: member.stores?.name || '', staff: staffNames, schedMap, offReqMap })
@@ -1474,15 +1478,21 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
     const pad = (n: number) => String(n).padStart(2,'0'); const DOW_KR = ['일','월','화','수','목','금','토']; const holidays = getHolidays(year)
     const CELL_COLOR: Record<string, string> = { work: 'FFE8E4FF', off: 'FFFCE4F0', half: 'FFFFEEE6', absent: 'FFFFF3E0', early: 'FFE0FAF4', etc: 'FFF3E0FF', confirmed: 'FFFFD6EC' }
     const TEXT_COLOR: Record<string, string> = { work: 'FF6C5CE7', off: 'FFE84393', half: 'FFFF6B35', absent: 'FFE67E22', early: 'FF00B894', etc: 'FF8E44AD', confirmed: 'FFE84393' }
-    const headerRow = ws.addRow(['날짜', '요일', ...visibleStaff, '출근수'])
+    // 퇴사자 중 해당 월 스케줄 있는 경우 열에 포함
+    const schedNamesInMonth = new Set(schedules.map(s => s.staff_name))
+    const exportStaff: string[] = [
+      ...visibleStaff,
+      ...staffList.filter((n: string) => !visibleStaff.includes(n) && schedNamesInMonth.has(n)),
+    ]
+    const headerRow = ws.addRow(['날짜', '요일', ...exportStaff, '출근수'])
     headerRow.eachCell(cell => { cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF2C3E50' } }; cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 }; cell.alignment = { horizontal:'center', vertical:'middle' }; cell.border = { bottom:{ style:'medium', color:{ argb:'FF1a1a2e' } } } })
     ws.getRow(1).height = 22; ws.getColumn(1).width = 14; ws.getColumn(2).width = 6
-    visibleStaff.forEach((_, i) => { ws.getColumn(i + 3).width = 12 }); ws.getColumn(visibleStaff.length + 3).width = 8
+    exportStaff.forEach((_: string, i: number) => { ws.getColumn(i + 3).width = 12 }); ws.getColumn(exportStaff.length + 3).width = 8
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${monthStr}-${pad(d)}`; const dow = new Date(dateStr).getDay(); const isHoliday = !!holidays[dateStr]; const isSun = dow === 0; const isSat = dow === 6; const holiday = isHoliday ? ` ${holidays[dateStr]}` : ''
       const rowData: any[] = [`${month+1}/${d}${holiday}`, DOW_KR[dow]]; let workCnt = 0
       const cellInfos: { status: string; position?: string; note?: string; isConfirmed?: boolean; isOffApproved?: boolean; isOffPending?: boolean; reason?: string }[] = []
-      visibleStaff.forEach(staff => {
+      exportStaff.forEach((staff: string) => {
         const sc = scheduleMap[`${staff}-${dateStr}`]; const offReq = offRequestMap[`${staff}-${dateStr}`]
         if (sc) { const label = STATUS_LABEL[sc.status] || sc.status; const pos = sc.position ? ` [${sc.position}]` : ''; const note = sc.note ? ` (${sc.note.replace(/^\[조퇴:\d{2}:\d{2}\]\s*/,'')})` : ''; const confirmed = sc.is_confirmed ? ' 🔒' : ''; rowData.push(`${label}${pos}${note}${confirmed}`); cellInfos.push({ status: sc.status, position: sc.position, note: sc.note, isConfirmed: sc.is_confirmed }); if (sc.status==='work'||sc.status==='half'||sc.status==='early') workCnt++
         } else if (offReq?.status === 'approved') { rowData.push(`🔒 휴일확정 (${offReq.reason})`); cellInfos.push({ status: 'off', isOffApproved: true, reason: offReq.reason })
@@ -1500,7 +1510,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
         const textColor = info.isConfirmed ? TEXT_COLOR.confirmed : info.isOffApproved ? TEXT_COLOR.off : info.status === 'pending' ? 'FFCC9900' : TEXT_COLOR[info.status] || 'FF333333'
         cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:bgColor } }; cell.font = { color:{ argb:textColor }, bold: !!info.status, size:10 }
       })
-      const cntCell = row.getCell(visibleStaff.length + 3); cntCell.font = { bold:true, color:{ argb: workCnt < 3 ? 'FFE84393' : 'FF6C5CE7' }, size:10 }; cntCell.alignment = { horizontal:'center', vertical:'middle' }
+      const cntCell = row.getCell(exportStaff.length + 3); cntCell.font = { bold:true, color:{ argb: workCnt < 3 ? 'FFE84393' : 'FF6C5CE7' }, size:10 }; cntCell.alignment = { horizontal:'center', vertical:'middle' }
       if (dow === 1 && d !== 1) { row.eachCell(cell => { cell.border = { top:{ style:'medium', color:{ argb:'FFD0D4E8' } } } }) }
     }
     ws.eachRow(row => { row.eachCell(cell => { if (!cell.border?.top?.style) { cell.border = { ...cell.border, top:{ style:'thin', color:{ argb:'FFECEEF2' } }, bottom:{ style:'thin', color:{ argb:'FFECEEF2' } }, left:{ style:'thin', color:{ argb:'FFECEEF2' } }, right:{ style:'thin', color:{ argb:'FFECEEF2' } } } } }) })
