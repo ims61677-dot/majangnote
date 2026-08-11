@@ -72,7 +72,9 @@ export default function PushTestPage() {
       }
 
       const userStr = localStorage.getItem('mj_user')
+      const storeStr = localStorage.getItem('mj_store')
       const user = userStr ? JSON.parse(userStr) : null
+      const store = storeStr ? JSON.parse(storeStr) : null
 
       const res = await fetch('/api/push/subscribe', {
         method: 'POST',
@@ -80,6 +82,9 @@ export default function PushTestPage() {
         body: JSON.stringify({
           subscription: sub.toJSON(),
           userId: user?.id || null,
+          storeId: store?.id || null,
+          role: user?.role || 'employee',
+          userName: user?.name || user?.email || null,
         }),
       })
       const data = await res.json()

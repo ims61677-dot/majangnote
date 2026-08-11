@@ -8,7 +8,7 @@ const supabase = createClient(
 )
 
 webpush.setVapidDetails(
-  'mailto:' + process.env.VAPID_EMAIL!,
+  'mailto:majangnote@example.com',
   process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
   process.env.VAPID_PRIVATE_KEY!
 )
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     const payload = JSON.stringify({ title: title || 'Store Note', body: message, url: url || '/notice' })
     let sent = 0
     await Promise.all(subs.map(async (sub: any) => {
-      try { await webpush.sendNotification(sub.subscription, payload); sent++ }
+      try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload); sent++ }
       catch (err: any) { if (err.statusCode === 404 || err.statusCode === 410) await supabase.from('push_subscriptions').delete().eq('id', sub.id) }
     }))
     return NextResponse.json({ sent })

@@ -232,9 +232,9 @@ export default function MyPage() {
           .update({ settings: newSettings }).eq('id', existing[0].id)
         if (error) throw error
       } else {
-        const { error } = await supabase.from('push_subscriptions')
-          .insert({ profile_id: user.id, store_id: storeId, settings: newSettings, role: user.role || 'employee', user_name: user.nm || user.name || null })
-        if (error) throw error
+        alert('아직 이 기기에서 알림 허용이 완료되지 않았어요.\n페이지를 새로고침한 뒤 다시 시도해주세요.')
+        loadNotifSettings(user.id, storeId)
+        return
       }
       setNotifSaved(true)
       setTimeout(() => setNotifSaved(false), 2000)
