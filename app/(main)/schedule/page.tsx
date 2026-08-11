@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import YearMonthPicker from '@/components/YearMonthPicker'
+import { sendPush } from '@/lib/pushNotify'
 
 function toDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
@@ -513,10 +514,12 @@ function RequestPanel({ storeId, myName, onClose, onApproved }: {
     const earlyMatch = req.note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
     await syncAttendance(supabase, storeId, req.staff_name, req.schedule_date, req.requested_status, earlyMatch?.[1])
     await supabase.from('schedule_requests').update({ status: 'approved', reviewed_by: myName, reviewed_at: new Date().toISOString() }).eq('id', req.id)
+    sendPush('schedule', storeId, '✅ 요청 승인', `${req.staff_name}님의 스케줄 변경 요청이 승인되었습니다`, '/schedule', undefined, undefined, req.staff_name)
     loadRequests(); onApproved()
   }
   async function handleReject(req: any) {
     await supabase.from('schedule_requests').update({ status: 'rejected', reviewed_by: myName, reviewed_at: new Date().toISOString() }).eq('id', req.id)
+    sendPush('schedule', storeId, '❌ 요청 거절', `${req.staff_name}님의 스케줄 변경 요청이 거절되었습니다`, '/schedule', undefined, undefined, req.staff_name)
     loadRequests()
   }
   return (
@@ -876,11 +879,14 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
     const earlyMatch = req.note?.match(/^\[조퇴:(\d{2}:\d{2})\]/)
     await syncAttendance(supabase, sid, req.staff_name, req.schedule_date, req.requested_status, earlyMatch?.[1])
     await supabase.from('schedule_requests').update({ status: 'approved', reviewed_by: myName, reviewed_at: new Date().toISOString() }).eq('id', req.id)
+    sendPush('schedule', sid, '✅ 요청 승인', `${req.staff_name}님의 스케줄 변경 요청이 승인되었습니다`, '/schedule', undefined, undefined, req.staff_name)
     setApprovingId(null); loadAll()
   }
 
   async function handleReject(sid: string, req: any) {
-    await supabase.from('schedule_requests').update({ status: 'rejected', reviewed_by: myName, reviewed_at: new Date().toISOString() }).eq('id', req.id); loadAll()
+    await supabase.from('schedule_requests').update({ status: 'rejected', reviewed_by: myName, reviewed_at: new Date().toISOString() }).eq('id', req.id)
+    sendPush('schedule', sid, '❌ 요청 거절', `${req.staff_name}님의 스케줄 변경 요청이 거절되었습니다`, '/schedule', undefined, undefined, req.staff_name)
+    loadAll()
   }
 
   async function handleFullBackup() {
@@ -1272,8 +1278,8 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                       <div style={{ fontSize:11, color:'#888', marginBottom:8, padding:'5px 9px', background:'#F8F9FB', borderRadius:7 }}>사유: {req.reason}</div>
                       <div style={{ fontSize:10, color:'#bbb', marginBottom:8 }}>{new Date(req.created_at).toLocaleDateString('ko')}</div>
                       <div style={{ display:'flex', gap:8 }}>
-                        <button onClick={async () => { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', req.id); loadAll() }} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거부</button>
-                        <button onClick={async () => { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', req.id); loadAll() }} style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#00B894,#6C5CE7)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700 }}>✓ 승인</button>
+                        <button onClick={async () => { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', req.id); sendPush('schedule', sid, '❌ 휴무 거절', `${req.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, req.staff_name); loadAll() }} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거부</button>
+                        <button onClick={async () => { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', req.id); sendPush('schedule', sid, '✅ 휴무 승인', `${req.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, req.staff_name); loadAll() }} style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#00B894,#6C5CE7)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700 }}>✓ 승인</button>
                       </div>
                     </div>
                   ))}
@@ -1360,11 +1366,13 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
             onOffRequestApprove={async () => {
               if (!editOffReq) return
               await supabase.from('off_requests').update({ status: 'approved' }).eq('id', editOffReq.id)
+              sendPush('schedule', editPopup.sid, '✅ 휴무 승인', `${editOffReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, editOffReq.staff_name)
               setEditPopup(null); loadAll()
             }}
             onOffRequestReject={async () => {
               if (!editOffReq) return
               await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', editOffReq.id)
+              sendPush('schedule', editPopup.sid, '❌ 휴무 거절', `${editOffReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, editOffReq.staff_name)
               setEditPopup(null); loadAll()
             }}
             onOffRequestCancel={async () => {
@@ -1546,6 +1554,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
     if (!popup) return; const current = scheduleMap[`${popup.staff}-${popup.date}`]
     if (isManager && current?.is_confirmed) { alert('🔒 대표가 확정한 날은 변경 요청할 수 없어요'); return }
     await supabase.from('schedule_requests').insert({ store_id: storeId, requester_nm: myName, staff_name: popup.staff, schedule_date: popup.date, requested_status: status, current_status: current?.status || null, note: note || null })
+    sendPush('request', storeId, '📋 변경 요청', `${myName}님이 ${popup.date} 스케줄 변경을 요청했습니다`, '/schedule', undefined, 'owner')
     setPopup(null); alert('변경 요청이 전송되었습니다!')
   }
   async function handleDelete() {
@@ -1575,10 +1584,10 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
         const takenByOther2 = isFuture && requestOpen && !isOwner && popup.staff === myName && !offReq ? offRequests.find((r: any) => r.request_date === popup.date && r.staff_name !== myName && (r.status === 'pending' || r.status === 'approved')) || null : null
         const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq && !takenByOther2
         return <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} offRequest={offReq} canRequestOff={canReqOff} isBlocked={isBlocked2}
-          onOffRequest={async (reason) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending' }); onOffRequestsChange() }}
+          onOffRequest={async (reason) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending' }); sendPush('request', storeId, '🙏 휴무 신청', `${popup.staff}님이 휴무를 신청했습니다 (${popup.date})`, '/schedule', undefined, 'owner'); onOffRequestsChange() }}
           onOffRequestCancel={async () => { if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); onOffRequestsChange() } }}
-          onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); onOffRequestsChange() } }}
-          onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); onOffRequestsChange() } }}
+          onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); sendPush('schedule', storeId, '✅ 휴무 승인', `${offReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
+          onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); sendPush('schedule', storeId, '❌ 휴무 거절', `${offReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
         />
       })()}
       {bulkTarget && <BulkPopup staffName={bulkTarget.staff} dates={bulkTarget.dates} onApply={handleBulkApply} onClose={() => setBulkTarget(null)} />}
@@ -1817,7 +1826,9 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
   }
   async function handleRequest(status: string, note: string) {
     if (!popup) return; const current = scheduleMap[`${popup.staff}-${popup.date}`]
-    await supabase.from('schedule_requests').insert({ store_id: storeId, requester_nm: myName, staff_name: popup.staff, schedule_date: popup.date, requested_status: status, current_status: current?.status||null, note: note||null }); setPopup(null); alert('변경 요청이 전송되었습니다!')
+    await supabase.from('schedule_requests').insert({ store_id: storeId, requester_nm: myName, staff_name: popup.staff, schedule_date: popup.date, requested_status: status, current_status: current?.status||null, note: note||null })
+    sendPush('request', storeId, '📋 변경 요청', `${myName}님이 ${popup.date} 스케줄 변경을 요청했습니다`, '/schedule', undefined, 'owner')
+    setPopup(null); alert('변경 요청이 전송되었습니다!')
   }
   async function handleDelete() {
     if (!popup || !popupData) return; const prev = scheduleMap[`${popup.staff}-${popup.date}`]
@@ -1839,10 +1850,10 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
         const takenByOther2 = isFuture && requestOpen && !isOwner && popup.staff === myName && !offReq ? offRequests.find((r: any) => r.request_date === popup.date && r.staff_name !== myName && (r.status === 'pending' || r.status === 'approved')) || null : null
         const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq && !takenByOther2
         return <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} offRequest={offReq} canRequestOff={canReqOff} isBlocked={isBlocked2}
-          onOffRequest={async (reason) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending' }); onOffRequestsChange() }}
+          onOffRequest={async (reason) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending' }); sendPush('request', storeId, '🙏 휴무 신청', `${popup.staff}님이 휴무를 신청했습니다 (${popup.date})`, '/schedule', undefined, 'owner'); onOffRequestsChange() }}
           onOffRequestCancel={async () => { if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); onOffRequestsChange() } }}
-          onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); onOffRequestsChange() } }}
-          onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); onOffRequestsChange() } }}
+          onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); sendPush('schedule', storeId, '✅ 휴무 승인', `${offReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
+          onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); sendPush('schedule', storeId, '❌ 휴무 거절', `${offReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
         />
       })()}
       {showRequests && <RequestPanel storeId={storeId} myName={myName} onClose={() => setShowRequests(false)} onApproved={() => { onSaved(); setShowRequests(false) }} />}

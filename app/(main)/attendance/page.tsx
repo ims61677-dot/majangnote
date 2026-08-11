@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { sendPush } from '@/lib/pushNotify'
 
 const supabase = createSupabaseBrowserClient()
 
@@ -746,6 +747,7 @@ export default function AttendancePage() {
     const { data: existing } = await supabase.from('attendance').select('id').eq('store_id', storeId).eq('profile_id', profileId).eq('work_date', today).maybeSingle()
     if (existing) await supabase.from('attendance').update({ clock_in:nowTs, status:rec.status, is_late:isLate, late_minutes:lateMin }).eq('id', existing.id)
     else await supabase.from('attendance').insert(rec)
+    sendPush(isLate ? 'late' : 'attendance', storeId, isLate ? '⏰ 지각' : '✅ 출근', isLate ? `${myName}님이 지각 출근했습니다 (${lateMin}분 지각)` : `${myName}님이 출근했습니다`, '/attendance', profileId, 'owner')
     await loadMyAttendance(profileId, storeId)
     await loadBoard(storeId)
     await loadMyMonthData(profileId, storeId)

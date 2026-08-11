@@ -15,7 +15,7 @@ webpush.setVapidDetails(
 
 export async function POST(req: NextRequest) {
   try {
-    const { type, storeId, title, body, url, excludeUserId } = await req.json()
+    const { type, storeId, title, body, url, excludeUserId, targetRole, targetUserName } = await req.json()
 
     const { data: subs } = await supabase
       .from('push_subscriptions')
@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
 
     const targets = subs.filter(sub => {
       if (excludeUserId && sub.profile_id === excludeUserId) return false
+      if (targetRole && sub.role !== targetRole) return false
+      if (targetUserName && sub.user_name !== targetUserName) return false
       if (sub.settings && sub.settings[type] === false) return false
       if (!sub.endpoint || !sub.keys) return false
       return true
