@@ -353,10 +353,12 @@ function OwnerRequestPanel({ storeId, onClose, onApproved }: {
     if (existing) await supabase.from('attendance').update(updates).eq('id', existing.id)
     else await supabase.from('attendance').insert({ store_id:storeId, profile_id:req.profile_id, work_date:req.work_date, status:'normal', ...updates })
     await supabase.from('attendance_requests').update({ status:'approved' }).eq('id', req.id)
+    sendPush('attendance', storeId, '✅ 수정 요청 승인', `출퇴근 수정 요청이 승인되었습니다`, '/attendance', undefined, undefined, req.profiles?.nm)
     loadRequests(); onApproved()
   }
   async function reject(req: any) {
     await supabase.from('attendance_requests').update({ status:'rejected' }).eq('id', req.id)
+    sendPush('attendance', storeId, '❌ 수정 요청 거절', `출퇴근 수정 요청이 거절되었습니다`, '/attendance', undefined, undefined, req.profiles?.nm)
     loadRequests()
   }
   return (
@@ -747,7 +749,8 @@ export default function AttendancePage() {
     const { data: existing } = await supabase.from('attendance').select('id').eq('store_id', storeId).eq('profile_id', profileId).eq('work_date', today).maybeSingle()
     if (existing) await supabase.from('attendance').update({ clock_in:nowTs, status:rec.status, is_late:isLate, late_minutes:lateMin }).eq('id', existing.id)
     else await supabase.from('attendance').insert(rec)
-    sendPush(isLate ? 'late' : 'attendance', storeId, isLate ? '⏰ 지각' : '✅ 출근', isLate ? `${myName}님이 지각 출근했습니다 (${lateMin}분 지각)` : `${myName}님이 출근했습니다`, '/attendance', profileId, 'owner')
+    sendPush('attendance', storeId, '✅ 출근', `${myName}님이 출근했습니다`, '/attendance', profileId, ['owner','manager'])
+    if (isLate) sendPush('late', storeId, '⏰ 지각', `${myName}님이 지각 출근했습니다 (${lateMin}분 지각)`, '/attendance', profileId, ['owner','manager'])
     await loadMyAttendance(profileId, storeId)
     await loadBoard(storeId)
     await loadMyMonthData(profileId, storeId)
@@ -763,6 +766,7 @@ export default function AttendancePage() {
     else if (wasLate)  finalStatus='late'
     else if (isEarly)  finalStatus='early'
     await supabase.from('attendance').update({ clock_out:nowTs, status:finalStatus, is_early:isEarly }).eq('id', attendance.id)
+    sendPush('attendance', storeId, '🚪 퇴근', `${myName}님이 퇴근했습니다`, '/attendance', profileId, ['owner','manager'])
     await loadMyAttendance(profileId, storeId)
     await loadBoard(storeId)
     await loadMyMonthData(profileId, storeId)
@@ -775,6 +779,7 @@ export default function AttendancePage() {
   async function submitRequest(type: string, ci: string, co: string, reason: string) {
     const toTs = (t: string) => t ? `${today}T${t}:00+09:00` : null
     await supabase.from('attendance_requests').insert({ store_id:storeId, profile_id:profileId, work_date:today, request_type:type, requested_clock_in:ci?toTs(ci):null, requested_clock_out:co?toTs(co):null, reason })
+    sendPush('request', storeId, '📝 수정 요청', `${myName}님이 출퇴근 수정을 요청했습니다`, '/attendance', profileId, ['owner'])
     setShowRequest(false); alert('✅ 수정 요청이 전송되었습니다')
   }
 

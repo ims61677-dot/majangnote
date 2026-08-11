@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import OrderTab from '@/components/OrderTab'
 import AdminOrderTab from '@/components/AdminOrderTab'
+import { sendPush } from '@/lib/pushNotify'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
@@ -659,6 +660,7 @@ function InventoryPageInner() {
     const old = getQty(itemId, place)
     const val = Math.max(0, newVal)
     const now = new Date().toISOString()
+    const oldTotal = totalQty(itemId)
     const newStockEntry = { item_id: itemId, place, quantity: val, updated_by: userName, updated_at: now, before_qty: old >= 0 ? old : val, after_qty: val }
     setStock(p => ({ ...p, [itemId + '-' + place]: newStockEntry }))
     await supabase.from('inventory_stock').upsert(
@@ -667,6 +669,11 @@ function InventoryPageInner() {
     )
     if (old >= 0 && old !== val) {
       await supabase.from('inventory_logs').insert({ item_id: itemId, place, before_qty: old, after_qty: val, changed_by: userName })
+    }
+    const newTotal = oldTotal - (old >= 0 ? old : 0) + val
+    const item = items.find(i => i.id === itemId)
+    if (item && oldTotal > item.min_qty && newTotal <= item.min_qty) {
+      sendPush('inventory', storeId, '🔴 재고 부족', `${item.name} 재고가 부족합니다 (현재 ${newTotal}${item.unit})`, '/inventory', undefined, ['owner','manager'])
     }
   }
 

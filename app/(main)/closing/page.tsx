@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import YearMonthPicker from '@/components/YearMonthPicker'
+import { sendPush } from '@/lib/pushNotify'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
@@ -1641,7 +1642,10 @@ export default function ClosingPage() {
       setShowForm(true)
 
       if (isAuto) { setAutoSaveStatus('saved'); setTimeout(() => setAutoSaveStatus('idle'), 2500) }
-      else { alert('저장되었습니다!') }
+      else {
+        sendPush('closing', storeId, '📒 마감일지 저장', `${userName}님이 ${selectedDate} 마감일지를 저장했습니다`, '/closing', undefined, ['owner','manager'])
+        alert('저장되었습니다!')
+      }
     } catch (e: any) {
       if (!isAuto) alert('저장 실패: ' + (e?.message || '다시 시도해주세요'))
       if (isAuto) setAutoSaveStatus('idle')

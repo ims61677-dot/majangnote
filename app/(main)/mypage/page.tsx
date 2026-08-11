@@ -224,10 +224,26 @@ export default function MyPage() {
   async function saveNotifSettings(newSettings: Record<string, boolean>) {
     if (!user?.id || !storeId) return
     setNotifSaving(true)
-    await supabase.from('push_subscriptions')
-      .upsert({ profile_id: user.id, store_id: storeId, settings: newSettings, subscription: {} }, { onConflict: 'profile_id,store_id' })
-    setNotifSaving(false); setNotifSaved(true)
-    setTimeout(() => setNotifSaved(false), 2000)
+    try {
+      const { data: existing } = await supabase.from('push_subscriptions')
+        .select('id').eq('profile_id', user.id).eq('store_id', storeId).limit(1)
+      if (existing && existing.length > 0) {
+        const { error } = await supabase.from('push_subscriptions')
+          .update({ settings: newSettings }).eq('id', existing[0].id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('push_subscriptions')
+          .insert({ profile_id: user.id, store_id: storeId, settings: newSettings, role: user.role || 'employee', user_name: user.nm || user.name || null })
+        if (error) throw error
+      }
+      setNotifSaved(true)
+      setTimeout(() => setNotifSaved(false), 2000)
+    } catch (e) {
+      alert('알림 설정 저장에 실패했어요. 잠시 후 다시 시도해주세요.')
+      loadNotifSettings(user.id, storeId)
+    } finally {
+      setNotifSaving(false)
+    }
   }
 
   function toggleNotif(key: string) {
