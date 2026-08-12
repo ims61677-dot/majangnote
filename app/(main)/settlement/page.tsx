@@ -831,7 +831,7 @@ export default function SettlementPage() {
     const store=JSON.parse(localStorage.getItem('mj_store')||'{}'); const user=JSON.parse(localStorage.getItem('mj_user')||'{}')
     if (!store.id) return
     setStoreId(store.id); setUserName(user.nm||''); setUserRole(user.role||''); setProfileId(user.id||'')
-    if (user.role==='owner') { setHasPermission(true); setPermChecked(true); loadSheets(store.id); loadSettings(store.id) }
+    if (user.role==='owner' && user.is_super_owner) { setHasPermission(true); setPermChecked(true); loadSheets(store.id); loadSettings(store.id) }
     else if (user.role==='manager') checkAndLoad(store.id, user.id)
     else { setPermChecked(true); setLoading(false) }
   },[])
@@ -846,7 +846,7 @@ export default function SettlementPage() {
   const currentSheet=activeSheets.find(s=>s.id===selectedSheet)
 
   if (!permChecked||loading) return <div style={{ minHeight:'60vh', display:'flex', alignItems:'center', justifyContent:'center' }}><span style={{ color:'#bbb', fontSize:13 }}>로딩 중...</span></div>
-  if (!hasPermission) return <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'80px 20px', textAlign:'center' }}><div style={{ fontSize:40, marginBottom:16 }}>🔒</div><div style={{ fontSize:18, fontWeight:800, color:'#1a1a2e', marginBottom:8 }}>접근 권한이 없습니다</div><div style={{ fontSize:13, color:'#aaa' }}>결산 메뉴는 대표만 사용할 수 있어요.</div></div>
+  if (!hasPermission) return <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'80px 20px', textAlign:'center' }}><div style={{ fontSize:40, marginBottom:16 }}>🔒</div><div style={{ fontSize:18, fontWeight:800, color:'#1a1a2e', marginBottom:8 }}>접근 권한이 없습니다</div><div style={{ fontSize:13, color:'#aaa' }}>결산 메뉴는 최고 소유자만 사용할 수 있어요.</div></div>
 
   return (
     <div>
