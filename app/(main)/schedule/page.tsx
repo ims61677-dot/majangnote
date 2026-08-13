@@ -7,6 +7,22 @@ import { sendPush } from '@/lib/pushNotify'
 function toDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
+
+function AttachmentLink({ path }: { path?: string | null }) {
+  const [url, setUrl] = useState('')
+  useEffect(() => {
+    if (!path) return
+    const supabase = createSupabaseBrowserClient()
+    supabase.storage.from('staff-documents').createSignedUrl(path, 3600).then(({ data }: any) => setUrl(data?.signedUrl || ''))
+  }, [path])
+  if (!path) return null
+  return (
+    <a href={url || undefined} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+      style={{ fontSize:10, color:'#6C5CE7', fontWeight:700, textDecoration:'underline', display:'inline-block', marginTop:4 }}>
+      📎 첨부 사진 보기
+    </a>
+  )
+}
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate()
 }
@@ -167,7 +183,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
   onSave: (status: string, position: string, note: string, confirmed?: boolean) => void
   onRequest: (status: string, note: string) => void
   onDelete: () => void; onClose: () => void
-  offRequest?: any; onOffRequest?: (reason: string) => void
+  offRequest?: any; onOffRequest?: (reason: string, attachmentPath?: string) => void
   onOffRequestCancel?: () => void; onOffRequestApprove?: () => void; onOffRequestReject?: () => void
   canRequestOff?: boolean; isBlocked?: boolean
 }) {
@@ -193,7 +209,26 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
     return 'edit'
   })
   const [offReason, setOffReason] = useState('')
+  const [offAttachmentFile, setOffAttachmentFile] = useState<File | null>(null)
+  const [offUploading, setOffUploading] = useState(false)
   const [isConfirmed, setIsConfirmed] = useState(current?.is_confirmed || false)
+  const supabase = createSupabaseBrowserClient()
+
+  async function submitOffRequest() {
+    if (!offReason.trim()) { alert('사유를 입력해주세요'); return }
+    let attachmentPath: string | undefined
+    if (offAttachmentFile) {
+      setOffUploading(true)
+      const ext = offAttachmentFile.name.split('.').pop()
+      const path = `off-requests/${staffName}-${dateStr}-${Date.now()}.${ext}`
+      const { error } = await supabase.storage.from('staff-documents').upload(path, offAttachmentFile, { upsert: true })
+      setOffUploading(false)
+      if (error) { alert('첨부 사진 업로드 실패: ' + error.message); return }
+      attachmentPath = path
+    }
+    onOffRequest?.(offReason.trim(), attachmentPath)
+    onClose()
+  }
   const parts = dateStr.split('-')
   const dow = DOW_LABEL[new Date(dateStr).getDay()]
   const isOwner = role === 'owner'
@@ -337,6 +372,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
                             {offRequest.status==='approved'?'휴무 확정됨 🎉':offRequest.status==='rejected'?'휴무 요청 거부됨':'휴무 요청 대기 중'}
                           </div>
                           <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>사유: {offRequest.reason}</div>
+                          <AttachmentLink path={offRequest.attachment_path} />
                         </div>
                       </div>
                       {offRequest.status === 'pending' && (
@@ -352,6 +388,7 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
                             {staffName}님 {offRequest.status==='approved'?'휴무 확정':'휴무 요청 중'}
                           </div>
                           <div style={{ fontSize:10, color:'#888', marginTop:2 }}>📝 사유: {offRequest.reason}</div>
+                          <AttachmentLink path={offRequest.attachment_path} />
                         </div>
                       </div>
                       <div style={{ fontSize:10, color:'#bbb', textAlign:'center' }}>배려해주세요 💙</div>
@@ -362,7 +399,12 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
                     <div style={{ fontSize:12, fontWeight:700, color:'#CC9900', marginBottom:4 }}>🙏 다음 달 휴무 요청</div>
                     <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>사유를 입력하고 요청해주세요</div>
                     <input value={offReason} onChange={e => setOffReason(e.target.value)} placeholder="사유 필수 입력 (예: 병원, 가족행사...)" style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'#fff', border:'1px solid rgba(255,200,0,0.4)', fontSize:12, outline:'none', boxSizing:'border-box' as const, marginBottom:10 }} />
-                    <button onClick={() => { if (!offReason.trim()) { alert('사유를 입력해주세요'); return }; onOffRequest?.(offReason.trim()); onClose() }} style={{ width:'100%', padding:'9px 0', borderRadius:9, background:'linear-gradient(135deg,#FFD700,#FF6B35)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>휴무 요청 보내기</button>
+                    <div style={{ marginBottom:10 }}>
+                      <label style={{ display:'block', fontSize:10, color:'#aaa', marginBottom:4 }}>증빙 사진 (선택 — 예비군 소집통지서, 진단서 등)</label>
+                      <input type="file" accept="image/*" onChange={e => setOffAttachmentFile(e.target.files?.[0] || null)} style={{ fontSize:11, width:'100%' }} />
+                      {offAttachmentFile && <div style={{ fontSize:10, color:'#6C5CE7', marginTop:4 }}>📎 {offAttachmentFile.name}</div>}
+                    </div>
+                    <button onClick={submitOffRequest} disabled={offUploading} style={{ width:'100%', padding:'9px 0', borderRadius:9, background: offUploading ? '#ccc' : 'linear-gradient(135deg,#FFD700,#FF6B35)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor: offUploading ? 'wait' : 'pointer' }}>{offUploading ? '업로드 중...' : '휴무 요청 보내기'}</button>
                   </div>
                 ) : null}
               </>
@@ -374,7 +416,10 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
                   <span style={{ fontSize:11, fontWeight:700, color:'#CC9900' }}>휴무 요청</span>
                   <span style={{ marginLeft:'auto', fontSize:10, color:'#aaa' }}>{new Date(offRequest.created_at).toLocaleDateString('ko')}</span>
                 </div>
-                <div style={{ fontSize:11, color:'#555', marginBottom:10, padding:'6px 10px', background:'#F8F9FB', borderRadius:8 }}>사유: {offRequest.reason}</div>
+                <div style={{ fontSize:11, color:'#555', marginBottom:10, padding:'6px 10px', background:'#F8F9FB', borderRadius:8 }}>
+                  사유: {offRequest.reason}
+                  <div><AttachmentLink path={offRequest.attachment_path} /></div>
+                </div>
                 {offRequest.status === 'pending' && (
                   <div style={{ display:'flex', gap:8 }}>
                     <button onClick={() => { onOffRequestReject?.(); onClose() }} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거부</button>
@@ -1275,7 +1320,10 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                         <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{req.staff_name}</span>
                         <span style={{ fontSize:11, color:'#bbb' }}>{req.request_date}</span>
                       </div>
-                      <div style={{ fontSize:11, color:'#888', marginBottom:8, padding:'5px 9px', background:'#F8F9FB', borderRadius:7 }}>사유: {req.reason}</div>
+                      <div style={{ fontSize:11, color:'#888', marginBottom:8, padding:'5px 9px', background:'#F8F9FB', borderRadius:7 }}>
+                        사유: {req.reason}
+                        <div><AttachmentLink path={req.attachment_path} /></div>
+                      </div>
                       <div style={{ fontSize:10, color:'#bbb', marginBottom:8 }}>{new Date(req.created_at).toLocaleDateString('ko')}</div>
                       <div style={{ display:'flex', gap:8 }}>
                         <button onClick={async () => { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', req.id); sendPush('schedule', sid, '❌ 휴무 거절', `${req.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, req.staff_name); loadAll() }} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거부</button>
@@ -1590,7 +1638,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
         const takenByOther2 = isFuture && requestOpen && !isOwner && popup.staff === myName && !offReq ? offRequests.find((r: any) => r.request_date === popup.date && r.staff_name !== myName && (r.status === 'pending' || r.status === 'approved')) || null : null
         const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq && !takenByOther2
         return <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} offRequest={offReq} canRequestOff={canReqOff} isBlocked={isBlocked2}
-          onOffRequest={async (reason) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending' }); sendPush('request', storeId, '🙏 휴무 신청', `${popup.staff}님이 휴무를 신청했습니다 (${popup.date})`, '/schedule', undefined, ['owner','manager']); onOffRequestsChange() }}
+          onOffRequest={async (reason, attachmentPath) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending', attachment_path: attachmentPath || null }); sendPush('request', storeId, '🙏 휴무 신청', `${popup.staff}님이 휴무를 신청했습니다 (${popup.date})`, '/schedule', undefined, ['owner','manager']); onOffRequestsChange() }}
           onOffRequestCancel={async () => { if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); onOffRequestsChange() } }}
           onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); sendPush('schedule', storeId, '✅ 휴무 승인', `${offReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
           onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); sendPush('schedule', storeId, '❌ 휴무 거절', `${offReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
@@ -1860,7 +1908,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
         const takenByOther2 = isFuture && requestOpen && !isOwner && popup.staff === myName && !offReq ? offRequests.find((r: any) => r.request_date === popup.date && r.staff_name !== myName && (r.status === 'pending' || r.status === 'approved')) || null : null
         const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq && !takenByOther2
         return <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} offRequest={offReq} canRequestOff={canReqOff} isBlocked={isBlocked2}
-          onOffRequest={async (reason) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending' }); sendPush('request', storeId, '🙏 휴무 신청', `${popup.staff}님이 휴무를 신청했습니다 (${popup.date})`, '/schedule', undefined, ['owner','manager']); onOffRequestsChange() }}
+          onOffRequest={async (reason, attachmentPath) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending', attachment_path: attachmentPath || null }); sendPush('request', storeId, '🙏 휴무 신청', `${popup.staff}님이 휴무를 신청했습니다 (${popup.date})`, '/schedule', undefined, ['owner','manager']); onOffRequestsChange() }}
           onOffRequestCancel={async () => { if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); onOffRequestsChange() } }}
           onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); sendPush('schedule', storeId, '✅ 휴무 승인', `${offReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
           onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); sendPush('schedule', storeId, '❌ 휴무 거절', `${offReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
