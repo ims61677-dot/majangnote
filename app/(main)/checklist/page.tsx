@@ -31,6 +31,7 @@ function daysInMonth(y: number, m: number) { return new Date(y, m, 0).getDate() 
 export default function ChecklistPage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
+  const [userId, setUserId] = useState('')
   const [myName, setMyName] = useState('')
   const [role, setRole] = useState('')
   const isAdmin = role === 'owner' || role === 'manager'
@@ -39,11 +40,16 @@ export default function ChecklistPage() {
   const [checksByTodo, setChecksByTodo] = useState<Record<string, any[]>>({})
   const [loading, setLoading] = useState(true)
 
+  // ── 마감 전달사항 (어제 마감자가 남긴 다음날 할 일) ──
+  const [closingTodos, setClosingTodos] = useState<any[]>([])
+  const [closingChecks, setClosingChecks] = useState<Record<string, any[]>>({})
+  const [closingDateLabel, setClosingDateLabel] = useState('')
+
   useEffect(() => {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
     const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
-    setStoreId(store.id || ''); setMyName(user.nm || ''); setRole(user.role || '')
-    if (store.id) loadAll(store.id)
+    setStoreId(store.id || ''); setUserId(user.id || ''); setMyName(user.nm || ''); setRole(user.role || '')
+    if (store.id) { loadAll(store.id); loadClosingTodos(store.id) }
   }, [])
 
   async function loadAll(sid: string) {
@@ -66,6 +72,32 @@ export default function ChecklistPage() {
       setChecksByTodo(map)
     } else setChecksByTodo({})
     setLoading(false)
+  }
+
+  async function loadClosingTodos(sid: string) {
+    const prev = new Date(); prev.setDate(prev.getDate() - 1)
+    const prevStr = toDateStr(prev)
+    setClosingDateLabel(prevStr.replace(/-/g, '.'))
+    const { data: closing } = await supabase.from('closings').select('id').eq('store_id', sid).eq('closing_date', prevStr).maybeSingle()
+    if (!closing) { setClosingTodos([]); setClosingChecks({}); return }
+    const { data: todos } = await supabase.from('closing_next_todos').select('*').eq('closing_id', closing.id).order('created_at')
+    setClosingTodos(todos || [])
+    if (todos && todos.length > 0) {
+      const { data: chks } = await supabase.from('closing_next_todo_checks').select('*').in('todo_id', todos.map((t: any) => t.id))
+      const tm: Record<string, any[]> = {}
+      ;(chks || []).forEach((c: any) => { if (!tm[c.todo_id]) tm[c.todo_id] = []; tm[c.todo_id].push(c) })
+      setClosingChecks(tm)
+    } else setClosingChecks({})
+  }
+
+  async function toggleClosingCheck(todoId: string) {
+    const myCheck = (closingChecks[todoId] || []).find((c: any) => c.checked_by === myName)
+    if (myCheck) {
+      await supabase.from('closing_next_todo_checks').delete().eq('id', myCheck.id)
+    } else {
+      await supabase.from('closing_next_todo_checks').insert({ todo_id: todoId, checked_by: myName, checked_at: new Date().toISOString() })
+    }
+    loadClosingTodos(storeId)
   }
 
   const activeItems = useMemo(() => items.filter(t => t.is_active !== false), [items])
@@ -110,8 +142,14 @@ export default function ChecklistPage() {
         <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>⏳ 불러오는 중...</div>
       ) : (
         <>
-          {tab === 'today' && <TodayTab list={todayList} myName={myName} onToggle={toggleCheck} />}
-          {tab === 'manage' && isAdmin && <ManageTab items={activeItems} storeId={storeId} myName={myName} onSaved={() => loadAll(storeId)} supabase={supabase} />}
+          {tab === 'today' && (
+            <TodayTab
+              list={todayList} myName={myName} onToggle={toggleCheck}
+              closingTodos={closingTodos} closingChecks={closingChecks} closingDateLabel={closingDateLabel}
+              onToggleClosing={toggleClosingCheck}
+            />
+          )}
+          {tab === 'manage' && isAdmin && <ManageTab userId={userId} storeId={storeId} myName={myName} onSaved={() => loadAll(storeId)} supabase={supabase} />}
           {tab === 'stats' && isAdmin && <StatsTab items={activeItems} checksByTodo={checksByTodo} />}
         </>
       )}
@@ -128,16 +166,64 @@ function tabBtn(active: boolean): React.CSSProperties {
 }
 
 // ── 오늘 할 일 탭 ──
-function TodayTab({ list, myName, onToggle }: { list: any[]; myName: string; onToggle: (item: any) => void }) {
+function TodayTab({ list, myName, onToggle, closingTodos, closingChecks, closingDateLabel, onToggleClosing }: {
+  list: any[]; myName: string; onToggle: (item: any) => void
+  closingTodos: any[]; closingChecks: Record<string, any[]>; closingDateLabel: string; onToggleClosing: (todoId: string) => void
+}) {
+  const warningBanner = (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
+      background: 'rgba(232,67,147,0.06)', border: '1px solid rgba(232,67,147,0.25)',
+    }}>
+      <span style={{ fontSize: 15 }}>⚠️</span>
+      <span style={{ fontSize: 12, color: '#E84393', fontWeight: 700 }}>미체크 항목은 관리자 급여에 반영됩니다</span>
+    </div>
+  )
+
+  const closingSection = (
+    <div style={{
+      borderRadius: 12, padding: '12px 14px', marginBottom: 14,
+      border: closingTodos.length > 0 ? '1px solid rgba(255,107,53,0.35)' : '1px solid #E8ECF0',
+      background: closingTodos.length > 0 ? 'rgba(255,107,53,0.03)' : '#fff',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: closingTodos.length > 0 ? 10 : 0 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#FF6B35' }}>📢 마감 전달사항</span>
+        <span style={{ fontSize: 10, color: '#bbb' }}>{closingDateLabel} 마감</span>
+        {closingTodos.length === 0 && <span style={{ fontSize: 11, color: '#bbb', marginLeft: 'auto' }}>전달사항 없음 ✓</span>}
+      </div>
+      {closingTodos.map((todo: any) => {
+        const checks = closingChecks[todo.id] || []
+        const done = checks.length > 0
+        return (
+          <div key={todo.id} onClick={() => onToggleClosing(todo.id)} style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid rgba(0,0,0,0.04)', cursor: 'pointer',
+          }}>
+            <span style={{ fontSize: 15, color: done ? '#00B894' : '#ddd', flexShrink: 0 }}>{done ? '✅' : '⬜'}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, color: done ? '#888' : '#1a1a2e', textDecoration: done ? 'line-through' : 'none' }}>{todo.content}</div>
+              {done && <div style={{ fontSize: 10, color: '#00B894', marginTop: 2 }}>{checks.map((c: any) => c.checked_by).join(', ')}님이 {new Date(checks[0].checked_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit' })}에 완료</div>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+
   if (list.length === 0) {
-    return <div style={{ textAlign: 'center', padding: '60px 0', color: '#bbb' }}>
-      <div style={{ fontSize: 32, marginBottom: 10 }}>🎉</div>
-      <div style={{ fontSize: 13 }}>오늘 등록된 체크리스트 항목이 없어요</div>
+    return <div>
+      {warningBanner}
+      {closingSection}
+      <div style={{ textAlign: 'center', padding: '60px 0', color: '#bbb' }}>
+        <div style={{ fontSize: 32, marginBottom: 10 }}>🎉</div>
+        <div style={{ fontSize: 13 }}>오늘 등록된 체크리스트 항목이 없어요</div>
+      </div>
     </div>
   }
   const doneCount = list.filter(t => t.isDone).length
   return (
     <div>
+      {warningBanner}
+      {closingSection}
       <div style={{ fontSize: 12, color: '#888', marginBottom: 10, fontWeight: 600 }}>{doneCount} / {list.length}개 완료</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {list.map(item => (
@@ -166,27 +252,74 @@ function TodayTab({ list, myName, onToggle }: { list: any[]; myName: string; onT
   )
 }
 
-// ── 관리 탭 ──
-function ManageTab({ items, storeId, myName, onSaved, supabase }: { items: any[]; storeId: string; myName: string; onSaved: () => void; supabase: any }) {
+// ── 관리 탭 (전지점) ──
+function ManageTab({ userId, storeId, myName, onSaved, supabase }: { userId: string; storeId: string; myName: string; onSaved: () => void; supabase: any }) {
+  const [stores, setStores] = useState<{ id: string; name: string }[]>([])
+  const [storeItems, setStoreItems] = useState<Record<string, any[]>>({})
+  const [loadingAll, setLoadingAll] = useState(true)
+  const [filterStoreId, setFilterStoreId] = useState<string>('all')
+  const [openStores, setOpenStores] = useState<Set<string>>(new Set())
+
   const [content, setContent] = useState('')
   const [category, setCategory] = useState('')
   const [repeatType, setRepeatType] = useState('daily')
   const [originDate, setOriginDate] = useState(todayStr())
+  const [targetStoreId, setTargetStoreId] = useState(storeId)
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
   const [editCategory, setEditCategory] = useState('')
 
+  useEffect(() => { loadEverything() }, [userId, storeId])
+
+  async function loadEverything() {
+    setLoadingAll(true)
+    let storeList: { id: string; name: string }[] = []
+    if (userId) {
+      const { data: memberships } = await supabase
+        .from('store_members').select('store_id, stores(id, name)').eq('profile_id', userId).eq('active', true)
+      const seen = new Set<string>()
+      ;(memberships || []).forEach((m: any) => {
+        if (m.stores && !seen.has(m.stores.id)) { seen.add(m.stores.id); storeList.push({ id: m.stores.id, name: m.stores.name }) }
+      })
+    }
+    if (storeList.length === 0 && storeId) {
+      const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
+      storeList = [{ id: storeId, name: store.name || '내 지점' }]
+    }
+    setStores(storeList)
+    setOpenStores(new Set(storeList.map(s => s.id)))
+    if (!targetStoreId && storeList[0]) setTargetStoreId(storeList[0].id)
+
+    const storeIds = storeList.map(s => s.id)
+    if (storeIds.length === 0) { setStoreItems({}); setLoadingAll(false); return }
+    const { data: notices } = await supabase
+      .from('notices').select('id, store_id, notice_date, notice_todos(*)')
+      .in('store_id', storeIds).eq('title', CONTAINER_TITLE)
+    const map: Record<string, any[]> = {}
+    ;(notices || []).forEach((n: any) => {
+      ;(n.notice_todos || []).forEach((t: any) => {
+        if (t.is_active === false) return
+        if (!map[n.store_id]) map[n.store_id] = []
+        map[n.store_id].push({ ...t, origin_date: n.notice_date, notice_id: n.id })
+      })
+    })
+    setStoreItems(map)
+    setLoadingAll(false)
+  }
+
+  function refresh() { loadEverything(); onSaved() }
+
   async function addItem() {
-    if (!content.trim() || !storeId) return
+    if (!content.trim() || !targetStoreId) return
     setSaving(true)
     try {
       const { data: existingContainer } = await supabase
-        .from('notices').select('id').eq('store_id', storeId).eq('notice_date', originDate).eq('title', CONTAINER_TITLE).maybeSingle()
+        .from('notices').select('id').eq('store_id', targetStoreId).eq('notice_date', originDate).eq('title', CONTAINER_TITLE).maybeSingle()
       let noticeId = existingContainer?.id
       if (!noticeId) {
         const { data: newNotice, error } = await supabase.from('notices').insert({
-          store_id: storeId, title: CONTAINER_TITLE, content: null, notice_date: originDate,
+          store_id: targetStoreId, title: CONTAINER_TITLE, content: null, notice_date: originDate,
           created_by: myName, is_from_closing: false, is_pinned: false,
         }).select().single()
         if (error) throw error
@@ -199,7 +332,7 @@ function ManageTab({ items, storeId, myName, onSaved, supabase }: { items: any[]
       })
       if (todoErr) throw todoErr
       setContent(''); setCategory('')
-      onSaved()
+      refresh()
     } catch (e) {
       alert('추가 실패, 다시 시도해주세요')
     } finally {
@@ -210,20 +343,43 @@ function ManageTab({ items, storeId, myName, onSaved, supabase }: { items: any[]
   async function saveEdit(id: string) {
     await supabase.from('notice_todos').update({ content: editContent.trim(), category: editCategory.trim() || null }).eq('id', id)
     setEditingId(null)
-    onSaved()
+    refresh()
   }
 
   async function toggleActive(item: any) {
     await supabase.from('notice_todos').update({ is_active: item.is_active === false ? true : false }).eq('id', item.id)
-    onSaved()
+    refresh()
+  }
+
+  function toggleOpen(sid: string) {
+    setOpenStores(prev => { const next = new Set(prev); if (next.has(sid)) next.delete(sid); else next.add(sid); return next })
   }
 
   const originDow = DOW[new Date(originDate + 'T00:00:00').getDay()]
+  const visibleStores = filterStoreId === 'all' ? stores : stores.filter(s => s.id === filterStoreId)
+  const totalCount = stores.reduce((sum, s) => sum + (storeItems[s.id]?.length || 0), 0)
 
   return (
     <div>
       <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 14, padding: 16, marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>+ 새 항목 등록</div>
+
+        {stores.length > 1 && (
+          <>
+            <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 6 }}>어느 지점에 등록할까요?</div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+              {stores.map(s => (
+                <button key={s.id} onClick={() => setTargetStoreId(s.id)} style={{
+                  padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  border: targetStoreId === s.id ? '1.5px solid #00B894' : '1px solid #E8ECF0',
+                  background: targetStoreId === s.id ? 'rgba(0,184,148,0.08)' : '#fff',
+                  color: targetStoreId === s.id ? '#00B894' : '#888',
+                }}>{s.name}</button>
+              ))}
+            </div>
+          </>
+        )}
+
         <input value={content} onChange={e => setContent(e.target.value)} placeholder="예: 화장실 청소"
           style={{ width: '100%', padding: '10px 12px', borderRadius: 9, border: '1px solid #E0E4E8', background: '#F8F9FB', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
         <input value={category} onChange={e => setCategory(e.target.value)} placeholder="카테고리 (선택, 예: 위생)"
@@ -247,46 +403,89 @@ function ManageTab({ items, storeId, myName, onSaved, supabase }: { items: any[]
         <input type="date" value={originDate} onChange={e => setOriginDate(e.target.value)}
           style={{ width: '100%', padding: '10px 12px', borderRadius: 9, border: '1px solid #E0E4E8', background: '#F8F9FB', fontSize: 13, marginBottom: 12, boxSizing: 'border-box' }} />
 
-        <button onClick={addItem} disabled={saving || !content.trim()} style={{
+        <button onClick={addItem} disabled={saving || !content.trim() || !targetStoreId} style={{
           width: '100%', padding: 12, borderRadius: 10, border: 'none', color: '#fff', fontWeight: 700, fontSize: 14,
           background: saving ? '#ccc' : 'linear-gradient(135deg,#6C5CE7,#00B894)', cursor: saving ? 'wait' : 'pointer',
         }}>{saving ? '등록 중...' : '+ 항목 등록'}</button>
       </div>
 
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>등록된 항목 ({items.length})</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {items.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 12 }}>아직 등록된 항목이 없어요</div>}
-        {items.map(item => (
-          <div key={item.id} style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 10, padding: '10px 12px' }}>
-            {editingId === item.id ? (
-              <div>
-                <input value={editContent} onChange={e => setEditContent(e.target.value)}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
-                <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="카테고리"
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => saveEdit(item.id)} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
-                  <button onClick={() => setEditingId(null)} style={{ flex: 1, padding: 8, borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.content}</div>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 3 }}>
-                    {item.category && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>{item.category}</span>}
-                    <span style={{ fontSize: 10, color: '#bbb' }}>{REPEAT_LABEL[item.repeat_type] || '하루만'} · {item.origin_date}~</span>
+      {loadingAll ? (
+        <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 12 }}>⏳ 불러오는 중...</div>
+      ) : (
+        <>
+          {stores.length > 1 && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              <button onClick={() => setFilterStoreId('all')} style={{
+                padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                border: filterStoreId === 'all' ? '1.5px solid #1a1a2e' : '1px solid #E8ECF0',
+                background: filterStoreId === 'all' ? '#1a1a2e' : '#fff',
+                color: filterStoreId === 'all' ? '#fff' : '#888',
+              }}>전체 ({totalCount})</button>
+              {stores.map(s => (
+                <button key={s.id} onClick={() => setFilterStoreId(s.id)} style={{
+                  padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  border: filterStoreId === s.id ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
+                  background: filterStoreId === s.id ? 'rgba(108,92,231,0.08)' : '#fff',
+                  color: filterStoreId === s.id ? '#6C5CE7' : '#888',
+                }}>{s.name} ({(storeItems[s.id] || []).length})</button>
+              ))}
+            </div>
+          )}
+
+          {visibleStores.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 12 }}>소속된 지점이 없어요</div>}
+
+          {visibleStores.map(s => {
+            const list = storeItems[s.id] || []
+            const isOpen = openStores.has(s.id)
+            return (
+              <div key={s.id} style={{ marginBottom: 12 }}>
+                <button onClick={() => toggleOpen(s.id)} style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px', borderRadius: 10, border: '1px solid #E8ECF0', background: '#F4F6F9', cursor: 'pointer', marginBottom: isOpen ? 8 : 0,
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>🏪 {s.name} <span style={{ fontSize: 11, fontWeight: 400, color: '#aaa' }}>({list.length}개)</span></span>
+                  <span style={{ fontSize: 11, color: '#bbb' }}>{isOpen ? '▲' : '▼'}</span>
+                </button>
+                {isOpen && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {list.length === 0 && <div style={{ textAlign: 'center', padding: 20, color: '#bbb', fontSize: 12 }}>등록된 항목이 없어요</div>}
+                    {list.map(item => (
+                      <div key={item.id} style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 10, padding: '10px 12px' }}>
+                        {editingId === item.id ? (
+                          <div>
+                            <input value={editContent} onChange={e => setEditContent(e.target.value)}
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
+                            <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="카테고리"
+                              style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button onClick={() => saveEdit(item.id)} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
+                              <button onClick={() => setEditingId(null)} style={{ flex: 1, padding: 8, borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{item.content}</div>
+                              <div style={{ display: 'flex', gap: 6, marginTop: 3 }}>
+                                {item.category && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>{item.category}</span>}
+                                <span style={{ fontSize: 10, color: '#bbb' }}>{REPEAT_LABEL[item.repeat_type] || '하루만'} · {item.origin_date}~</span>
+                              </div>
+                            </div>
+                            <button onClick={() => { setEditingId(item.id); setEditContent(item.content); setEditCategory(item.category || '') }}
+                              style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 11, cursor: 'pointer' }}>수정</button>
+                            <button onClick={() => toggleActive(item)}
+                              style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>끄기</button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                </div>
-                <button onClick={() => { setEditingId(item.id); setEditContent(item.content); setEditCategory(item.category || '') }}
-                  style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 11, cursor: 'pointer' }}>수정</button>
-                <button onClick={() => toggleActive(item)}
-                  style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>끄기</button>
+                )}
               </div>
-            )}
-          </div>
-        ))}
-      </div>
+            )
+          })}
+        </>
+      )}
     </div>
   )
 }

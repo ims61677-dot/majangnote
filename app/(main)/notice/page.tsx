@@ -2019,42 +2019,20 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
     </div>
   )
 
-    // ── 서브탭 바 ──
-  const adminSubTabBar = (
-    <div style={{ display:'flex', background:'#F4F6F9', borderRadius:10, padding:3, marginBottom:14, gap:3 }}>
-      <button onClick={() => setAdminSubTab('main')}
-        style={{ flex:1, padding:'7px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:12, fontWeight:adminSubTab==='main'?700:400, background:adminSubTab==='main'?'#fff':'transparent', color:adminSubTab==='main'?'#1a1a2e':'#888', boxShadow:adminSubTab==='main'?'0 1px 4px rgba(0,0,0,0.08)':undefined }}>
-        🏪 관리
-      </button>
-      <button onClick={() => setAdminSubTab('stats')}
-        style={{ flex:1, padding:'7px 0', borderRadius:8, border:'none', cursor:'pointer', fontSize:12, fontWeight:adminSubTab==='stats'?700:400, background:adminSubTab==='stats'?'#fff':'transparent', color:adminSubTab==='stats'?'#6C5CE7':'#888', boxShadow:adminSubTab==='stats'?'0 1px 4px rgba(0,0,0,0.08)':undefined }}>
-        📊 통계
-      </button>
-    </div>
-  )
-
   if (isPC) {
     return (
       <div>
         {showCatMgr && <CategoryManager categories={categories} onSave={saveCategories} onClose={() => setShowCatMgr(false)} />}
-        {adminSubTabBar}
-        {adminSubTab === 'main' && (
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, alignItems: 'start', width: '100%', boxSizing: 'border-box' as const }}>
         {/* 좌: 캘린더 + 메모 (sticky) */}
         <div style={{ position: 'sticky', top: 72, width: 280, flexShrink: 0 }}>
           {calendarMemoSection}
         </div>
-        {/* 우: 현황 그리드 + 빠른 추가 + 전체 할일 */}
+        {/* 우: 공지 센터 */}
         <div style={{ minWidth: 0, width: '100%' }}>
-          {statusGrid}
           {adminNoticeSection}
-          {quickAddSection}
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>📋 전 지점 할일 <span style={{ fontSize: 11, fontWeight: 400, color: '#888', marginLeft: 4 }}>({selectedCalDate.replace(/-/g, '.')})</span></div>
-          {allTodosList}
         </div>
       </div>
-        )}
-        {adminSubTab === 'stats' && adminStatsSection}
       </div>
     )
   }
@@ -2063,13 +2041,6 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   return (
     <div>
       {showCatMgr && <CategoryManager categories={categories} onSave={saveCategories} onClose={() => setShowCatMgr(false)} />}
-      {adminSubTabBar}
-      {adminSubTab === 'stats' ? adminStatsSection : (
-      <div>
-      {statusGrid}
-      {quickAddSection}
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e', marginBottom: 10 }}>📋 전 지점 할일</div>
-      {allTodosList}
       <div style={{ marginTop: 16 }}>
         <button onClick={() => setShowMemo(p => !p)}
           style={{ width: '100%', padding: '10px 0', borderRadius: 12, background: showMemo ? 'rgba(232,67,147,0.1)' : '#F4F6F9', border: showMemo ? '1px solid rgba(232,67,147,0.3)' : '1px solid #E8ECF0', color: showMemo ? '#E84393' : '#888', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: showMemo ? 12 : 0 }}>
@@ -2077,8 +2048,6 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
         </button>
         {showMemo && calendarMemoSection}
       </div>
-      </div>
-      )}
     </div>
   )
 }
@@ -2108,7 +2077,7 @@ export default function NoticePage() {
   const [subTab, setSubTab] = useState<SubTab>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('notice_subTab')
-      if (saved === 'notice' || saved === 'todo' || saved === 'admin' || saved === 'stats') return saved as SubTab
+      if (saved === 'notice' || saved === 'admin') return saved as SubTab
     }
     return 'notice'
   })
@@ -3042,12 +3011,6 @@ export default function NoticePage() {
       <button style={tabBtn(subTab==='notice')} onClick={() => setSubTab('notice')}>
         📢 공지 {unreadCount > 0 ? `(${unreadCount})` : notices.filter(n => n.title !== '__PERSONAL_CHECKLIST__').length > 0 ? `(${notices.filter(n => n.title !== '__PERSONAL_CHECKLIST__').length})` : ''}
       </button>
-      <button style={tabBtn(subTab==='todo')} onClick={() => setSubTab('todo')}>
-        ✅ 할일 {overdueCount > 0 ? `(${overdueCount} 미완료)` : ''}
-      </button>
-      <button style={tabBtn(subTab==='stats')} onClick={() => setSubTab('stats')}>
-        📊 통계
-      </button>
       {isOwner && (
         <button style={tabBtn(subTab==='admin')} onClick={() => setSubTab('admin')}>
           👑 관리
@@ -3063,12 +3026,6 @@ export default function NoticePage() {
         <button onClick={() => { setShowNoticeForm(p=>!p); setEditingNotice(null); setFormTitle(''); setFormContent(''); setFormPinned(false); setFormNoticeAttachType('none'); setFormNoticeAttachUrl('') }}
           style={{ padding:'6px 14px', borderRadius:9, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, fontWeight:700, cursor:'pointer' }}>
           {showNoticeForm ? '✕ 취소' : '+ 공지 작성'}
-        </button>
-      )}
-      {canWriteTodo && subTab === 'todo' && (
-        <button onClick={() => { setShowTodoForm(p=>!p); setFormTodoTitle(''); setFormTodos(['']); setFormTodoVisibility('all'); setFormTodoRepeat('none'); setFormTodoMission(false); setFormTodoAttachType('none'); setFormTodoAttachUrl('') }}
-          style={{ padding:'6px 14px', borderRadius:9, background:'rgba(108,92,231,0.1)', border:'1px solid rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:12, fontWeight:700, cursor:'pointer' }}>
-          {showTodoForm ? '✕ 취소' : '+ 할일 추가'}
         </button>
       )}
     </>
@@ -3248,322 +3205,6 @@ export default function NoticePage() {
           </div>
         )}
 
-        {/* 할일 탭: 3단 - 캘린더 | 미완료+마감전달사항 | 오늘 할일 */}
-        {subTab === 'todo' && (
-          <div style={{ display:'grid', gridTemplateColumns:'220px 1fr 1fr', gap:16, alignItems:'start' }}>
-            {/* 1열: 캘린더 */}
-            <div style={{ position:'sticky', top:80, alignSelf:'flex-start' }}>
-              <MiniCalendar
-                year={calYear} month={calMonth}
-                todoDates={todoDates} selectedDate={selectedDate}
-                onSelectDate={d => { setSelectedDate(d); const [y,m]=d.split('-').map(Number); setCalYear(y); setCalMonth(m-1) }}
-                onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }}
-              />
-            </div>
-            {/* 2열: 미완료 이월 + 마감 전달사항 (세로 스택) */}
-            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-              {/* 미완료 이월 */}
-              {overdueTodos.length > 0 ? (
-                <div style={{ borderRadius:14, border:'2px solid rgba(232,67,147,0.4)', background:'rgba(232,67,147,0.04)', padding:14 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-                    <span style={{ fontSize:13, fontWeight:800, color:'#E84393' }}>⚠️ 미완료 이월</span>
-                    <span style={{ fontSize:11, padding:'2px 8px', borderRadius:8, background:'rgba(232,67,147,0.15)', color:'#E84393', fontWeight:700 }}>{overdueCount}개</span>
-                  </div>
-                  {overdueTodos.map(todo => (
-                    <OverdueTodoItem
-                      key={`${todo.id}-${todo.origin_date}`}
-                      todo={todo} checks={overdueChecks[todo.id]||[]}
-                      onToggle={() => toggleOverdueTodo(todo.id, todo.is_closing)}
-                      onMove={() => moveTodoToToday(todo)}
-                      onDelete={() => deleteOverdueTodo(todo)}
-                      myName={userName} dayCount={todo.day_count} isManager={isManager}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div style={{ borderRadius:14, border:'1px solid rgba(0,184,148,0.25)', background:'rgba(0,184,148,0.04)', padding:14, textAlign:'center' }}>
-                  <div style={{ fontSize:20, marginBottom:4 }}>✅</div>
-                  <div style={{ fontSize:12, color:'#00B894', fontWeight:600 }}>이월 할일 없음</div>
-                </div>
-              )}
-              {/* 마감 전달사항 */}
-              <div style={{ borderRadius:14, border: closingTodos.length>0?'2px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0', background: closingTodos.length>0?'rgba(255,107,53,0.03)':'#fff', padding:14 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-                  <span style={{ fontSize:13, fontWeight:700, color:'#FF6B35' }}>📢 마감 전달사항</span>
-                  <span style={{ fontSize:10, color:'#bbb' }}>{closingDateLabel}</span>
-                </div>
-                {closingTodos.length === 0
-                  ? <div style={{ textAlign:'center', padding:'12px 0', color:'#bbb', fontSize:12 }}>전달사항 없음 ✓</div>
-                  : closingTodos.map((todo: any) => (
-                    <TodoItem key={todo.id} todo={todo} checks={closingChecks[todo.id]||[]} onToggle={() => toggleClosingTodo(todo.id)} canCheck={canCheckDate(selectedDate)} myName={userName} userRole={userRole} />
-                  ))
-                }
-              </div>
-            </div>
-            {/* 3열: 오늘 할일 */}
-            <div>
-              {todoForm}
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-                <div style={{ fontSize:14, fontWeight:700, color:'#1a1a2e' }}>
-                  {selectedDate.replace(/-/g,'.')} 할일
-                  {selectedDate === today && <span style={{ fontSize:10, color:'#FF6B35', background:'rgba(255,107,53,0.1)', padding:'1px 7px', borderRadius:6, marginLeft:6 }}>오늘</span>}
-                </div>
-                {!canCheckDate(selectedDate) && <span style={{ fontSize:10, color:'#bbb' }}>당일만 체크 가능</span>}
-              </div>
-              {dayNotices.length === 0 ? (
-                <div style={{ ...bx, textAlign:'center', padding:24, color:'#bbb' }}>
-                  <div style={{ fontSize:18, marginBottom:6 }}>✅</div>
-                  <div style={{ fontSize:13 }}>이 날짜에 등록된 할일이 없습니다</div>
-                  {isManager && <div style={{ fontSize:11, marginTop:4, color:'#aaa' }}>상단 "+ 할일 추가"로 등록하세요</div>}
-                </div>
-              ) : dayNotices.filter((notice: any) => notice.title !== '__PERSONAL_MEMO__' || isOwner).map(notice => (
-                <div key={notice.id} style={bx}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                    <div>
-                      <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{notice.title}</div>
-                      <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{notice.created_by}</div>
-                    </div>
-                    {isManager && (
-                      <div style={{ display:'flex', gap:5, flexShrink:0 }}>
-                        <button onClick={() => { const t=prompt('그룹명 수정:',notice.title); if(t) updateNoticeTodoTitle(notice.id,t) }}
-                          style={{ fontSize:11, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', borderRadius:6, padding:'2px 8px', cursor:'pointer' }}>수정</button>
-                        <button onClick={() => deleteTodoNotice(notice.id)}
-                          style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', borderRadius:6, padding:'2px 8px', cursor:'pointer' }}>삭제</button>
-                      </div>
-                    )}
-                  </div>
-                  {(notice.notice_todos||[])
-                    .filter((todo: any) => canViewByVisibility(todo.visibility, userRole))
-                    .map((todo: any) => (
-                      <div key={todo.id}>
-                        {editingTodoItem?.id === todo.id ? (
-                          <div style={{ display:'flex', gap:6, marginBottom:6, padding:'6px 0' }}>
-                            <input value={editTodoItemContent} onChange={e => setEditTodoItemContent(e.target.value)}
-                              onKeyDown={e => { if(e.key==='Enter') updateNoticeTodoItem(todo.id,editTodoItemContent); if(e.key==='Escape') setEditingTodoItem(null) }}
-                              autoFocus style={{ flex:1, padding:'6px 10px', borderRadius:8, border:'1px solid #6C5CE7', fontSize:13, outline:'none' }} />
-                            <button onClick={() => updateNoticeTodoItem(todo.id,editTodoItemContent)}
-                              style={{ padding:'6px 12px', borderRadius:8, background:'#6C5CE7', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>저장</button>
-                            <button onClick={() => setEditingTodoItem(null)}
-                              style={{ padding:'6px 10px', borderRadius:8, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', fontSize:12, cursor:'pointer' }}>취소</button>
-                          </div>
-                        ) : (
-                          <div style={{ position:'relative' }}>
-                            <TodoItem
-                              todo={todo} checks={noticeTodoChecks[todo.id]||[]}
-                              onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date, todo)}
-                              canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole}
-                              onMissionComplete={(todoId) => setMissionModal({ todoId, content: todo.content, noticeDate: notice.notice_date })}
-                            />
-                            {isManager && (
-                              <div style={{ display:'flex', gap:4, justifyContent:'flex-end', marginTop:-4, marginBottom:4 }}>
-                                <button onClick={() => { setEditingTodoItem(todo); setEditTodoItemContent(todo.content) }}
-                                  style={{ fontSize:10, color:'#6C5CE7', background:'rgba(108,92,231,0.08)', border:'1px solid rgba(108,92,231,0.2)', borderRadius:5, padding:'1px 7px', cursor:'pointer' }}>✏️ 수정</button>
-                                <button onClick={() => deleteNoticeTodoItem(todo.id)}
-                                  style={{ fontSize:10, color:'#E84393', background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', borderRadius:5, padding:'1px 7px', cursor:'pointer' }}>🗑 삭제</button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 통계 탭: PC */}
-        {subTab === 'stats' && (
-          <div>
-            <div style={{ fontSize:11, color:'#888', marginBottom:10, padding:'6px 10px', background:'rgba(108,92,231,0.05)', borderRadius:8 }}>📍 내 지점 기준 통계</div>
-            {/* 월 네비게이션 */}
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, background:'#fff', borderRadius:14, padding:'10px 14px', border:'1px solid #F0F0F0' }}>
-              <button onClick={() => { const d=new Date(myStatsYear,myStatsMonth-2,1); setMyStatsYear(d.getFullYear()); setMyStatsMonth(d.getMonth()+1); loadMyStats(d.getFullYear(),d.getMonth()+1) }}
-                style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>‹</button>
-              <div style={{ textAlign:'center' }}>
-                <div style={{ fontSize:15, fontWeight:800, color:'#1a1a2e' }}>{myStatsYear}년 {myStatsMonth}월</div>
-                <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{myStatsData ? `할일 ${myStatsData.totalTodos}개 · 완료 ${myStatsData.totalChecks}건` : '로딩 중...'}</div>
-              </div>
-              <button onClick={() => { const d=new Date(myStatsYear,myStatsMonth,1); setMyStatsYear(d.getFullYear()); setMyStatsMonth(d.getMonth()+1); loadMyStats(d.getFullYear(),d.getMonth()+1) }}
-                style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>›</button>
-            </div>
-            {myStatsLoading ? (
-              <div style={{ textAlign:'center', padding:'40px 0', color:'#bbb' }}>📊 불러오는 중...</div>
-            ) : !myStatsData ? (
-              <div style={{ textAlign:'center', padding:'40px 0' }}>
-                <button onClick={() => { const sid = storeId || JSON.parse(localStorage.getItem('mj_store')||'{}').id; if(sid) loadMyStats(myStatsYear, myStatsMonth, sid) }}
-                  style={{ padding:'14px 28px', borderRadius:12, background:'rgba(108,92,231,0.08)', border:'1px dashed rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:13, fontWeight:700, cursor:'pointer' }}>
-                  📊 통계 불러오기
-                </button>
-              </div>
-            ) : (
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:16 }}>
-                {/* 좌: 요약 + 랭킹 + 그래프 */}
-                <div>
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
-                    {[
-                      { label:'전체 할일', value:myStatsData.totalTodos+'개', color:'#6C5CE7' },
-                      { label:'완료 체크', value:myStatsData.totalChecks+'건', color:'#00B894' },
-                      { label:'활동 인원', value:Object.keys(myStatsData.personMap).length+'명', color:'#E84393' },
-                    ].map(({label,value,color})=>(
-                      <div key={label} style={{ background:'#fff', borderRadius:12, padding:'12px 8px', textAlign:'center', border:`1px solid ${color}33` }}>
-                        <div style={{ fontSize:17, fontWeight:800, color }}>{value}</div>
-                        <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>{label}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
-                    <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏆 직원별 완료 랭킹</div>
-                    {Object.entries(myStatsData.personMap as Record<string,any>).sort((a,b)=>b[1].checks-a[1].checks).map(([name,data],idx)=>{
-                      const maxC=Math.max(...Object.values(myStatsData.personMap as Record<string,any>).map((v:any)=>v.checks),1)
-                      const pct=Math.round((data.checks/maxC)*100)
-                      const medals=['🥇','🥈','🥉']
-                      const isMe=name===userName
-                      return (
-                        <div key={name} style={{ marginBottom:10 }}>
-                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                            <div style={{ fontSize:12, fontWeight:isMe?700:400, color:isMe?'#E84393':'#333' }}>{medals[idx]||`${idx+1}.`} {name}{isMe&&<span style={{fontSize:10,marginLeft:4,color:'#E84393'}}>(나)</span>}</div>
-                            <div style={{ fontSize:11, color:'#888' }}>{data.checks}건 · {data.days}일</div>
-                          </div>
-                          <div style={{ background:'#F4F6F9', borderRadius:8, height:8, overflow:'hidden' }}>
-                            <div style={{ width:`${pct}%`, height:'100%', background:idx===0?'linear-gradient(90deg,#6C5CE7,#E84393)':'#a29bfe88', borderRadius:8 }} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                    {Object.keys(myStatsData.personMap).length===0 && <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>활동 기록이 없어요</div>}
-                  </div>
-                  <div style={{ background:'#fff', borderRadius:14, padding:'14px', border:'1px solid #F0F0F0' }}>
-                    <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:'#1a1a2e' }}>📈 날짜별 완료</div>
-                    {(()=>{
-                      const dates:string[]=[]
-                      for(let d=new Date(myStatsData.startDate);d<=new Date(myStatsData.endDate);d.setDate(d.getDate()+1)) dates.push(d.toISOString().slice(0,10))
-                      const maxV=Math.max(...dates.map(d=>myStatsData.dateMap[d]||0),1)
-                      return (
-                        <div style={{ display:'flex', alignItems:'flex-end', gap:2, height:64 }}>
-                          {dates.map(d=>{
-                            const val=myStatsData.dateMap[d]||0
-                            const h=Math.max((val/maxV)*52,val>0?4:0)
-                            const isTodayD=d===today
-                            return (
-                              <div key={d} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:1 }}>
-                                {val>0&&<div style={{ fontSize:7, color:'#6C5CE7', fontWeight:700 }}>{val}</div>}
-                                <div style={{ width:'100%', height:h, background:isTodayD?'linear-gradient(180deg,#E84393,#6C5CE7)':'#a29bfe', borderRadius:'2px 2px 0 0', minHeight:val>0?4:0 }} />
-                                <div style={{ fontSize:6, color:isTodayD?'#E84393':'#ccc', fontWeight:isTodayD?700:400 }}>{d.slice(8)}</div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )
-                    })()}
-                  </div>
-                </div>
-                {/* 우: 엑셀 스타일 테이블 */}
-                <div style={{ background:'#fff', borderRadius:14, padding:'16px', border:'1px solid #F0F0F0' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>📋 할일 현황표</div>
-                    <button onClick={() => {
-                      const headers = ['등록일자','카테고리','작업명','완료여부','완료일자','작업자']
-                      const filteredForExcel = myStatsData.allTodos
-                      const rows = filteredForExcel.map((t:any) => [
-                        t.noticeDate?.replace(/-/g,'/'),
-                        t.type==='closing'?'마감전달사항':(t.category||'미분류'),
-                        t.content||'',
-                        t.checkers.length>0?'완료':'미완료',
-                        t.checkers.length>0?t.checkers.map((c:any)=>c.checked_at.slice(0,10).replace(/-/g,'/')).join(', '):'',
-                        t.checkers.map((c:any)=>c.checked_by).join(', ')
-                      ])
-                      const csv = [headers, ...rows].map(r=>r.map((v:any)=>`"${v}"`).join(',')).join('\n')
-                      const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'})
-                      const url = URL.createObjectURL(blob)
-                      const a = document.createElement('a')
-                      a.href=url; a.download=`통계_${myStatsYear}년${myStatsMonth}월.csv`; a.click()
-                    }} style={{ padding:'5px 12px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:11, fontWeight:700, cursor:'pointer' }}>
-                      📥 엑셀 다운
-                    </button>
-                  </div>
-                  {/* 필터 */}
-                  <div style={{ display:'flex', gap:6, marginBottom:10, flexWrap:'wrap' }}>
-                    <input value={statsSearch} onChange={e=>setStatsSearch(e.target.value)} placeholder="🔍 작업명 검색"
-                      style={{ flex:1, minWidth:100, padding:'5px 10px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none' }} />
-                    <select value={statsCatFilter} onChange={e=>setStatsCatFilter(e.target.value)}
-                      style={{ padding:'5px 8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none', background:'#fff' }}>
-                      <option>전체</option>
-                      {Array.from(new Set(myStatsData.allTodos.map((t:any)=>t.type==='closing'?'마감전달사항':(t.category||'미분류')))).map((c:any)=>(
-                        <option key={c}>{c}</option>
-                      ))}
-                    </select>
-                    <select value={statsDoneFilter} onChange={e=>setStatsDoneFilter(e.target.value)}
-                      style={{ padding:'5px 8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none', background:'#fff' }}>
-                      <option>전체</option>
-                      <option>완료</option>
-                      <option>미완료</option>
-                    </select>
-                  </div>
-                  {/* 테이블 헤더 */}
-                  <div style={{ display:'grid', gridTemplateColumns:'80px 80px 1fr 60px 80px 1fr', gap:0, background:'#F4F6F9', borderRadius:'8px 8px 0 0', padding:'8px 10px', fontSize:11, fontWeight:700, color:'#888' }}>
-                    {[['date','등록일자'],['category','카테고리'],['','작업명'],['done','완료'],['','완료일자'],['','작업자']].map(([key,label])=>(
-                      <div key={label} onClick={()=>{ if(key){setStatsSortKey(key as any); setStatsSortAsc(p=>statsSortKey===key?!p:true)} }}
-                        style={{ cursor:key?'pointer':'default', display:'flex', alignItems:'center', gap:2 }}>
-                        {label}{key&&statsSortKey===key?(statsSortAsc?'↑':'↓'):''}
-                      </div>
-                    ))}
-                  </div>
-                  {/* 테이블 바디 */}
-                  <div style={{ maxHeight:480, overflowY:'auto', border:'1px solid #F0F0F0', borderTop:'none', borderRadius:'0 0 8px 8px' }}>
-                    {(()=>{
-                      let rows = myStatsData.allTodos.filter((t:any)=>{
-                        const cat = t.type==='closing'?'마감전달사항':(t.category||'미분류')
-                        if(statsCatFilter!=='전체'&&cat!==statsCatFilter) return false
-                        if(statsDoneFilter==='완료'&&t.checkers.length===0) return false
-                        if(statsDoneFilter==='미완료'&&t.checkers.length>0) return false
-                        if(statsSearch&&!(t.content||'').includes(statsSearch)) return false
-                        return true
-                      })
-                      rows = [...rows].sort((a:any,b:any)=>{
-                        let av='', bv=''
-                        if(statsSortKey==='date'){av=a.noticeDate||'';bv=b.noticeDate||''}
-                        if(statsSortKey==='category'){av=a.type==='closing'?'마감전달사항':(a.category||'미분류');bv=b.type==='closing'?'마감전달사항':(b.category||'미분류')}
-                        if(statsSortKey==='done'){av=String(a.checkers.length>0);bv=String(b.checkers.length>0)}
-                        return statsSortAsc?(av>bv?1:-1):(av<bv?1:-1)
-                      })
-                      if(rows.length===0) return <div style={{ textAlign:'center', padding:'24px', color:'#bbb', fontSize:12 }}>조건에 맞는 항목이 없어요</div>
-                      // 날짜별 그룹핑
-                      const grouped: Record<string,any[]> = {}
-                      rows.forEach((t:any)=>{ const d=t.noticeDate||''; if(!grouped[d]) grouped[d]=[]; grouped[d].push(t) })
-                      return Object.entries(grouped).sort(([a],[b])=>statsSortAsc?a.localeCompare(b):b.localeCompare(a)).map(([date, items])=>(
-                        <div key={date}>
-                          <div style={{ padding:'6px 10px', background:'rgba(108,92,231,0.05)', fontSize:11, fontWeight:700, color:'#6C5CE7', borderBottom:'1px solid #F0F0F0', borderTop:'1px solid #F0F0F0' }}>
-                            📅 {date.replace(/-/g,'/')} ({items.length}건)
-                          </div>
-                          {items.map((t:any,idx:number)=>{
-                            const isDone=t.checkers.length>0
-                            const cat=t.type==='closing'?'마감전달사항':(t.category||'미분류')
-                            const doneDate=isDone?[...new Set(t.checkers.map((c:any)=>c.checked_at.slice(0,10)))].join(', '):'-'
-                            const workers=isDone?t.checkers.map((c:any)=>c.checked_by).join(', '):'-'
-                            return (
-                              <div key={t.id||idx} style={{ display:'grid', gridTemplateColumns:'80px 80px 1fr 60px 80px 1fr', gap:0, padding:'8px 10px', borderBottom:'1px solid #F8F9FB', background:isDone?'rgba(0,184,148,0.02)':'#fff', fontSize:11 }}>
-                                <div style={{ color:'#aaa' }}>{date.slice(5).replace('-','/')}</div>
-                                <div>
-                                  <span style={{ fontSize:10, padding:'1px 6px', borderRadius:4, background:t.type==='closing'?'rgba(255,107,53,0.1)':'rgba(108,92,231,0.1)', color:t.type==='closing'?'#FF6B35':'#6C5CE7', fontWeight:600 }}>{cat}</span>
-                                </div>
-                                <div style={{ color:'#1a1a2e', fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.content}</div>
-                                <div style={{ color:isDone?'#00B894':'#E84393', fontWeight:700 }}>{isDone?'✅':'○'}</div>
-                                <div style={{ color:'#888', fontSize:10 }}>{doneDate.replace(/-/g,'/')}</div>
-                                <div style={{ color:'#555', fontSize:10 }}>{workers}</div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      ))
-                    })()}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* 반복 할일 복사 제안 */}
         {repeatSuggest && (
           <div style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:'#fff', borderRadius:16, padding:16, boxShadow:'0 4px 20px rgba(0,0,0,0.15)', border:'1px solid rgba(0,184,148,0.3)', zIndex:100, maxWidth:360, width:'90%' }}>
@@ -3651,217 +3292,6 @@ export default function NoticePage() {
       {tabBar}
 
       {subTab === 'notice' && noticeTabContent}
-
-      {subTab === 'todo' && (
-        <>
-          {overdueTodos.length > 0 && (
-            <div style={{ ...bx, border:'1px solid rgba(232,67,147,0.3)', background:'rgba(232,67,147,0.02)', marginBottom:14 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-                <span style={{ fontSize:13, fontWeight:700, color:'#E84393' }}>⚠️ 미완료 이월</span>
-                <span style={{ fontSize:10, padding:'2px 7px', borderRadius:8, background:'rgba(232,67,147,0.12)', color:'#E84393', fontWeight:700 }}>{overdueCount}개 미완료</span>
-              </div>
-              {overdueTodos.map(todo => (
-                <OverdueTodoItem
-                  key={`${todo.id}-${todo.origin_date}`}
-                  todo={todo} checks={overdueChecks[todo.id]||[]}
-                  onToggle={() => toggleOverdueTodo(todo.id)}
-                  onMove={() => moveTodoToToday(todo)}
-                  onDelete={() => deleteOverdueTodo(todo)}
-                  myName={userName} dayCount={todo.day_count} isManager={isManager}
-                />
-              ))}
-            </div>
-          )}
-          <div style={{ ...bx, border: closingTodos.length>0?'1px solid rgba(255,107,53,0.35)':'1px solid #E8ECF0', background: closingTodos.length>0?'rgba(255,107,53,0.02)':'#fff' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:closingTodos.length>0?12:0 }}>
-              <span style={{ fontSize:13, fontWeight:700, color:'#FF6B35' }}>📢 마감 전달사항</span>
-              <span style={{ fontSize:10, color:'#bbb' }}>{closingDateLabel} 마감</span>
-              {closingTodos.length === 0 && <span style={{ fontSize:11, color:'#bbb', marginLeft:'auto' }}>전달사항 없음 ✓</span>}
-            </div>
-            {closingTodos.map((todo: any) => (
-              <TodoItem key={todo.id} todo={todo} checks={closingChecks[todo.id]||[]} onToggle={() => toggleClosingTodo(todo.id)} canCheck={canCheckDate(selectedDate)} myName={userName} userRole={userRole} />
-            ))}
-          </div>
-          {todoForm}
-          <MiniCalendar
-            year={calYear} month={calMonth}
-            todoDates={todoDates} selectedDate={selectedDate}
-            onSelectDate={d => { setSelectedDate(d); const [y,m]=d.split('-').map(Number); setCalYear(y); setCalMonth(m-1) }}
-            onChangeMonth={(y,m) => { setCalYear(y); setCalMonth(m) }}
-          />
-          <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e', marginBottom:10, paddingLeft:2 }}>
-            {selectedDate.replace(/-/g,'.')} 할일
-            {selectedDate === today && <span style={{ fontSize:10, color:'#FF6B35', background:'rgba(255,107,53,0.1)', padding:'1px 7px', borderRadius:6, marginLeft:6 }}>오늘</span>}
-            {!canCheckDate(selectedDate) && <span style={{ fontSize:10, color:'#bbb', marginLeft:6 }}>당일만 체크 가능</span>}
-          </div>
-          {dayNotices.length === 0 ? (
-            <div style={{ ...bx, textAlign:'center', padding:24, color:'#bbb' }}>
-              <div style={{ fontSize:18, marginBottom:6 }}>✅</div>
-              <div style={{ fontSize:13 }}>이 날짜에 등록된 할일이 없습니다</div>
-              {isManager && <div style={{ fontSize:11, marginTop:4, color:'#aaa' }}>상단 "+ 할일 추가"로 등록하세요</div>}
-            </div>
-          ) : dayNotices.filter((notice: any) => notice.title !== '__PERSONAL_MEMO__' || isOwner).map(notice => (
-            <div key={notice.id} style={bx}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                <div>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{notice.title}</div>
-                  <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{notice.created_by}</div>
-                </div>
-                {isManager && <button onClick={() => deleteTodoNotice(notice.id)} style={{ fontSize:11, color:'#E84393', background:'rgba(232,67,147,0.08)', border:'1px solid rgba(232,67,147,0.2)', borderRadius:6, padding:'2px 8px', cursor:'pointer' }}>삭제</button>}
-              </div>
-              {(notice.notice_todos||[])
-                .filter((todo: any) => canViewByVisibility(todo.visibility, userRole))
-                .map((todo: any) => (
-                  <TodoItem
-                    key={todo.id} todo={todo} checks={noticeTodoChecks[todo.id]||[]}
-                    onToggle={() => toggleNoticeTodo(todo.id, notice.notice_date, todo)}
-                    canCheck={canCheckDate(notice.notice_date)} myName={userName} userRole={userRole}
-                    onMissionComplete={(todoId) => setMissionModal({ todoId, content: todo.content, noticeDate: notice.notice_date })}
-                  />
-                ))}
-            </div>
-          ))}
-        </>
-      )}
-
-      {subTab === 'stats' && (
-        <div>
-          <div style={{ fontSize:11, color:'#888', marginBottom:10, padding:'6px 10px', background:'rgba(108,92,231,0.05)', borderRadius:8 }}>📍 내 지점 기준 통계</div>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, background:'#fff', borderRadius:14, padding:'10px 14px', border:'1px solid #F0F0F0' }}>
-            <button onClick={() => { const d=new Date(myStatsYear,myStatsMonth-2,1); setMyStatsYear(d.getFullYear()); setMyStatsMonth(d.getMonth()+1); loadMyStats(d.getFullYear(),d.getMonth()+1) }}
-              style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>‹</button>
-            <div style={{ textAlign:'center' }}>
-              <div style={{ fontSize:15, fontWeight:800, color:'#1a1a2e' }}>{myStatsYear}년 {myStatsMonth}월</div>
-              <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{myStatsData ? `할일 ${myStatsData.totalTodos}개 · 완료 ${myStatsData.totalChecks}건` : '데이터 로딩 중'}</div>
-            </div>
-            <button onClick={() => { const d=new Date(myStatsYear,myStatsMonth,1); setMyStatsYear(d.getFullYear()); setMyStatsMonth(d.getMonth()+1); loadMyStats(d.getFullYear(),d.getMonth()+1) }}
-              style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#6C5CE7', padding:'0 8px' }}>›</button>
-          </div>
-          {myStatsLoading ? (
-            <div style={{ textAlign:'center', padding:'40px 0', color:'#bbb' }}>📊 불러오는 중...</div>
-          ) : !myStatsData ? (
-            <div style={{ textAlign:'center', padding:'40px 0' }}>
-              <button onClick={() => { const sid = storeId || JSON.parse(localStorage.getItem('mj_store')||'{}').id; if(sid) loadMyStats(myStatsYear, myStatsMonth, sid) }}
-                style={{ padding:'14px 28px', borderRadius:12, background:'rgba(108,92,231,0.08)', border:'1px dashed rgba(108,92,231,0.3)', color:'#6C5CE7', fontSize:13, fontWeight:700, cursor:'pointer' }}>
-                📊 통계 불러오기
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* 요약 카드 */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:14 }}>
-                {[
-                  { label:'전체 할일', value:myStatsData.totalTodos+'개', color:'#6C5CE7' },
-                  { label:'완료 체크', value:myStatsData.totalChecks+'건', color:'#00B894' },
-                  { label:'활동 인원', value:Object.keys(myStatsData.personMap).length+'명', color:'#E84393' },
-                ].map(({label,value,color})=>(
-                  <div key={label} style={{ background:'#fff', borderRadius:12, padding:'12px 8px', textAlign:'center', border:`1px solid ${color}33` }}>
-                    <div style={{ fontSize:17, fontWeight:800, color }}>{value}</div>
-                    <div style={{ fontSize:10, color:'#aaa', marginTop:2 }}>{label}</div>
-                  </div>
-                ))}
-              </div>
-              {/* 랭킹 */}
-              <div style={{ background:'#fff', borderRadius:14, padding:'14px', marginBottom:12, border:'1px solid #F0F0F0' }}>
-                <div style={{ fontSize:13, fontWeight:700, marginBottom:12, color:'#1a1a2e' }}>🏆 직원별 완료 랭킹</div>
-                {Object.entries(myStatsData.personMap as Record<string,any>).sort((a,b)=>b[1].checks-a[1].checks).map(([name,data],idx)=>{
-                  const maxC=Math.max(...Object.values(myStatsData.personMap as Record<string,any>).map((v:any)=>v.checks),1)
-                  const pct=Math.round((data.checks/maxC)*100)
-                  const medals=['🥇','🥈','🥉']
-                  const isMe=name===userName
-                  return (
-                    <div key={name} style={{ marginBottom:10 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                        <div style={{ fontSize:12, fontWeight:isMe?700:400, color:isMe?'#E84393':'#333' }}>{medals[idx]||`${idx+1}.`} {name}{isMe&&<span style={{fontSize:10,marginLeft:4,color:'#E84393'}}>(나)</span>}</div>
-                        <div style={{ fontSize:11, color:'#888' }}>{data.checks}건 · {data.days}일</div>
-                      </div>
-                      <div style={{ background:'#F4F6F9', borderRadius:8, height:8, overflow:'hidden' }}>
-                        <div style={{ width:`${pct}%`, height:'100%', background:idx===0?'linear-gradient(90deg,#6C5CE7,#E84393)':'#a29bfe88', borderRadius:8 }} />
-                      </div>
-                    </div>
-                  )
-                })}
-                {Object.keys(myStatsData.personMap).length===0 && <div style={{ textAlign:'center', color:'#ccc', fontSize:12, padding:'12px 0' }}>활동 기록이 없어요</div>}
-              </div>
-              {/* 엑셀 테이블 (모바일) */}
-              <div style={{ background:'#fff', borderRadius:14, padding:'14px', border:'1px solid #F0F0F0' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>📋 할일 현황표</div>
-                  <button onClick={() => {
-                    const headers = ['등록일자','카테고리','작업명','완료여부','작업자']
-                    const rows = myStatsData.allTodos.map((t:any) => [
-                      t.noticeDate?.replace(/-/g,'/'),
-                      t.type==='closing'?'마감전달사항':(t.category||'미분류'),
-                      t.content||'',
-                      t.checkers.length>0?'완료':'미완료',
-                      t.checkers.map((c:any)=>c.checked_by).join(', ')
-                    ])
-                    const csv = [headers, ...rows].map(r=>r.map((v:any)=>`"${v}"`).join(',')).join('\n')
-                    const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'})
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href=url; a.download=`통계_${myStatsYear}년${myStatsMonth}월.csv`; a.click()
-                  }} style={{ padding:'5px 12px', borderRadius:8, background:'rgba(0,184,148,0.1)', border:'1px solid rgba(0,184,148,0.3)', color:'#00B894', fontSize:11, fontWeight:700, cursor:'pointer' }}>
-                    📥 CSV
-                  </button>
-                </div>
-                {/* 필터 */}
-                <div style={{ display:'flex', gap:6, marginBottom:10 }}>
-                  <select value={statsCatFilter} onChange={e=>setStatsCatFilter(e.target.value)}
-                    style={{ flex:1, padding:'6px 8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none' }}>
-                    <option>전체</option>
-                    {Array.from(new Set(myStatsData.allTodos.map((t:any)=>t.type==='closing'?'마감전달사항':(t.category||'미분류')))).map((c:any)=>(
-                      <option key={c}>{c}</option>
-                    ))}
-                  </select>
-                  <select value={statsDoneFilter} onChange={e=>setStatsDoneFilter(e.target.value)}
-                    style={{ flex:1, padding:'6px 8px', borderRadius:8, border:'1px solid #E8ECF0', fontSize:11, outline:'none' }}>
-                    <option>전체</option>
-                    <option>완료</option>
-                    <option>미완료</option>
-                  </select>
-                </div>
-                {/* 날짜별 그룹 목록 */}
-                {(()=>{
-                  const rows = myStatsData.allTodos.filter((t:any)=>{
-                    const cat=t.type==='closing'?'마감전달사항':(t.category||'미분류')
-                    if(statsCatFilter!=='전체'&&cat!==statsCatFilter) return false
-                    if(statsDoneFilter==='완료'&&t.checkers.length===0) return false
-                    if(statsDoneFilter==='미완료'&&t.checkers.length>0) return false
-                    return true
-                  })
-                  const grouped: Record<string,any[]> = {}
-                  rows.forEach((t:any)=>{ const d=t.noticeDate||''; if(!grouped[d]) grouped[d]=[]; grouped[d].push(t) })
-                  if(rows.length===0) return <div style={{ textAlign:'center', padding:'20px', color:'#bbb', fontSize:12 }}>조건에 맞는 항목이 없어요</div>
-                  return Object.entries(grouped).sort(([a],[b])=>b.localeCompare(a)).map(([date, items])=>(
-                    <div key={date} style={{ marginBottom:12 }}>
-                      <div style={{ fontSize:11, fontWeight:700, color:'#6C5CE7', marginBottom:6, padding:'4px 8px', background:'rgba(108,92,231,0.05)', borderRadius:6 }}>
-                        📅 {date.replace(/-/g,'/')} ({items.length}건)
-                      </div>
-                      {items.map((t:any,idx:number)=>{
-                        const isDone=t.checkers.length>0
-                        const cat=t.type==='closing'?'마감전달사항':(t.category||'미분류')
-                        return (
-                          <div key={t.id||idx} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'8px 10px', borderBottom:'1px solid #F8F9FB', background:isDone?'rgba(0,184,148,0.02)':'#fff' }}>
-                            <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>{isDone?'✅':'○'}</span>
-                            <div style={{ flex:1, minWidth:0 }}>
-                              <div style={{ display:'flex', gap:4, alignItems:'center', marginBottom:2 }}>
-                                <span style={{ fontSize:10, padding:'1px 5px', borderRadius:4, background:t.type==='closing'?'rgba(255,107,53,0.1)':'rgba(108,92,231,0.1)', color:t.type==='closing'?'#FF6B35':'#6C5CE7', fontWeight:600 }}>{cat}</span>
-                              </div>
-                              <div style={{ fontSize:12, color:'#1a1a2e', fontWeight:500 }}>{t.content}</div>
-                              {isDone && <div style={{ fontSize:10, color:'#00B894', marginTop:2 }}>✓ {t.checkers.map((c:any)=>c.checked_by).join(', ')}</div>}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ))
-                })()}
-              </div>
-            </>
-          )}
-        </div>
-      )}
 
       {subTab === 'admin' && isOwner && (
         <AdminTab storeId={storeId} userName={userName} isPC={false} />
