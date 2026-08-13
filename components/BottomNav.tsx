@@ -5,25 +5,25 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const MOBILE_TABS = [
   { href: '/attendance', ic: '🕐', l: '출퇴근' },
-  { href: '/notice',     ic: '📢', l: '공지' },
+  { href: '/checklist',  ic: '✅', l: '체크리스트' },
   { href: '/closing',    ic: '📝', l: '마감' },
-  { href: '/schedule',   ic: '📅', l: '스케줄' },
+  { href: '/inventory',  ic: '📦', l: '재고&발주' },
   { href: '/more',       ic: '☰',  l: '더보기' },
 ]
 
 const TABLET_TABS = [
   { href: '/attendance', ic: '🕐', l: '출퇴근' },
-  { href: '/notice',     ic: '📢', l: '공지' },
+  { href: '/checklist',  ic: '✅', l: '체크리스트' },
   { href: '/closing',    ic: '📝', l: '마감' },
+  { href: '/inventory',  ic: '📦', l: '재고&발주' },
   { href: '/schedule',   ic: '📅', l: '스케줄' },
-  { href: '/inventory',  ic: '📦', l: '재고' },
-  { href: '/analytics',  ic: '📈', l: '분석' },
+  { href: '/notice',     ic: '📢', l: '공지' },
   { href: '/more',       ic: '☰',  l: '더보기' },
 ]
 
 const MORE_ITEMS = [
-  { href: '/checklist',   ic: '✅', l: '체크리스트' },
-  { href: '/inventory',   ic: '📦', l: '재고&발주' },
+  { href: '/schedule',    ic: '📅', l: '스케줄' },
+  { href: '/notice',      ic: '📢', l: '공지' },
   { href: '/analytics',   ic: '📈', l: '분석' },
   { href: '/staff',       ic: '👥', l: '직원관리' },
   { href: '/recipe',      ic: '🍳', l: '레시피' },
@@ -35,7 +35,7 @@ const MORE_ITEMS = [
 ]
 
 const TABLET_MORE_ITEMS = MORE_ITEMS.filter(
-  m => !['/inventory', '/analytics'].includes(m.href)
+  m => !TABLET_TABS.some(t => t.href === m.href)
 )
 
 const MORE_PATHS = MORE_ITEMS.map(m => m.href)
