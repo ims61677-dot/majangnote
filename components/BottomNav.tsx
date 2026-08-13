@@ -22,6 +22,7 @@ const TABLET_TABS = [
 ]
 
 const MORE_ITEMS = [
+  { href: '/checklist',   ic: '✅', l: '체크리스트' },
   { href: '/analytics',   ic: '📈', l: '분석' },
   { href: '/inventory',   ic: '📦', l: '재고&발주' },
   { href: '/recipe',      ic: '🍳', l: '레시피' },

@@ -9,6 +9,7 @@ import PushSetup from '@/components/PushSetup'
 const PC_NAV = [
   { href: '/attendance',  ic: '🕐', l: '출퇴근' },
   { href: '/notice',      ic: '📢', l: '공지' },
+  { href: '/checklist',   ic: '✅', l: '체크리스트' },
   { href: '/closing',     ic: '📝', l: '마감' },
   { href: '/schedule',    ic: '📅', l: '스케줄' },
   { href: '/inventory',   ic: '📦', l: '재고&발주' },
