@@ -35,6 +35,7 @@ export default function ChecklistPage() {
   const [myName, setMyName] = useState('')
   const [role, setRole] = useState('')
   const isAdmin = role === 'owner' || role === 'manager'
+  const canManage = role === 'owner'
   const [tab, setTab] = useState<'today' | 'manage' | 'stats'>('today')
   const [items, setItems] = useState<any[]>([])
   const [checksByTodo, setChecksByTodo] = useState<Record<string, any[]>>({})
@@ -134,7 +135,7 @@ export default function ChecklistPage() {
 
       <div style={{ display: 'flex', gap: 6, background: '#F4F6F9', borderRadius: 12, padding: 4, marginBottom: 16, width: 'fit-content' }}>
         <button onClick={() => setTab('today')} style={tabBtn(tab === 'today')}>📋 오늘 할 일</button>
-        {isAdmin && <button onClick={() => setTab('manage')} style={tabBtn(tab === 'manage')}>⚙️ 관리</button>}
+        {canManage && <button onClick={() => setTab('manage')} style={tabBtn(tab === 'manage')}>⚙️ 관리</button>}
         {isAdmin && <button onClick={() => setTab('stats')} style={tabBtn(tab === 'stats')}>📊 통계</button>}
       </div>
 
@@ -149,7 +150,7 @@ export default function ChecklistPage() {
               onToggleClosing={toggleClosingCheck}
             />
           )}
-          {tab === 'manage' && isAdmin && <ManageTab userId={userId} storeId={storeId} myName={myName} onSaved={() => loadAll(storeId)} supabase={supabase} />}
+          {tab === 'manage' && canManage && <ManageTab userId={userId} storeId={storeId} myName={myName} onSaved={() => loadAll(storeId)} supabase={supabase} />}
           {tab === 'stats' && isAdmin && <StatsTab items={activeItems} checksByTodo={checksByTodo} />}
         </>
       )}

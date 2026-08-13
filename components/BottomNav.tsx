@@ -23,10 +23,10 @@ const TABLET_TABS = [
 
 const MORE_ITEMS = [
   { href: '/checklist',   ic: '✅', l: '체크리스트' },
-  { href: '/analytics',   ic: '📈', l: '분석' },
   { href: '/inventory',   ic: '📦', l: '재고&발주' },
-  { href: '/recipe',      ic: '🍳', l: '레시피' },
+  { href: '/analytics',   ic: '📈', l: '분석' },
   { href: '/staff',       ic: '👥', l: '직원관리' },
+  { href: '/recipe',      ic: '🍳', l: '레시피' },
   { href: '/goal',        ic: '🎯', l: '목표매출' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
   { href: '/advance',     ic: '💸', l: '선입금' },
