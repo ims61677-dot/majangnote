@@ -34,6 +34,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [isPC, setIsPC] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [badge, setBadge] = useState(0)
+  const [notifBadge, setNotifBadge] = useState(0)
 
   useEffect(() => {
     function check() { setIsPC(window.innerWidth >= 1024) }
@@ -73,6 +74,31 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     loadStores(parsedUser.id)
     loadBadge()
   }, [])
+
+  useEffect(() => { loadNotifBadge() }, [pathname])
+
+  async function loadNotifBadge() {
+    try {
+      const st = JSON.parse(localStorage.getItem('mj_store') || '{}')
+      const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
+      if (!st.id || !u.id) return
+      const seenAt = localStorage.getItem(`mj_notif_seen_${u.id}`) || '1970-01-01T00:00:00.000Z'
+      const { data } = await supabase
+        .from('notification_logs')
+        .select('id, type, target_roles, target_user_name, exclude_user_id, created_at')
+        .eq('store_id', st.id)
+        .gt('created_at', seenAt)
+        .order('created_at', { ascending: false })
+        .limit(100)
+      const mine = (data || []).filter((l: any) => {
+        if (l.exclude_user_id && l.exclude_user_id === u.id) return false
+        if (l.target_roles && l.target_roles.length > 0 && !l.target_roles.includes(u.role)) return false
+        if (l.target_user_name && l.target_user_name !== u.nm) return false
+        return true
+      })
+      setNotifBadge(mine.length)
+    } catch {}
+  }
 
   async function loadStores(uid: string) {
     const { data } = await supabase
@@ -247,10 +273,25 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             })}
           </nav>
 
+          <Link href="/notifications" style={{ textDecoration: 'none', flexShrink: 0, marginLeft: 12 }}>
+            <div style={{ position: 'relative', width: 34, height: 34, borderRadius: 8, border: '1px solid #E8ECF0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+              <span style={{ fontSize: 15 }}>🔔</span>
+              {notifBadge > 0 && (
+                <span style={{
+                  position: 'absolute', top: -5, right: -5,
+                  minWidth: 16, height: 16, borderRadius: 8,
+                  background: '#FF6B35', color: '#fff', fontSize: 9, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 3px', border: '1.5px solid #fff',
+                }}>{notifBadge > 9 ? '9+' : notifBadge}</span>
+              )}
+            </div>
+          </Link>
+
           <button onClick={logout} style={{
             background: 'none', border: '1px solid #E8ECF0',
             color: '#999', padding: '5px 12px', borderRadius: 8,
-            cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0, marginLeft: 12,
+            cursor: 'pointer', fontSize: 12, fontWeight: 500, flexShrink: 0, marginLeft: 8,
           }}>로그아웃</button>
         </header>
 
@@ -345,11 +386,27 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           )}
         </div>
 
-        <button onClick={logout} style={{
-          background: 'none', border: '1px solid #E8ECF0',
-          color: '#999', padding: '5px 12px', borderRadius: 8,
-          cursor: 'pointer', fontSize: 12, fontWeight: 500,
-        }}>로그아웃</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Link href="/notifications" style={{ textDecoration: 'none' }}>
+            <div style={{ position: 'relative', width: 34, height: 34, borderRadius: 8, border: '1px solid #E8ECF0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+              <span style={{ fontSize: 15 }}>🔔</span>
+              {notifBadge > 0 && (
+                <span style={{
+                  position: 'absolute', top: -5, right: -5,
+                  minWidth: 16, height: 16, borderRadius: 8,
+                  background: '#FF6B35', color: '#fff', fontSize: 9, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 3px', border: '1.5px solid #fff',
+                }}>{notifBadge > 9 ? '9+' : notifBadge}</span>
+              )}
+            </div>
+          </Link>
+          <button onClick={logout} style={{
+            background: 'none', border: '1px solid #E8ECF0',
+            color: '#999', padding: '5px 12px', borderRadius: 8,
+            cursor: 'pointer', fontSize: 12, fontWeight: 500,
+          }}>로그아웃</button>
+        </div>
       </header>
 
       <main style={{ flex: 1, padding: '16px 16px 100px' }}>

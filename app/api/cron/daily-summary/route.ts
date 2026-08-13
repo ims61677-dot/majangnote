@@ -86,6 +86,12 @@ export async function GET(req: NextRequest) {
         return true
       })
 
+      try {
+        await supabase.from('notification_logs').insert({
+          store_id: store.id, type: 'closing', title, body, url: '/closing', target_roles: ['owner', 'manager'],
+        })
+      } catch {}
+
       const payload = JSON.stringify({ title, body, url: '/closing' })
       const sendResults = await Promise.allSettled(
         targets.map((sub: any) => webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload))

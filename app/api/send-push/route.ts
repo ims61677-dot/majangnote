@@ -16,6 +16,14 @@ webpush.setVapidDetails(
 export async function POST(req: NextRequest) {
   try {
     const { store_id, title, message, url, target } = await req.json()
+    if (store_id) {
+      try {
+        await supabase.from('notification_logs').insert({
+          store_id, type: 'notice', title: title || null, body: message || null, url: url || null,
+          target_roles: target === 'employees' ? ['employee'] : target === 'owner' ? ['owner'] : null,
+        })
+      } catch {}
+    }
     let query = supabase.from('push_subscriptions').select('*').eq('store_id', store_id)
     if (target === 'employees') query = query.eq('role', 'employee')
     if (target === 'owner') query = query.eq('role', 'owner')

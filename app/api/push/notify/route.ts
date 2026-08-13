@@ -17,6 +17,17 @@ export async function POST(req: NextRequest) {
   try {
     const { type, storeId, title, body, url, excludeUserId, targetRoles, targetUserName } = await req.json()
 
+    // 알림함(히스토리)용 기록 — 실제 발송 성공 여부와 무관하게 항상 남김 (실패해도 알림 발송 자체는 계속 진행)
+    if (storeId) {
+      try {
+        await supabase.from('notification_logs').insert({
+          store_id: storeId, type: type || null, title: title || null, body: body || null,
+          url: url || null, target_roles: targetRoles && targetRoles.length > 0 ? targetRoles : null,
+          target_user_name: targetUserName || null, exclude_user_id: excludeUserId || null,
+        })
+      } catch {}
+    }
+
     const { data: subs } = await supabase
       .from('push_subscriptions')
       .select('*')
