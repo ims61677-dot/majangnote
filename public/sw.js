@@ -29,11 +29,18 @@ self.addEventListener('activate', (event) => {
 
 // 네트워크 우선, 실패 시 캐시
 self.addEventListener('fetch', (event) => {
+  // GET 요청만 서비스워커가 가로채서 처리 (업로드 등 POST/PUT 요청은 그대로 흘려보냄)
+  // iOS Safari에서 서비스워커가 non-GET 요청을 가로채 재전송하면 요청 본문(파일 내용)이
+  // 유실돼 업로드가 "No content provided" 오류로 실패하는 버그가 있어서, 안드로이드에서는
+  // 되고 아이폰에서는 안 되는 현상이 여기서 발생했었습니다.
+  if (event.request.method !== 'GET') {
+    return;
+  }
   event.respondWith(
     fetch(event.request)
       .then((response) => {
         // 성공한 GET 응답만 캐시에 저장 (Cache API는 GET만 지원)
-        if (event.request.method === 'GET' && response.status === 200) {
+        if (response.status === 200) {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseClone);
