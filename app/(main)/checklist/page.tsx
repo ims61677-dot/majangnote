@@ -35,7 +35,6 @@ export default function ChecklistPage() {
   const [myName, setMyName] = useState('')
   const [role, setRole] = useState('')
   const isAdmin = role === 'owner' || role === 'manager'
-  const canManage = role === 'owner'
   const [tab, setTab] = useState<'today' | 'manage' | 'stats'>('today')
   const [items, setItems] = useState<any[]>([])
   const [checksByTodo, setChecksByTodo] = useState<Record<string, any[]>>({})
@@ -135,7 +134,7 @@ export default function ChecklistPage() {
 
       <div style={{ display: 'flex', gap: 6, background: '#F4F6F9', borderRadius: 12, padding: 4, marginBottom: 16, width: 'fit-content' }}>
         <button onClick={() => setTab('today')} style={tabBtn(tab === 'today')}>📋 오늘 할 일</button>
-        {canManage && <button onClick={() => setTab('manage')} style={tabBtn(tab === 'manage')}>⚙️ 관리</button>}
+        {isAdmin && <button onClick={() => setTab('manage')} style={tabBtn(tab === 'manage')}>📋 항목</button>}
         {isAdmin && <button onClick={() => setTab('stats')} style={tabBtn(tab === 'stats')}>📊 통계</button>}
       </div>
 
@@ -150,7 +149,7 @@ export default function ChecklistPage() {
               onToggleClosing={toggleClosingCheck}
             />
           )}
-          {tab === 'manage' && canManage && <ManageTab userId={userId} storeId={storeId} myName={myName} onSaved={() => loadAll(storeId)} supabase={supabase} />}
+          {tab === 'manage' && isAdmin && <ManageTab userId={userId} storeId={storeId} myName={myName} multiStore={role === 'owner'} onSaved={() => loadAll(storeId)} supabase={supabase} />}
           {tab === 'stats' && isAdmin && <StatsTab items={activeItems} checksByTodo={checksByTodo} />}
         </>
       )}
@@ -253,8 +252,8 @@ function TodayTab({ list, myName, onToggle, closingTodos, closingChecks, closing
   )
 }
 
-// ── 관리 탭 (전지점) ──
-function ManageTab({ userId, storeId, myName, onSaved, supabase }: { userId: string; storeId: string; myName: string; onSaved: () => void; supabase: any }) {
+// ── 항목 탭 (대표: 전지점 / 관리자: 자기 지점만) ──
+function ManageTab({ userId, storeId, myName, multiStore, onSaved, supabase }: { userId: string; storeId: string; myName: string; multiStore: boolean; onSaved: () => void; supabase: any }) {
   const [stores, setStores] = useState<{ id: string; name: string }[]>([])
   const [storeItems, setStoreItems] = useState<Record<string, any[]>>({})
   const [loadingAll, setLoadingAll] = useState(true)
@@ -276,7 +275,7 @@ function ManageTab({ userId, storeId, myName, onSaved, supabase }: { userId: str
   async function loadEverything() {
     setLoadingAll(true)
     let storeList: { id: string; name: string }[] = []
-    if (userId) {
+    if (multiStore && userId) {
       const { data: memberships } = await supabase
         .from('store_members').select('store_id, stores(id, name)').eq('profile_id', userId).eq('active', true)
       const seen = new Set<string>()
