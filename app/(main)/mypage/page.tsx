@@ -145,7 +145,8 @@ export default function MyPage() {
     if (!user?.id) return
     const ext = file.name.split('.').pop()
     const path = `${user.id}/${type}.${ext}`
-    const { error } = await supabase.storage.from('staff-documents').upload(path, file, { upsert: true })
+    const fileBuffer = await file.arrayBuffer()
+    const { error } = await supabase.storage.from('staff-documents').upload(path, fileBuffer, { upsert: true, contentType: file.type || 'image/jpeg' })
     if (error) { alert('업로드 실패: ' + error.message); return }
     const { data: s } = await supabase.storage.from('staff-documents').createSignedUrl(path, 3600)
     const previewUrl = s?.signedUrl || ''

@@ -1102,7 +1102,8 @@ function AdminTab({ storeId, userName, isPC }: { storeId: string; userName: stri
   async function uploadAdminImage(file: File): Promise<string> {
     const ext = file.name.split('.').pop()
     const path = `${storeId}/${Date.now()}.${ext}`
-    const { data, error } = await supabase.storage.from('notice-attachments').upload(path, file, { upsert: true })
+    const fileBuffer = await file.arrayBuffer()
+    const { data, error } = await supabase.storage.from('notice-attachments').upload(path, fileBuffer, { upsert: true, contentType: file.type || 'image/jpeg' })
     if (error) throw error
     const { data: urlData } = supabase.storage.from('notice-attachments').getPublicUrl(data.path)
     return urlData.publicUrl
@@ -2191,7 +2192,8 @@ export default function NoticePage() {
   async function uploadImage(file: File, bucket = 'notice-attachments'): Promise<string> {
     const ext = file.name.split('.').pop()
     const path = `${storeId}/${Date.now()}.${ext}`
-    const { data, error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true })
+    const fileBuffer = await file.arrayBuffer()
+    const { data, error } = await supabase.storage.from(bucket).upload(path, fileBuffer, { upsert: true, contentType: file.type || 'image/jpeg' })
     if (error) throw error
     const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(data.path)
     return urlData.publicUrl

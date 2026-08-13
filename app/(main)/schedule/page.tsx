@@ -221,7 +221,8 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
       setOffUploading(true)
       const ext = offAttachmentFile.name.split('.').pop()
       const path = `off-requests/${staffName}-${dateStr}-${Date.now()}.${ext}`
-      const { error } = await supabase.storage.from('staff-documents').upload(path, offAttachmentFile, { upsert: true })
+      const fileBuffer = await offAttachmentFile.arrayBuffer()
+      const { error } = await supabase.storage.from('staff-documents').upload(path, fileBuffer, { upsert: true, contentType: offAttachmentFile.type || 'image/jpeg' })
       setOffUploading(false)
       if (error) { alert('첨부 사진 업로드 실패: ' + error.message); return }
       attachmentPath = path

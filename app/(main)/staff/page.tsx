@@ -304,7 +304,8 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
       const file = files[i]
       const safeName = `${Date.now()}_${i}.pdf`
       const path = `${storeId}/${profile.id}/${safeName}`
-      const { error } = await supabase.storage.from('staff-contracts').upload(path, file)
+      const fileBuffer = await file.arrayBuffer()
+      const { error } = await supabase.storage.from('staff-contracts').upload(path, fileBuffer, { contentType: file.type || 'application/pdf' })
       if (error) { alert('업로드 실패: ' + error.message); continue }
       await supabase.from('staff_contracts').insert({ store_id: storeId, profile_id: profile.id, file_name: file.name, file_path: path, uploaded_by: ownerNm })
     }
