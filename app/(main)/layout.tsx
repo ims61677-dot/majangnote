@@ -77,12 +77,19 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   useEffect(() => { loadNotifBadge() }, [pathname])
 
+  useEffect(() => {
+    const timer = setInterval(() => { loadNotifBadge() }, 30000)
+    return () => clearInterval(timer)
+  }, [])
+
   async function loadNotifBadge() {
     try {
       const st = JSON.parse(localStorage.getItem('mj_store') || '{}')
       const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
       if (!st.id || !u.id) return
-      const seenAt = localStorage.getItem(`mj_notif_seen_${u.id}`) || '1970-01-01T00:00:00.000Z'
+
+      const { data: profileRow } = await supabase.from('profiles').select('notif_seen_at').eq('id', u.id).maybeSingle()
+      const seenAt = profileRow?.notif_seen_at || '1970-01-01T00:00:00.000Z'
 
       let storeIds: string[] = [st.id]
       const { data: memberships } = await supabase

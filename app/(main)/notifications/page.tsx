@@ -8,8 +8,6 @@ const TYPE_ICON: Record<string, string> = {
   closing: '📒', inventory: '📦', schedule: '📅',
 }
 
-function seenKey(userId: string) { return `mj_notif_seen_${userId}` }
-
 function timeAgo(iso: string) {
   const d = new Date(iso)
   const diffMs = Date.now() - d.getTime()
@@ -60,8 +58,12 @@ export default function NotificationsPage() {
       .order('created_at', { ascending: false })
       .limit(150)
 
-    // 이전에 열어본 시각(업데이트 전)을 기준으로 안 읽은 알림을 표시
-    const prevSeenAt = (user?.id && localStorage.getItem(seenKey(user.id))) || '1970-01-01T00:00:00.000Z'
+    // 이전에 열어본 시각(업데이트 전)을 기준으로 안 읽은 알림을 표시 — 기기 상관없이 서버에 저장된 값 사용
+    let prevSeenAt = '1970-01-01T00:00:00.000Z'
+    if (user?.id) {
+      const { data: profileRow } = await supabase.from('profiles').select('notif_seen_at').eq('id', user.id).maybeSingle()
+      prevSeenAt = profileRow?.notif_seen_at || prevSeenAt
+    }
 
     const mine = (data || []).filter((l: any) => {
       if (l.exclude_user_id && l.exclude_user_id === user.id) return false
@@ -72,8 +74,10 @@ export default function NotificationsPage() {
     setLogs(mine)
     setLoading(false)
 
-    // 읽음 처리: 마지막으로 열어본 시간을 저장해서 배지 카운트를 초기화 (이 화면을 나갈 때부터 적용)
-    if (user?.id) localStorage.setItem(seenKey(user.id), new Date().toISOString())
+    // 읽음 처리: 마지막으로 열어본 시간을 서버에 저장 (다른 기기에서도 동일하게 반영)
+    if (user?.id) {
+      await supabase.from('profiles').update({ notif_seen_at: new Date().toISOString() }).eq('id', user.id)
+    }
   }
 
   function openLog(l: any) {
