@@ -34,6 +34,12 @@ export async function GET(req: NextRequest) {
     const daysInMonth = new Date(y, m, 0).getDate()
     const elapsedDays = d
 
+    // 알림함 기록은 90일 지나면 자동 정리 (저장 용량 관리)
+    try {
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+      await supabase.from('notification_logs').delete().lt('created_at', cutoff)
+    } catch {}
+
     const { data: stores } = await supabase.from('stores').select('id, name')
     if (!stores || stores.length === 0) return NextResponse.json({ sent: 0 })
 

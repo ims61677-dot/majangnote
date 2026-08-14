@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const TYPE_ICON: Record<string, string> = {
@@ -24,6 +25,7 @@ function timeAgo(iso: string) {
 
 export default function NotificationsPage() {
   const supabase = createSupabaseBrowserClient()
+  const router = useRouter()
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [multiStore, setMultiStore] = useState(false)
@@ -58,17 +60,24 @@ export default function NotificationsPage() {
       .order('created_at', { ascending: false })
       .limit(150)
 
+    // 이전에 열어본 시각(업데이트 전)을 기준으로 안 읽은 알림을 표시
+    const prevSeenAt = (user?.id && localStorage.getItem(seenKey(user.id))) || '1970-01-01T00:00:00.000Z'
+
     const mine = (data || []).filter((l: any) => {
       if (l.exclude_user_id && l.exclude_user_id === user.id) return false
       if (l.target_roles && l.target_roles.length > 0 && !l.target_roles.includes(user.role)) return false
       if (l.target_user_name && l.target_user_name !== user.nm) return false
       return true
-    }).map((l: any) => ({ ...l, storeName: storeNames[l.store_id] || '' }))
+    }).map((l: any) => ({ ...l, storeName: storeNames[l.store_id] || '', isUnread: l.created_at > prevSeenAt }))
     setLogs(mine)
     setLoading(false)
 
-    // 읽음 처리: 마지막으로 열어본 시간을 저장해서 배지 카운트를 초기화
+    // 읽음 처리: 마지막으로 열어본 시간을 저장해서 배지 카운트를 초기화 (이 화면을 나갈 때부터 적용)
     if (user?.id) localStorage.setItem(seenKey(user.id), new Date().toISOString())
+  }
+
+  function openLog(l: any) {
+    router.push(l.url || '/notifications')
   }
 
   return (
@@ -84,27 +93,49 @@ export default function NotificationsPage() {
           <div style={{ fontSize: 13 }}>받은 알림이 없어요</div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {logs.map(l => (
-            <div key={l.id} style={{
-              display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12,
-              background: '#fff', border: '1px solid #E8ECF0',
-            }}>
-              <span style={{ fontSize: 18, flexShrink: 0 }}>{TYPE_ICON[l.type] || '🔔'}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{l.title || '알림'}</div>
-                  {multiStore && l.storeName && (
-                    <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7', fontWeight: 600 }}>{l.storeName}</span>
-                  )}
-                </div>
-                {l.body && <div style={{ fontSize: 12, color: '#666', marginTop: 3, lineHeight: 1.5 }}>{l.body}</div>}
+        <>
+          {logs.some(l => l.isUnread) && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#FF6B35', marginBottom: 8, paddingLeft: 2 }}>
+                🔴 안 읽은 알림 {logs.filter(l => l.isUnread).length}개
               </div>
-              <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(l.created_at)}</span>
-            </div>
-          ))}
-        </div>
+              <NotifList logs={logs.filter(l => l.isUnread)} multiStore={multiStore} onOpen={openLog} />
+              {logs.some(l => !l.isUnread) && <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', margin: '16px 0 8px', paddingLeft: 2 }}>읽은 알림</div>}
+            </>
+          )}
+          <NotifList logs={logs.filter(l => !l.isUnread)} multiStore={multiStore} onOpen={openLog} />
+        </>
       )}
+    </div>
+  )
+}
+
+function NotifList({ logs, multiStore, onOpen }: { logs: any[]; multiStore: boolean; onOpen: (l: any) => void }) {
+  if (logs.length === 0) return null
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {logs.map(l => (
+        <div key={l.id} onClick={() => onOpen(l)} style={{
+          display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 12, cursor: 'pointer',
+          background: l.isUnread ? 'rgba(255,107,53,0.04)' : '#fff',
+          border: l.isUnread ? '1px solid rgba(255,107,53,0.25)' : '1px solid #E8ECF0',
+        }}>
+          <span style={{ fontSize: 18, flexShrink: 0, position: 'relative' }}>
+            {TYPE_ICON[l.type] || '🔔'}
+            {l.isUnread && <span style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, borderRadius: '50%', background: '#FF6B35', border: '1.5px solid #fff' }} />}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{l.title || '알림'}</div>
+              {multiStore && l.storeName && (
+                <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7', fontWeight: 600 }}>{l.storeName}</span>
+              )}
+            </div>
+            {l.body && <div style={{ fontSize: 12, color: l.isUnread ? '#444' : '#888', marginTop: 3, lineHeight: 1.5 }}>{l.body}</div>}
+          </div>
+          <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(l.created_at)}</span>
+        </div>
+      ))}
     </div>
   )
 }
