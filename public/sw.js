@@ -75,10 +75,10 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// 알림 클릭 시 앱 열기
+// 알림 클릭 시 앱 열기 → 항상 알림함으로 이동
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
-    clients.openWindow(event.notification.data.url || '/')
+    clients.openWindow('/notifications')
   );
 });

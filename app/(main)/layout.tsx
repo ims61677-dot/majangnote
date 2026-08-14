@@ -83,10 +83,17 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
       if (!st.id || !u.id) return
       const seenAt = localStorage.getItem(`mj_notif_seen_${u.id}`) || '1970-01-01T00:00:00.000Z'
+
+      let storeIds: string[] = [st.id]
+      const { data: memberships } = await supabase
+        .from('store_members').select('store_id').eq('profile_id', u.id).eq('active', true)
+      const ids = Array.from(new Set((memberships || []).map((m: any) => m.store_id).filter(Boolean)))
+      if (ids.length > 0) storeIds = ids
+
       const { data } = await supabase
         .from('notification_logs')
         .select('id, type, target_roles, target_user_name, exclude_user_id, created_at')
-        .eq('store_id', st.id)
+        .in('store_id', storeIds)
         .gt('created_at', seenAt)
         .order('created_at', { ascending: false })
         .limit(100)

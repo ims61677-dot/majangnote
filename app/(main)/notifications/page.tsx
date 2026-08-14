@@ -26,6 +26,7 @@ export default function NotificationsPage() {
   const supabase = createSupabaseBrowserClient()
   const [logs, setLogs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [multiStore, setMultiStore] = useState(false)
 
   useEffect(() => {
     const store = JSON.parse(localStorage.getItem('mj_store') || '{}')
@@ -35,10 +36,25 @@ export default function NotificationsPage() {
 
   async function load(storeId: string, user: any) {
     setLoading(true)
+
+    // 알림은 소속된 모든 지점 기준으로 옴 (푸시 구독도 전지점 자동 등록되므로 알림함도 전지점 조회)
+    let storeIds: string[] = [storeId]
+    let storeNames: Record<string, string> = {}
+    if (user?.id) {
+      const { data: memberships } = await supabase
+        .from('store_members').select('store_id, stores(id, name)').eq('profile_id', user.id).eq('active', true)
+      const ids = new Set<string>()
+      ;(memberships || []).forEach((m: any) => {
+        if (m.stores) { ids.add(m.stores.id); storeNames[m.stores.id] = m.stores.name }
+      })
+      if (ids.size > 0) storeIds = Array.from(ids)
+    }
+    setMultiStore(storeIds.length > 1)
+
     const { data } = await supabase
       .from('notification_logs')
       .select('*')
-      .eq('store_id', storeId)
+      .in('store_id', storeIds)
       .order('created_at', { ascending: false })
       .limit(150)
 
@@ -47,7 +63,7 @@ export default function NotificationsPage() {
       if (l.target_roles && l.target_roles.length > 0 && !l.target_roles.includes(user.role)) return false
       if (l.target_user_name && l.target_user_name !== user.nm) return false
       return true
-    })
+    }).map((l: any) => ({ ...l, storeName: storeNames[l.store_id] || '' }))
     setLogs(mine)
     setLoading(false)
 
@@ -76,7 +92,12 @@ export default function NotificationsPage() {
             }}>
               <span style={{ fontSize: 18, flexShrink: 0 }}>{TYPE_ICON[l.type] || '🔔'}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{l.title || '알림'}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{l.title || '알림'}</div>
+                  {multiStore && l.storeName && (
+                    <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7', fontWeight: 600 }}>{l.storeName}</span>
+                  )}
+                </div>
                 {l.body && <div style={{ fontSize: 12, color: '#666', marginTop: 3, lineHeight: 1.5 }}>{l.body}</div>}
               </div>
               <span style={{ fontSize: 10, color: '#bbb', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(l.created_at)}</span>
