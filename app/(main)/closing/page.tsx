@@ -160,10 +160,12 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
 
   async function loadStores() {
     setLoading(true)
+    const myId = JSON.parse(localStorage.getItem('mj_user') || '{}').id
     const { data: memberData } = await supabase
       .from('store_members')
       .select('store_id, role, stores(id, name)')
       .eq('role', 'owner')
+      .eq('profile_id', myId) // 내가 대표로 속한 지점만 (다른 대표 계정의 지점은 섞이지 않도록)
     let storeList = (memberData || [])
       .map((m: any) => m.stores).filter(Boolean)
       .filter((s: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === s.id) === i)
