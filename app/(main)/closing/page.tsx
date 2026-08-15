@@ -1543,6 +1543,7 @@ export default function ClosingPage() {
     _sales: Record<string, number>, _counts: Record<string, number>, _cancelCounts: Record<string, number>
   ) {
     if (!storeId) return
+    if (!isAuto && isSavingRef.current) return // 중복 클릭 방지 (수동 저장 버튼 연타)
     if (isSaved && !isManager && selectedDate !== todayStr) {
       if (!isAuto) alert('저장된 마감일지는 매니저/대표만 수정할 수 있습니다.')
       return

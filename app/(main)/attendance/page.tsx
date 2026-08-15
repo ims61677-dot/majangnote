@@ -299,6 +299,7 @@ function RequestModal({ today, onClose, onSubmit }: {
   const [ci,     setCi]     = useState('')
   const [co,     setCo]     = useState('')
   const [reason, setReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={onClose}>
       <div style={{ background:'#fff', width:'100%', maxWidth:480, borderRadius:'20px 20px 0 0', padding:24, paddingBottom:44 }} onClick={e => e.stopPropagation()}>
@@ -323,7 +324,7 @@ function RequestModal({ today, onClose, onSubmit }: {
           <div style={{ fontSize:11, color:'#aaa', fontWeight:600, marginBottom:6 }}>사유</div>
           <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="수정이 필요한 사유를 입력해주세요" rows={3} style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid #E8ECF0', background:'#F8F9FB', fontSize:13, color:'#1a1a2e', outline:'none', resize:'none', boxSizing:'border-box' }} />
         </div>
-        <button onClick={() => { if (!reason.trim()) return alert('사유를 입력해주세요'); onSubmit(type, ci, co, reason) }} style={{ width:'100%', padding:14, borderRadius:12, border:'none', background:'linear-gradient(135deg,#6C5CE7,#E84393)', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' }}>요청 보내기</button>
+        <button onClick={() => { if (submitting) return; if (!reason.trim()) return alert('사유를 입력해주세요'); setSubmitting(true); onSubmit(type, ci, co, reason) }} disabled={submitting} style={{ width:'100%', padding:14, borderRadius:12, border:'none', background:'linear-gradient(135deg,#6C5CE7,#E84393)', color:'#fff', fontSize:14, fontWeight:700, cursor:submitting?'not-allowed':'pointer', opacity:submitting?0.6:1 }}>{submitting?'전송 중...':'요청 보내기'}</button>
       </div>
     </div>
   )
@@ -473,8 +474,9 @@ export default function AttendancePage() {
   const [myMonthData,        setMyMonthData]         = useState<any[]>([])
 
   const hasIssues  = weekIssueList.length > 0
-  const canClockIn  = !attLoading && wifiOk && allChecked && (!hasIssues || issueAcked) && !attendance?.clock_in
-  const canClockOut = !attLoading && wifiOk && !!attendance?.clock_in && !attendance?.clock_out
+  const [clockSubmitting, setClockSubmitting] = useState(false)
+  const canClockIn  = !attLoading && !clockSubmitting && wifiOk && allChecked && (!hasIssues || issueAcked) && !attendance?.clock_in
+  const canClockOut = !attLoading && !clockSubmitting && wifiOk && !!attendance?.clock_in && !attendance?.clock_out
 
 
 
@@ -740,36 +742,50 @@ export default function AttendancePage() {
   }
 
   async function clockIn() {
-    if (!canClockIn) return
-    const nowTs  = new Date().toISOString()
-    const myInfo = staffList.find(s => s.id === profileId)
-    const isLate = myInfo?.expected_in ? tsToMinutes(nowTs) > timeToMinutes(myInfo.expected_in) : false
-    const lateMin = isLate && myInfo?.expected_in ? tsToMinutes(nowTs) - timeToMinutes(myInfo.expected_in) : 0
-    const rec = { store_id:storeId, profile_id:profileId, work_date:today, clock_in:nowTs, status:isLate?'late':'normal', is_late:isLate, late_minutes:lateMin }
-    const { data: existing } = await supabase.from('attendance').select('id').eq('store_id', storeId).eq('profile_id', profileId).eq('work_date', today).maybeSingle()
-    if (existing) await supabase.from('attendance').update({ clock_in:nowTs, status:rec.status, is_late:isLate, late_minutes:lateMin }).eq('id', existing.id)
-    else await supabase.from('attendance').insert(rec)
-    sendPush('attendance', storeId, '✅ 출근', `${myName}님이 출근했습니다`, '/attendance', profileId, ['owner','manager'])
-    if (isLate) sendPush('late', storeId, '⏰ 지각', `${myName}님이 지각 출근했습니다 (${lateMin}분 지각)`, '/attendance', profileId, ['owner','manager'])
-    await loadMyAttendance(profileId, storeId)
-    await loadBoard(storeId)
-    await loadMyMonthData(profileId, storeId)
+    if (!canClockIn || clockSubmitting) return
+    setClockSubmitting(true)
+    try {
+      const nowTs  = new Date().toISOString()
+      const myInfo = staffList.find(s => s.id === profileId)
+      const isLate = myInfo?.expected_in ? tsToMinutes(nowTs) > timeToMinutes(myInfo.expected_in) : false
+      const lateMin = isLate && myInfo?.expected_in ? tsToMinutes(nowTs) - timeToMinutes(myInfo.expected_in) : 0
+      const rec = { store_id:storeId, profile_id:profileId, work_date:today, clock_in:nowTs, status:isLate?'late':'normal', is_late:isLate, late_minutes:lateMin }
+      const { data: existing } = await supabase.from('attendance').select('id, clock_in').eq('store_id', storeId).eq('profile_id', profileId).eq('work_date', today).maybeSingle()
+      if (existing?.clock_in) { await loadMyAttendance(profileId, storeId); return } // 이미 출근 처리된 경우 중복 방지
+      if (existing) await supabase.from('attendance').update({ clock_in:nowTs, status:rec.status, is_late:isLate, late_minutes:lateMin }).eq('id', existing.id)
+      else await supabase.from('attendance').insert(rec)
+      sendPush('attendance', storeId, '✅ 출근', `${myName}님이 출근했습니다`, '/attendance', profileId, ['owner','manager'])
+      if (isLate) sendPush('late', storeId, '⏰ 지각', `${myName}님이 지각 출근했습니다 (${lateMin}분 지각)`, '/attendance', profileId, ['owner','manager'])
+      await loadMyAttendance(profileId, storeId)
+      await loadBoard(storeId)
+      await loadMyMonthData(profileId, storeId)
+    } finally {
+      setClockSubmitting(false)
+    }
   }
   async function clockOut() {
-    if (!canClockOut || !attendance) return
-    const nowTs   = new Date().toISOString()
-    const myInfo  = staffList.find(s => s.id === profileId)
-    const isEarly = myInfo?.expected_out ? tsToMinutes(nowTs) < timeToMinutes(myInfo.expected_out) : false
-    const wasLate = attendance.is_late || false
-    let finalStatus = 'normal'
-    if (wasLate && isEarly) finalStatus='late_early'
-    else if (wasLate)  finalStatus='late'
-    else if (isEarly)  finalStatus='early'
-    await supabase.from('attendance').update({ clock_out:nowTs, status:finalStatus, is_early:isEarly }).eq('id', attendance.id)
-    sendPush('attendance', storeId, '🚪 퇴근', `${myName}님이 퇴근했습니다`, '/attendance', profileId, ['owner','manager'])
-    await loadMyAttendance(profileId, storeId)
-    await loadBoard(storeId)
-    await loadMyMonthData(profileId, storeId)
+    if (!canClockOut || !attendance || clockSubmitting) return
+    setClockSubmitting(true)
+    try {
+      // 중복 클릭 방지: 서버에 이미 퇴근 처리가 됐는지 다시 확인
+      const { data: fresh } = await supabase.from('attendance').select('clock_out').eq('id', attendance.id).maybeSingle()
+      if (fresh?.clock_out) { await loadMyAttendance(profileId, storeId); return }
+      const nowTs   = new Date().toISOString()
+      const myInfo  = staffList.find(s => s.id === profileId)
+      const isEarly = myInfo?.expected_out ? tsToMinutes(nowTs) < timeToMinutes(myInfo.expected_out) : false
+      const wasLate = attendance.is_late || false
+      let finalStatus = 'normal'
+      if (wasLate && isEarly) finalStatus='late_early'
+      else if (wasLate)  finalStatus='late'
+      else if (isEarly)  finalStatus='early'
+      await supabase.from('attendance').update({ clock_out:nowTs, status:finalStatus, is_early:isEarly }).eq('id', attendance.id)
+      sendPush('attendance', storeId, '🚪 퇴근', `${myName}님이 퇴근했습니다`, '/attendance', profileId, ['owner','manager'])
+      await loadMyAttendance(profileId, storeId)
+      await loadBoard(storeId)
+      await loadMyMonthData(profileId, storeId)
+    } finally {
+      setClockSubmitting(false)
+    }
   }
   async function registerIp() {
     if (!currentIp||!storeId) return
