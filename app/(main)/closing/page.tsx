@@ -988,10 +988,12 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
           <div style={{ textAlign: 'center', padding: '10px 6px', background: 'rgba(74,108,247,0.06)', borderRadius: 12 }}>
             <div style={{ fontSize: isPC ? 16 : 14, fontWeight: 800, color: pctLabel(momPctAll).color }}>{pctLabel(momPctAll).text}</div>
             <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>전달 동기간 대비</div>
+            <div style={{ fontSize: 9, color: '#bbb', marginTop: 2 }}>{pmSalesAll > 0 ? `전달 ${pmSalesAll.toLocaleString()}원` : '전달 기록 없음'}</div>
           </div>
           <div style={{ textAlign: 'center', padding: '10px 6px', background: 'rgba(108,92,231,0.06)', borderRadius: 12 }}>
             <div style={{ fontSize: isPC ? 16 : 14, fontWeight: 800, color: pctLabel(yoyPctAll).color }}>{pctLabel(yoyPctAll).text}</div>
             <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>전년 동기간 대비</div>
+            <div style={{ fontSize: 9, color: '#bbb', marginTop: 2 }}>{lySalesAll > 0 ? `작년 ${lySalesAll.toLocaleString()}원` : '작년 기록 없음'}</div>
           </div>
         </div>
       </div>
@@ -1066,8 +1068,8 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
                 <div style={{ padding: '10px 14px', background: '#F8F9FB', borderBottom: '1px solid #F0F2F5', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 11 }}>
                   <span style={{ color: '#888' }}>이번달 누적 <b style={{ color: '#FF6B35' }}>{ms.monthSales > 0 ? `${ms.monthSales.toLocaleString()}원` : '—'}</b></span>
                   <span style={{ color: '#888' }}>예상 <b style={{ color: '#00B894' }}>{ms.projected > 0 ? `${ms.projected.toLocaleString()}원` : '—'}</b></span>
-                  <span style={{ color: '#888' }}>전달비 <b style={{ color: mom.color }}>{mom.text}</b></span>
-                  <span style={{ color: '#888' }}>전년비 <b style={{ color: yoy.color }}>{yoy.text}</b></span>
+                  <span style={{ color: '#888' }}>전달비 <b style={{ color: mom.color }}>{mom.text}</b> {ms.pmSales > 0 && <span style={{ color: '#bbb' }}>({ms.pmSales.toLocaleString()}원)</span>}</span>
+                  <span style={{ color: '#888' }}>전년비 <b style={{ color: yoy.color }}>{yoy.text}</b> {ms.lySales > 0 && <span style={{ color: '#bbb' }}>({ms.lySales.toLocaleString()}원)</span>}</span>
                 </div>
               )
             })()}
