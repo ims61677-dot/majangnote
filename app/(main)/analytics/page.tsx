@@ -720,6 +720,32 @@ export default function AnalyticsPage() {
   // ▶ 매출분석
   const salesContent = (
     <div>
+      {/* 헤드라인 요약 (접지 않고 항상 표시) */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+        <div style={{ background:'linear-gradient(135deg,rgba(255,107,53,.05),#fff)', borderRadius:14, padding:'16px 18px', border:'1px solid rgba(255,107,53,.25)' }}>
+          <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>이번달 총 매출</div>
+          <div style={{ fontSize:26, fontWeight:900, color:'#FF6B35', lineHeight:1 }}>{fmtW(totalSales)}</div>
+          <div style={{ fontSize:11, color:'#aaa', marginTop:6 }}>일평균 {fmtW(daily.length>0?Math.round(totalSales/daily.length):0)} · 총 {totalCount}건</div>
+        </div>
+        <div style={{ background:'linear-gradient(135deg,rgba(108,92,231,.05),#fff)', borderRadius:14, padding:'16px 18px', border:'1px solid rgba(108,92,231,.25)' }}>
+          <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>종합 객단가</div>
+          <div style={{ fontSize:26, fontWeight:900, color:'#6C5CE7', lineHeight:1 }}>{fmtW(avgUnit)}</div>
+          <div style={{ fontSize:11, color:'#aaa', marginTop:6 }}>취소 {totalCancel}건</div>
+        </div>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:14 }}>
+        <div style={{ background:'#fff', borderRadius:12, padding:'12px 14px', border:'1px solid #E8ECF0', textAlign:'center' }}>
+          <div style={{ fontSize:10, color:'#aaa', marginBottom:3, fontWeight:600 }}>전월 대비 ({prevMonthLabel})</div>
+          <div style={{ fontSize:17, fontWeight:800, color: prevTotal>0 ? (totalSales>=prevTotal?'#00B894':'#E84393') : '#bbb' }}>{prevTotal>0 ? `${totalSales>=prevTotal?'▲':'▼'} ${Math.abs(prevMonthPct)}%` : '—'}</div>
+          {prevTotal>0 && <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{fmtW(prevTotal)}</div>}
+        </div>
+        <div style={{ background:'#fff', borderRadius:12, padding:'12px 14px', border:'1px solid #E8ECF0', textAlign:'center' }}>
+          <div style={{ fontSize:10, color:'#aaa', marginBottom:3, fontWeight:600 }}>전년 동월 대비</div>
+          <div style={{ fontSize:17, fontWeight:800, color: prevYearTotal>0 ? (totalSales>=prevYearTotal?'#00B894':'#E84393') : '#bbb' }}>{prevYearTotal>0 ? `${totalSales>=prevYearTotal?'▲':'▼'} ${Math.abs(prevYearPct)}%` : '—'}</div>
+          {prevYearTotal>0 && <div style={{ fontSize:10, color:'#bbb', marginTop:2 }}>{fmtW(prevYearTotal)}</div>}
+        </div>
+      </div>
+
       {/* 일별 흐름 */}
       <DropSection id="s-daily" title="📅 일별 매출 흐름" summary={daily.length>0?`최고 ${daily.reduce((a,b)=>b.amount>a.amount?b:a,daily[0]).day}일 ${fmtW(Math.max(...daily.map(d=>d.amount)))}`:'-'} summaryColor="#FF6B35">
         <SubSection id="s-daily-chart" title="📊 일별 매출 바차트">
@@ -1308,6 +1334,29 @@ export default function AnalyticsPage() {
               {/* PC - 매출분석 탭: 일별+요일 / 플랫폼+비교 */}
               {tab==='sales' && (
                 <>
+                  {/* 헤드라인 요약 (접지 않고 항상 표시, 2열 전체 폭) */}
+                  <div style={{ gridColumn:'1 / -1', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:10 }}>
+                    <div style={{ background:'linear-gradient(135deg,rgba(255,107,53,.05),#fff)', borderRadius:14, padding:'16px 18px', border:'1px solid rgba(255,107,53,.25)' }}>
+                      <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>이번달 총 매출</div>
+                      <div style={{ fontSize:24, fontWeight:900, color:'#FF6B35', lineHeight:1 }}>{fmtW(totalSales)}</div>
+                      <div style={{ fontSize:11, color:'#aaa', marginTop:6 }}>일평균 {fmtW(daily.length>0?Math.round(totalSales/daily.length):0)} · 총 {totalCount}건</div>
+                    </div>
+                    <div style={{ background:'linear-gradient(135deg,rgba(108,92,231,.05),#fff)', borderRadius:14, padding:'16px 18px', border:'1px solid rgba(108,92,231,.25)' }}>
+                      <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>종합 객단가</div>
+                      <div style={{ fontSize:24, fontWeight:900, color:'#6C5CE7', lineHeight:1 }}>{fmtW(avgUnit)}</div>
+                      <div style={{ fontSize:11, color:'#aaa', marginTop:6 }}>취소 {totalCancel}건</div>
+                    </div>
+                    <div style={{ background:'#fff', borderRadius:14, padding:'16px 18px', border:'1px solid #E8ECF0' }}>
+                      <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>전월 대비 ({prevMonthLabel})</div>
+                      <div style={{ fontSize:20, fontWeight:900, color: prevTotal>0 ? (totalSales>=prevTotal?'#00B894':'#E84393') : '#bbb' }}>{prevTotal>0 ? `${totalSales>=prevTotal?'▲':'▼'} ${Math.abs(prevMonthPct)}%` : '—'}</div>
+                      {prevTotal>0 && <div style={{ fontSize:11, color:'#aaa', marginTop:6 }}>{fmtW(prevTotal)}</div>}
+                    </div>
+                    <div style={{ background:'#fff', borderRadius:14, padding:'16px 18px', border:'1px solid #E8ECF0' }}>
+                      <div style={{ fontSize:10, color:'#aaa', fontWeight:600, marginBottom:6 }}>전년 동월 대비</div>
+                      <div style={{ fontSize:20, fontWeight:900, color: prevYearTotal>0 ? (totalSales>=prevYearTotal?'#00B894':'#E84393') : '#bbb' }}>{prevYearTotal>0 ? `${totalSales>=prevYearTotal?'▲':'▼'} ${Math.abs(prevYearPct)}%` : '—'}</div>
+                      {prevYearTotal>0 && <div style={{ fontSize:11, color:'#aaa', marginTop:6 }}>{fmtW(prevYearTotal)}</div>}
+                    </div>
+                  </div>
                   <div>
                     <DropSection id="s-daily" title="📅 일별 매출 흐름" summary={daily.length>0?`최고 ${daily.reduce((a,b)=>b.amount>a.amount?b:a,daily[0]).day}일 ${fmtW(Math.max(...daily.map(d=>d.amount)))}`:'-'} summaryColor="#FF6B35">
                       <SubSection id="s-daily-chart" title="📊 일별 매출 바차트">
