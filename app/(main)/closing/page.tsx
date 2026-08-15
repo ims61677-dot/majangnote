@@ -145,6 +145,9 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
   const [closingDates, setClosingDates] = useState<Set<string>>(new Set())
   const [selectedStoreDetail, setSelectedStoreDetail] = useState<string | null>(null)
   const [dataLoading, setDataLoading] = useState(false)
+  const [monthlyStatsMap, setMonthlyStatsMap] = useState<Record<string, { monthSales: number; pmSales: number; lySales: number; projected: number; momPct: number | null; yoyPct: number | null }>>({})
+  const [monthlyLoading, setMonthlyLoading] = useState(false)
+  const [sortBy, setSortBy] = useState<'default' | 'salesDesc' | 'salesAsc'>('default')
 
   // ── 엑셀 내보내기 상태 ──
   const [showExportModal, setShowExportModal] = useState(false)
@@ -155,7 +158,7 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
   const [exporting, setExporting] = useState(false)
 
   useEffect(() => { loadStores() }, [storeId])
-  useEffect(() => { if (stores.length > 0) { loadClosingData(); loadMonthDots() } }, [selectedDate, stores])
+  useEffect(() => { if (stores.length > 0) { loadClosingData(); loadMonthDots(); loadMonthlyStats() } }, [selectedDate, stores])
   useEffect(() => { if (stores.length > 0) loadMonthDots() }, [calYear, calMonth, stores])
 
   async function loadStores() {
@@ -210,6 +213,56 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
     }))
     setStoreClosingData(results)
     setDataLoading(false)
+  }
+
+  // 특정 지점의 특정 기간(start~end) 매출 합계 조회
+  async function fetchRangeSales(sid: string, start: string, end: string): Promise<number> {
+    const { data: cls } = await supabase.from('closings').select('id').eq('store_id', sid).gte('closing_date', start).lte('closing_date', end)
+    const ids = (cls || []).map((c: any) => c.id)
+    if (ids.length === 0) return 0
+    const { data: sv } = await supabase.from('closing_sales').select('amount').in('closing_id', ids)
+    return (sv || []).reduce((s: number, r: any) => s + (r.amount || 0), 0)
+  }
+
+  // 이번달 누적 / 예상 / 전달·전년 동기간 대비 증감률
+  async function loadMonthlyStats() {
+    if (stores.length === 0) return
+    setMonthlyLoading(true)
+    const pad2 = (n: number) => String(n).padStart(2, '0')
+    const d = new Date(selectedDate)
+    const y = d.getFullYear(), m = d.getMonth(), day = d.getDate()
+    const curDaysInMonth = new Date(y, m + 1, 0).getDate()
+    const curStart = `${y}-${pad2(m + 1)}-01`
+    const curEnd = selectedDate
+
+    let pm = m - 1, py = y
+    if (pm < 0) { pm = 11; py = y - 1 }
+    const pmDaysInMonth = new Date(py, pm + 1, 0).getDate()
+    const pmDay = Math.min(day, pmDaysInMonth)
+    const pmStart = `${py}-${pad2(pm + 1)}-01`
+    const pmEnd = `${py}-${pad2(pm + 1)}-${pad2(pmDay)}`
+
+    const ly = y - 1
+    const lyDaysInMonth = new Date(ly, m + 1, 0).getDate()
+    const lyDay = Math.min(day, lyDaysInMonth)
+    const lyStart = `${ly}-${pad2(m + 1)}-01`
+    const lyEnd = `${ly}-${pad2(m + 1)}-${pad2(lyDay)}`
+
+    const results = await Promise.all(stores.map(async (store: any) => {
+      const [curSales, pmSales, lySales] = await Promise.all([
+        fetchRangeSales(store.id, curStart, curEnd),
+        fetchRangeSales(store.id, pmStart, pmEnd),
+        fetchRangeSales(store.id, lyStart, lyEnd),
+      ])
+      const projected = day > 0 ? Math.round((curSales / day) * curDaysInMonth) : 0
+      const momPct = pmSales > 0 ? Math.round(((curSales - pmSales) / pmSales) * 1000) / 10 : null
+      const yoyPct = lySales > 0 ? Math.round(((curSales - lySales) / lySales) * 1000) / 10 : null
+      return { storeId: store.id, monthSales: curSales, pmSales, lySales, projected, momPct, yoyPct }
+    }))
+    const map: Record<string, any> = {}
+    results.forEach(r => { map[r.storeId] = r })
+    setMonthlyStatsMap(map)
+    setMonthlyLoading(false)
   }
 
   async function loadMonthDots() {
@@ -828,6 +881,28 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
   const totalSalesAll = storeClosingData.reduce((sum, d) => sum + d.totalSales, 0)
   const totalCountAll = storeClosingData.reduce((sum, d) => sum + d.totalCount, 0)
 
+  // ── 전 지점 이번달 누적 / 예상 / 전달·전년 대비 (지점별 monthlyStatsMap 합산) ──
+  const monthSalesAll = storeClosingData.reduce((sum, d) => sum + (monthlyStatsMap[d.store.id]?.monthSales || 0), 0)
+  const pmSalesAll = storeClosingData.reduce((sum, d) => sum + (monthlyStatsMap[d.store.id]?.pmSales || 0), 0)
+  const lySalesAll = storeClosingData.reduce((sum, d) => sum + (monthlyStatsMap[d.store.id]?.lySales || 0), 0)
+  const projectedAll = storeClosingData.reduce((sum, d) => sum + (monthlyStatsMap[d.store.id]?.projected || 0), 0)
+  const momPctAll = pmSalesAll > 0 ? Math.round(((monthSalesAll - pmSalesAll) / pmSalesAll) * 1000) / 10 : null
+  const yoyPctAll = lySalesAll > 0 ? Math.round(((monthSalesAll - lySalesAll) / lySalesAll) * 1000) / 10 : null
+
+  // ── 지점 카드 정렬 (선택한 날짜 매출 기준) ──
+  const sortedStoreClosingData = [...storeClosingData].sort((a, b) => {
+    if (sortBy === 'salesDesc') return b.totalSales - a.totalSales
+    if (sortBy === 'salesAsc') return a.totalSales - b.totalSales
+    return 0
+  })
+
+  function pctLabel(pct: number | null) {
+    if (pct === null) return { text: '—', color: '#bbb' }
+    if (pct > 0) return { text: `▲ ${pct}%`, color: '#FF6B35' }
+    if (pct < 0) return { text: `▼ ${Math.abs(pct)}%`, color: '#4a6cf7' }
+    return { text: '0%', color: '#aaa' }
+  }
+
   // ── 미니 캘린더 ──
   const calendarSection = (
     <div style={{ ...bx, padding: '14px 12px' }}>
@@ -882,7 +957,7 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
           📥 엑셀 내보내기
         </button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 10 }}>
         {[
           { label: '마감 완료', value: `${closedCount}/${stores.length}`, color: '#00B894', bg: 'rgba(0,184,148,0.08)' },
           { label: '전체 매출', value: totalSalesAll > 0 ? (totalSalesAll >= 10000 ? `${Math.floor(totalSalesAll/10000)}만원` : `${totalSalesAll.toLocaleString()}원`) : '—', color: '#FF6B35', bg: 'rgba(255,107,53,0.08)' },
@@ -895,6 +970,49 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
           </div>
         ))}
       </div>
+
+      {/* ── 이번달 누적 / 예상 / 전달·전년 대비 (전 지점 합산) ── */}
+      <div style={{ paddingTop: 10, borderTop: '1px solid #F0F2F5' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 8 }}>
+          📈 이번달 누적 ({selectedDate.slice(0,7).replace('-','.')}) {monthlyLoading && <span style={{ fontSize: 10, color: '#bbb', fontWeight: 400 }}>불러오는 중...</span>}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+          <div style={{ textAlign: 'center', padding: '10px 6px', background: 'rgba(255,107,53,0.06)', borderRadius: 12 }}>
+            <div style={{ fontSize: isPC ? 16 : 14, fontWeight: 800, color: '#FF6B35' }}>{monthSalesAll > 0 ? `${monthSalesAll.toLocaleString()}원` : '—'}</div>
+            <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>이번달 누적</div>
+          </div>
+          <div style={{ textAlign: 'center', padding: '10px 6px', background: 'rgba(0,184,148,0.06)', borderRadius: 12 }}>
+            <div style={{ fontSize: isPC ? 16 : 14, fontWeight: 800, color: '#00B894' }}>{projectedAll > 0 ? `${projectedAll.toLocaleString()}원` : '—'}</div>
+            <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>이번달 예상</div>
+          </div>
+          <div style={{ textAlign: 'center', padding: '10px 6px', background: 'rgba(74,108,247,0.06)', borderRadius: 12 }}>
+            <div style={{ fontSize: isPC ? 16 : 14, fontWeight: 800, color: pctLabel(momPctAll).color }}>{pctLabel(momPctAll).text}</div>
+            <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>전달 동기간 대비</div>
+          </div>
+          <div style={{ textAlign: 'center', padding: '10px 6px', background: 'rgba(108,92,231,0.06)', borderRadius: 12 }}>
+            <div style={{ fontSize: isPC ? 16 : 14, fontWeight: 800, color: pctLabel(yoyPctAll).color }}>{pctLabel(yoyPctAll).text}</div>
+            <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>전년 동기간 대비</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ── 지점 정렬 컨트롤 ──
+  const sortControl = (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 10 }}>
+      {([
+        { v: 'default' as const, l: '기본순' },
+        { v: 'salesDesc' as const, l: '매출 높은순' },
+        { v: 'salesAsc' as const, l: '매출 낮은순' },
+      ]).map(o => (
+        <button key={o.v} onClick={() => setSortBy(o.v)} style={{
+          padding: '6px 12px', borderRadius: 9, cursor: 'pointer', fontSize: 11, fontWeight: 700,
+          border: sortBy === o.v ? '1.5px solid #FF6B35' : '1px solid #E8ECF0',
+          background: sortBy === o.v ? 'rgba(255,107,53,0.08)' : '#fff',
+          color: sortBy === o.v ? '#FF6B35' : '#888',
+        }}>{o.l}</button>
+      ))}
     </div>
   )
 
@@ -902,7 +1020,7 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
   const storeCols = isPC ? Math.min(stores.length, 3) : 1
   const storeCards = (
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${storeCols}, 1fr)`, gap: 12 }}>
-      {storeClosingData.map(({ store, closing, sales, checks, checkItems, todos, reviews, totalSales, totalCount, totalCancelCount }) => {
+      {sortedStoreClosingData.map(({ store, closing, sales, checks, checkItems, todos, reviews, totalSales, totalCount, totalCancelCount }) => {
         const isDone = !!closing
         const allChecked = checkItems.length > 0 && checks.length >= checkItems.length
         const checkPct = checkItems.length > 0 ? Math.round((checks.length / checkItems.length) * 100) : 0
@@ -937,6 +1055,22 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
                 {isDone ? '✅ 마감완료' : '⏳ 미마감'}
               </span>
             </div>
+
+            {/* ── 이번달 누적 / 예상 / 전달·전년 대비 (지점별) ── */}
+            {(() => {
+              const ms = monthlyStatsMap[store.id]
+              if (!ms) return null
+              const mom = pctLabel(ms.momPct)
+              const yoy = pctLabel(ms.yoyPct)
+              return (
+                <div style={{ padding: '10px 14px', background: '#F8F9FB', borderBottom: '1px solid #F0F2F5', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 11 }}>
+                  <span style={{ color: '#888' }}>이번달 누적 <b style={{ color: '#FF6B35' }}>{ms.monthSales > 0 ? `${ms.monthSales.toLocaleString()}원` : '—'}</b></span>
+                  <span style={{ color: '#888' }}>예상 <b style={{ color: '#00B894' }}>{ms.projected > 0 ? `${ms.projected.toLocaleString()}원` : '—'}</b></span>
+                  <span style={{ color: '#888' }}>전달비 <b style={{ color: mom.color }}>{mom.text}</b></span>
+                  <span style={{ color: '#888' }}>전년비 <b style={{ color: yoy.color }}>{yoy.text}</b></span>
+                </div>
+              )
+            })()}
 
             {isDone ? (
               <div style={{ padding: '12px 14px' }}>
@@ -1129,7 +1263,7 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
         {exportModal}
         <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, alignItems: 'start' }}>
           <div style={{ position: 'sticky', top: 80 }}>{calendarSection}</div>
-          <div>{summaryBar}{storeCards}</div>
+          <div>{summaryBar}{sortControl}{storeCards}</div>
         </div>
       </div>
     )
@@ -1138,7 +1272,7 @@ function ClosingAdminTab({ storeId, userName, isPC }: { storeId: string; userNam
   return (
     <div>
       {exportModal}
-      {calendarSection}{summaryBar}{storeCards}
+      {calendarSection}{summaryBar}{sortControl}{storeCards}
     </div>
   )
 }
