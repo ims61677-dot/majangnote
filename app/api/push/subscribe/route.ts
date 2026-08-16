@@ -27,11 +27,15 @@ export async function POST(req: NextRequest) {
     const errors: string[] = []
 
     for (const sid of storeIds) {
+      // ⚠️ endpoint(기기/브라우저별 고유값)까지 같이 조건에 넣어야 함 — profile_id+store_id로만 찾으면
+      // 같은 사람이 PC/휴대폰 등 여러 기기에서 접속했을 때 기기마다 서로 다른 구독을 덮어써버려서,
+      // 결국 "가장 최근에 로그인한 기기 딱 하나"만 알림을 받는 문제가 생김
       const { data: existing } = await supabase
         .from('push_subscriptions')
         .select('id')
         .eq('profile_id', userId)
         .eq('store_id', sid)
+        .eq('endpoint', subscription.endpoint)
         .limit(1)
 
       if (existing && existing.length > 0) {

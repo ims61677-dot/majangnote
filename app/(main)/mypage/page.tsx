@@ -217,9 +217,10 @@ export default function MyPage() {
   }
 
   async function loadNotifSettings(uid: string, sid: string) {
+    // 한 사람이 PC/휴대폰 등 여러 기기로 구독할 수 있어서(기기마다 별도 행), 여러 개 나올 수 있음 — 대표로 1개만 사용
     const { data } = await supabase.from('push_subscriptions')
-      .select('settings').eq('profile_id', uid).eq('store_id', sid).maybeSingle()
-    if (data?.settings) setNotifSettings({ ...DEFAULT_SETTINGS, ...data.settings })
+      .select('settings').eq('profile_id', uid).eq('store_id', sid).limit(1)
+    if (data && data[0]?.settings) setNotifSettings({ ...DEFAULT_SETTINGS, ...data[0].settings })
   }
 
   async function saveNotifSettings(newSettings: Record<string, boolean>) {
@@ -227,10 +228,11 @@ export default function MyPage() {
     setNotifSaving(true)
     try {
       const { data: existing } = await supabase.from('push_subscriptions')
-        .select('id').eq('profile_id', user.id).eq('store_id', storeId).limit(1)
+        .select('id').eq('profile_id', user.id).eq('store_id', storeId)
       if (existing && existing.length > 0) {
+        // 이 사람이 등록한 모든 기기(PC/휴대폰 등)에 동일하게 적용
         const { error } = await supabase.from('push_subscriptions')
-          .update({ settings: newSettings }).eq('id', existing[0].id)
+          .update({ settings: newSettings }).eq('profile_id', user.id).eq('store_id', storeId)
         if (error) throw error
       } else {
         alert('아직 이 기기에서 알림 허용이 완료되지 않았어요.\n페이지를 새로고침한 뒤 다시 시도해주세요.')
