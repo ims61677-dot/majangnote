@@ -752,8 +752,15 @@ export default function AttendancePage() {
       const rec = { store_id:storeId, profile_id:profileId, work_date:today, clock_in:nowTs, status:isLate?'late':'normal', is_late:isLate, late_minutes:lateMin }
       const { data: existing } = await supabase.from('attendance').select('id, clock_in').eq('store_id', storeId).eq('profile_id', profileId).eq('work_date', today).maybeSingle()
       if (existing?.clock_in) { await loadMyAttendance(profileId, storeId); return } // 이미 출근 처리된 경우 중복 방지
-      if (existing) await supabase.from('attendance').update({ clock_in:nowTs, status:rec.status, is_late:isLate, late_minutes:lateMin }).eq('id', existing.id)
-      else await supabase.from('attendance').insert(rec)
+      const { error: writeError } = existing
+        ? await supabase.from('attendance').update({ clock_in:nowTs, status:rec.status, is_late:isLate, late_minutes:lateMin }).eq('id', existing.id)
+        : await supabase.from('attendance').insert(rec)
+      if (writeError) {
+        // 저장 자체가 실패했으면 알림도 보내지 않음 (알림은 왔는데 실제론 미출근으로 남는 문제 방지)
+        alert('출근 처리에 실패했습니다. 다시 시도해주세요.\n(' + writeError.message + ')')
+        await loadMyAttendance(profileId, storeId)
+        return
+      }
       sendPush('attendance', storeId, '✅ 출근', `${myName}님이 출근했습니다`, '/attendance', profileId, ['owner','manager'])
       if (isLate) sendPush('late', storeId, '⏰ 지각', `${myName}님이 지각 출근했습니다 (${lateMin}분 지각)`, '/attendance', profileId, ['owner','manager'])
       await loadMyAttendance(profileId, storeId)
@@ -778,7 +785,13 @@ export default function AttendancePage() {
       if (wasLate && isEarly) finalStatus='late_early'
       else if (wasLate)  finalStatus='late'
       else if (isEarly)  finalStatus='early'
-      await supabase.from('attendance').update({ clock_out:nowTs, status:finalStatus, is_early:isEarly }).eq('id', attendance.id)
+      const { error: writeError } = await supabase.from('attendance').update({ clock_out:nowTs, status:finalStatus, is_early:isEarly }).eq('id', attendance.id)
+      if (writeError) {
+        // 저장 자체가 실패했으면 알림도 보내지 않음 (알림은 왔는데 실제론 미퇴근으로 남는 문제 방지)
+        alert('퇴근 처리에 실패했습니다. 다시 시도해주세요.\n(' + writeError.message + ')')
+        await loadMyAttendance(profileId, storeId)
+        return
+      }
       sendPush('attendance', storeId, '🚪 퇴근', `${myName}님이 퇴근했습니다`, '/attendance', profileId, ['owner','manager'])
       await loadMyAttendance(profileId, storeId)
       await loadBoard(storeId)
