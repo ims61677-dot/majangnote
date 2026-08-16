@@ -62,6 +62,16 @@ export async function POST(req: NextRequest) {
       )
     )
 
+    // 만료/무효화된 구독(410/404)은 재시도해도 계속 실패하므로 정리 — 이 기기는 다음에 알림을 다시 켤 때 새로 등록됨
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        const statusCode = (r.reason as any)?.statusCode
+        if (statusCode === 404 || statusCode === 410) {
+          supabase.from('push_subscriptions').delete().eq('id', targets[i].id).then(() => {})
+        }
+      }
+    })
+
     const success = results.filter(r => r.status === 'fulfilled').length
     return NextResponse.json({ sent: success, total: targets.length })
   } catch (error) {

@@ -102,6 +102,15 @@ export async function GET(req: NextRequest) {
       const sendResults = await Promise.allSettled(
         targets.map((sub: any) => webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload))
       )
+      // 만료/무효화된 구독(410/404) 정리
+      sendResults.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          const statusCode = (r.reason as any)?.statusCode
+          if (statusCode === 404 || statusCode === 410) {
+            supabase.from('push_subscriptions').delete().eq('id', targets[i].id).then(() => {})
+          }
+        }
+      })
       const sent = sendResults.filter(r => r.status === 'fulfilled').length
       totalSent += sent
       results.push({ store: store.name, sent, todaySales, monthSales, projected, hasTodayClosing: !!todayClosing })
