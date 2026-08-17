@@ -30,6 +30,10 @@ function tsToMinutes(ts: string | null | undefined): number {
 function isPastDate(dateStr: string, today: string): boolean {
   return dateStr < today
 }
+// 스케줄에 적힌 이름과 계정 이름을 비교할 때 공백 차이로 매칭이 실패하지 않도록 정규화
+function normName(nm: string | null | undefined): string {
+  return (nm || '').replace(/\s+/g, '')
+}
 function fmtW(n: number) {
   if (n >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, '') + '억원'
   if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, '') + '만원'
@@ -619,8 +623,10 @@ export default function AttendancePage() {
     const { data: memberProfs } = await supabase.from('profiles').select('id, nm').in('id', memberPids)
     const profNameMap: Record<string, string> = {}
     ;(memberProfs||[]).forEach((p: any) => { profNameMap[p.id] = p.nm })
+    // 스케줄에 적힌 이름(문자열)과 실제 계정 이름을 매칭할 때, 공백 차이로 매칭 실패해서
+    // 실제론 출근했는데 "미출근"으로 잘못 보이는 문제 방지 (공백 제거 후 비교)
     const nameToInfo: Record<string, { id:string; expected_in?:string; expected_out?:string }> = {}
-    ;(allMembers||[]).forEach((m: any) => { const nm = profNameMap[m.profile_id]; if (nm) nameToInfo[nm] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out } })
+    ;(allMembers||[]).forEach((m: any) => { const nm = profNameMap[m.profile_id]; if (nm) nameToInfo[normName(nm)] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out } })
     const { data: attRecords } = await supabase.from('attendance').select('*').eq('store_id', sid).eq('work_date', today)
     const attMap: Record<string, any> = {}
     ;(attRecords || []).forEach((a: any) => { attMap[a.profile_id] = a })
@@ -635,7 +641,7 @@ export default function AttendancePage() {
       if (a.status==='no_clockin'||a.status==='absent') noClockInMap[pid] = (noClockInMap[pid]||0)+1
     })
     setBoardList((todaySchedules||[]).map((s: any) => {
-      const info = nameToInfo[s.staff_name] || {}; const pid = info.id || ''; const att = attMap[pid] || null
+      const info = nameToInfo[normName(s.staff_name)] || {}; const pid = info.id || ''; const att = attMap[pid] || null
       let status = 'pending'
       if (s.status === 'absent') { status = 'absent' }
       else if (s.status === 'etc') { status = att?.clock_in ? (att.clock_out ? 'normal' : 'working') : 'etc' }
@@ -671,12 +677,12 @@ export default function AttendancePage() {
       const profNameMap: Record<string, string> = {}
       ;(memberProfs||[]).forEach((p: any) => { profNameMap[p.id] = p.nm })
       const nameToInfo: Record<string, any> = {}
-      members.forEach((m: any) => { const nm = profNameMap[m.profile_id]; if (nm) nameToInfo[nm] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out } })
+      members.forEach((m: any) => { const nm = profNameMap[m.profile_id]; if (nm) nameToInfo[normName(nm)] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out } })
       const { data: attRecords } = await supabase.from('attendance').select('*').eq('store_id', sid).eq('work_date', today)
       const attMap: Record<string, any> = {}
       ;(attRecords||[]).forEach((a: any) => { attMap[a.profile_id] = a })
       result[sid] = (todaySchedules||[]).map((s: any) => {
-        const info = nameToInfo[s.staff_name] || {}; const pid = info.id || ''; const att = attMap[pid] || null
+        const info = nameToInfo[normName(s.staff_name)] || {}; const pid = info.id || ''; const att = attMap[pid] || null
         let status = 'pending'
         if (s.status==='absent') { status='absent' }
         else if (s.status==='etc') { status = att?.clock_in ? (att.clock_out ? 'normal' : 'working') : 'etc' }
