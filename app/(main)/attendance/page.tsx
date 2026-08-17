@@ -625,8 +625,10 @@ export default function AttendancePage() {
     ;(memberProfs||[]).forEach((p: any) => { profNameMap[p.id] = p.nm })
     // 스케줄에 적힌 이름(문자열)과 실제 계정 이름을 매칭할 때, 공백 차이로 매칭 실패해서
     // 실제론 출근했는데 "미출근"으로 잘못 보이는 문제 방지 (공백 제거 후 비교)
+    // ⚠️ 동명이인(같은 이름의 계정이 2개 이상)일 경우, 비활성 계정이 활성 계정을 덮어쓰지 않도록
+    // 비활성(inactiveData)을 먼저 넣고 활성(activeData)을 나중에 넣어서 이름이 겹치면 항상 "활성 계정"이 이기게 함
     const nameToInfo: Record<string, { id:string; expected_in?:string; expected_out?:string }> = {}
-    ;(allMembers||[]).forEach((m: any) => { const nm = profNameMap[m.profile_id]; if (nm) nameToInfo[normName(nm)] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out } })
+    ;([...(inactiveData||[]), ...(activeData||[])]).forEach((m: any) => { const nm = profNameMap[m.profile_id]; if (nm) nameToInfo[normName(nm)] = { id:m.profile_id, expected_in:m.expected_clock_in, expected_out:m.expected_clock_out } })
     const { data: attRecords } = await supabase.from('attendance').select('*').eq('store_id', sid).eq('work_date', today)
     const attMap: Record<string, any> = {}
     ;(attRecords || []).forEach((a: any) => { attMap[a.profile_id] = a })
@@ -671,7 +673,9 @@ export default function AttendancePage() {
       const { data: todaySchedules } = await supabase.from('schedules').select('staff_name, status').eq('store_id', sid).eq('schedule_date', today).in('status', ['work','half','absent','early','etc'])
       const { data: activeMemData } = await supabase.from('store_members').select('profile_id, expected_clock_in, expected_clock_out').eq('store_id', sid).eq('active', true)
       const { data: inactMemData } = await supabase.from('store_members').select('profile_id, expected_clock_in, expected_clock_out, inactive_from').eq('store_id', sid).eq('active', false).gte('inactive_from', today)
-      const members = [...(activeMemData||[]), ...(inactMemData||[])].filter((m: any) => !m.inactive_from || m.inactive_from > today)
+      // ⚠️ 동명이인(같은 이름 계정 2개 이상)일 경우 비활성 계정이 활성 계정을 덮어쓰지 않도록
+      // 비활성을 먼저, 활성을 나중에 배열에 넣어서 이름이 겹치면 항상 "활성 계정"이 이기게 함
+      const members = [...(inactMemData||[]), ...(activeMemData||[])].filter((m: any) => !m.inactive_from || m.inactive_from > today)
       const memberPids = members.map((m: any) => m.profile_id)
       const { data: memberProfs } = await supabase.from('profiles').select('id, nm').in('id', memberPids)
       const profNameMap: Record<string, string> = {}
