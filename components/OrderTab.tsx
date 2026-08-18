@@ -355,6 +355,7 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
         reported_by: userName,
       })
       await sb.from('orders').update({ status: 'issue' }).eq('id', order.id)
+      sendPush('order', order.store_id, '⚠️ 발주 이슈 발생', `${order.item_name} 수령 수량이 달라요 (주문 ${order.quantity}${order.unit} → 실제 ${recvQty}${order.unit})`, '/inventory?tab=order', undefined, ['owner', 'manager'])
       onSaved(); onClose(); return
     }
     if (hasInventoryLink) {
@@ -554,6 +555,7 @@ function IssueModal({ order, userName, onClose, onSaved }: { order: any; userNam
       reported_by: userName,
     })
     await supabase.from('orders').update({ status: 'issue' }).eq('id', order.id)
+    sendPush('order', order.store_id, '⚠️ 발주 이슈 발생', `${order.item_name} · ${ISSUE_TYPES[issueType] || '이슈'} (신고: ${userName})`, '/inventory?tab=order', undefined, ['owner', 'manager'])
     onSaved(); onClose()
   }
 
@@ -741,6 +743,8 @@ function DirectIssueModal({ storeId, userName, units, onClose, onSaved }: { stor
         order_id: order.id, changed_by: userName, field_name: '이슈 직접 등록',
         before_value: null, after_value: `${issueType}: ${itemName.trim()} ${quantity}${unit}`, memo: memo.trim() || null,
       })
+      const issueLabel = issueOptions.find(o => o.key === issueType)?.label.replace(/^[^\s]+\s/, '') || '이슈'
+      sendPush('order', storeId, '⚠️ 발주 이슈 발생', `${itemName.trim()} ${quantity}${unit} · ${issueLabel} (등록: ${userName})`, '/inventory?tab=order', undefined, ['owner', 'manager'])
     }
     setSaving(false)
     onSaved(); onClose()

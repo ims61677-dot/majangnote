@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { sendPush } from '@/lib/pushNotify'
 
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
@@ -701,6 +702,7 @@ function AdminIssueModal({ order, onClose, onSaved }: { order: any; onClose: () 
       reported_by: '관리자',
     })
     await supabase.from('orders').update({ status: 'issue' }).eq('id', order.id)
+    sendPush('order', order.store_id, '⚠️ 발주 이슈 발생', `${order.item_name} · ${ISSUE_TYPES[issueType] || '이슈'} (신고: 관리자)`, '/inventory?tab=order', undefined, ['owner', 'manager'])
     onSaved(); onClose()
   }
 

@@ -15,7 +15,7 @@ const NOTIF_ITEMS = [
   { key: 'notice',     label: '공지 알림',         desc: '새 공지 등록 시',                 roles: ['owner','manager','staff'] },
   { key: 'closing',    label: '마감일지 알림',     desc: '마감일지 저장 완료 시',           roles: ['owner','manager'] },
   { key: 'inventory',  label: '재고 부족 알림',    desc: '설정 수량 이하일 때',             roles: ['owner','manager'] },
-  { key: 'order',      label: '발주 요청 알림',    desc: '직원이 발주를 요청하면',          roles: ['owner','manager'] },
+  { key: 'order',      label: '발주 알림',         desc: '발주 요청·이슈 발생·미수령 알림',   roles: ['owner','manager'] },
   { key: 'schedule',   label: '스케줄 변경 알림',  desc: '내 스케줄이 변경되면',            roles: ['owner','manager','staff'] },
 ]
 const DEFAULT_SETTINGS: Record<string, boolean> = {
