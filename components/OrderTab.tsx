@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { sendPush } from '@/lib/pushNotify'
 
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
 
@@ -201,9 +202,10 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, units, on
 
   async function handleSubmit() {
     if (!itemName.trim() || !quantity) return
+    const nm = itemName.trim()
     await supabase.from('orders').insert({
       store_id: storeId,
-      item_name: itemName.trim(),
+      item_name: nm,
       quantity: Number(quantity),
       unit,
       inventory_item_id: (linkedItemId && !unlinkUnit) ? linkedItemId : null,
@@ -212,6 +214,7 @@ function AddOrderModal({ storeId, userName, suppliers, inventoryItems, units, on
       ordered_by: userName,
       status: 'requested',
     })
+    sendPush('order', storeId, '📋 새 발주 요청', `${userName}님이 ${nm} ${quantity}${unit} 발주를 요청했어요`, '/inventory?tab=order', undefined, ['owner', 'manager'])
     onSaved(); onClose()
   }
 
