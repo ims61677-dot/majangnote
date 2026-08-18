@@ -604,7 +604,7 @@ function OpsChecklistTab({ storeId, myName, isAdmin, supabase }: { storeId: stri
     setLoading(true)
     const { data } = await supabase.from('checklist_items').select('*')
       .eq('store_id', storeId).eq('is_active', true)
-      .order('period').order('area').order('sort_order')
+      .order('time_slot').order('area').order('sort_order')
     setItems(data || [])
     const ids = (data || []).map((i: any) => i.id)
     if (ids.length > 0) {
@@ -630,7 +630,7 @@ function OpsChecklistTab({ storeId, myName, isAdmin, supabase }: { storeId: stri
   }
 
   const areasForPeriod = period === 'close' && isAdmin ? ['hall', 'kitchen', 'storage', 'admin'] : ['hall', 'kitchen', 'storage']
-  const periodItems = useMemo(() => items.filter(i => i.period === period), [items, period])
+  const periodItems = useMemo(() => items.filter(i => i.time_slot === period), [items, period])
 
   const sectionData = areasForPeriod.map(area => {
     const list = periodItems.filter(i => i.area === area)
@@ -653,7 +653,7 @@ function OpsChecklistTab({ storeId, myName, isAdmin, supabase }: { storeId: stri
     if (!newContent.trim()) return
     const list = periodItems.filter(i => i.area === area)
     const maxOrder = list.reduce((m, i) => Math.max(m, i.sort_order || 0), 0)
-    await supabase.from('checklist_items').insert({ store_id: storeId, period, area, content: newContent.trim(), sort_order: maxOrder + 1 })
+    await supabase.from('checklist_items').insert({ store_id: storeId, time_slot: period, area, content: newContent.trim(), sort_order: maxOrder + 1 })
     setNewContent(''); setAddingArea(null); load()
   }
   async function saveEdit(id: string) {
