@@ -35,7 +35,7 @@ export default function ChecklistPage() {
   const [myName, setMyName] = useState('')
   const [role, setRole] = useState('')
   const isAdmin = role === 'owner' || role === 'manager'
-  const [tab, setTab] = useState<'today' | 'manage' | 'stats'>('today')
+  const [tab, setTab] = useState<'ops' | 'today' | 'manage' | 'stats'>('ops')
   const [items, setItems] = useState<any[]>([])
   const [checksByTodo, setChecksByTodo] = useState<Record<string, any[]>>({})
   const [loading, setLoading] = useState(true)
@@ -132,9 +132,10 @@ export default function ChecklistPage() {
       <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 4, color: '#1a1a2e' }}>✅ 체크리스트</div>
       <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>매일 해야 할 일을 등록해두면 자동으로 배치돼요</div>
 
-      <div style={{ display: 'flex', gap: 6, background: '#F4F6F9', borderRadius: 12, padding: 4, marginBottom: 16, width: 'fit-content' }}>
-        <button onClick={() => setTab('today')} style={tabBtn(tab === 'today')}>📋 오늘 할 일</button>
-        {isAdmin && <button onClick={() => setTab('manage')} style={tabBtn(tab === 'manage')}>📋 항목</button>}
+      <div style={{ display: 'flex', gap: 6, background: '#F4F6F9', borderRadius: 12, padding: 4, marginBottom: 16, width: 'fit-content', flexWrap: 'wrap' }}>
+        <button onClick={() => setTab('ops')} style={tabBtn(tab === 'ops')}>🗂 오픈·마감</button>
+        <button onClick={() => setTab('today')} style={tabBtn(tab === 'today')}>📋 기타 할 일</button>
+        {isAdmin && <button onClick={() => setTab('manage')} style={tabBtn(tab === 'manage')}>⚙️ 기타 항목</button>}
         {isAdmin && <button onClick={() => setTab('stats')} style={tabBtn(tab === 'stats')}>📊 통계</button>}
       </div>
 
@@ -142,6 +143,7 @@ export default function ChecklistPage() {
         <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>⏳ 불러오는 중...</div>
       ) : (
         <>
+          {tab === 'ops' && <OpsChecklistTab storeId={storeId} myName={myName} isAdmin={isAdmin} supabase={supabase} />}
           {tab === 'today' && (
             <TodayTab
               list={todayList} myName={myName} onToggle={toggleCheck}
@@ -564,6 +566,208 @@ function StatsTab({ items, checksByTodo }: { items: any[]; checksByTodo: Record<
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ── 오픈·중간점검·마감 체크리스트 탭 ──
+const PERIOD_LABEL: Record<string, string> = { open: '오픈', mid: '중간점검', close: '마감' }
+const PERIOD_EMOJI: Record<string, string> = { open: '🌅', mid: '☀️', close: '🌙' }
+const AREA_CONFIG: Record<string, { label: string; emoji: string }> = {
+  hall: { label: '홀', emoji: '🍽' },
+  kitchen: { label: '주방', emoji: '👨‍🍳' },
+  storage: { label: '창고', emoji: '📦' },
+  admin: { label: '관리자 확인', emoji: '👑' },
+}
+function defaultPeriod(): 'open' | 'mid' | 'close' {
+  const h = new Date().getHours()
+  if (h < 11) return 'open'
+  if (h < 17) return 'mid'
+  return 'close'
+}
+
+function OpsChecklistTab({ storeId, myName, isAdmin, supabase }: { storeId: string; myName: string; isAdmin: boolean; supabase: any }) {
+  const [period, setPeriod] = useState<'open' | 'mid' | 'close'>(defaultPeriod())
+  const [items, setItems] = useState<any[]>([])
+  const [checks, setChecks] = useState<Record<string, any[]>>({})
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [editMode, setEditMode] = useState(false)
+  const [addingArea, setAddingArea] = useState<string | null>(null)
+  const [newContent, setNewContent] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editContent, setEditContent] = useState('')
+
+  useEffect(() => { if (storeId) load() }, [storeId])
+
+  async function load() {
+    setLoading(true)
+    const { data } = await supabase.from('checklist_items').select('*')
+      .eq('store_id', storeId).eq('is_active', true)
+      .order('period').order('area').order('sort_order')
+    setItems(data || [])
+    const ids = (data || []).map((i: any) => i.id)
+    if (ids.length > 0) {
+      const today = todayStr()
+      const { data: chks } = await supabase.from('checklist_item_checks').select('*').in('item_id', ids).eq('work_date', today)
+      const map: Record<string, any[]> = {}
+      ;(chks || []).forEach((c: any) => { if (!map[c.item_id]) map[c.item_id] = []; map[c.item_id].push(c) })
+      setChecks(map)
+    } else setChecks({})
+    setLoading(false)
+  }
+
+  async function toggle(item: any) {
+    const today = todayStr()
+    const mine = checks[item.id] || []
+    if (mine.length > 0) {
+      const target = mine.find((c: any) => c.checked_by === myName) || mine[0]
+      await supabase.from('checklist_item_checks').delete().eq('id', target.id)
+    } else {
+      await supabase.from('checklist_item_checks').insert({ item_id: item.id, work_date: today, checked_by: myName })
+    }
+    load()
+  }
+
+  const areasForPeriod = period === 'close' && isAdmin ? ['hall', 'kitchen', 'storage', 'admin'] : ['hall', 'kitchen', 'storage']
+  const periodItems = useMemo(() => items.filter(i => i.period === period), [items, period])
+
+  const sectionData = areasForPeriod.map(area => {
+    const list = periodItems.filter(i => i.area === area)
+    const doneCount = list.filter(i => (checks[i.id] || []).length > 0).length
+    return { area, list, doneCount, total: list.length }
+  }).filter(s => s.total > 0 || isAdmin)
+
+  const periodTotal = sectionData.reduce((s, x) => s + x.total, 0)
+  const periodDone = sectionData.reduce((s, x) => s + x.doneCount, 0)
+
+  function toggleExpand(area: string) {
+    setExpanded(prev => {
+      const next = new Set(prev); const key = `${period}-${area}`
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+
+  async function addItem(area: string) {
+    if (!newContent.trim()) return
+    const list = periodItems.filter(i => i.area === area)
+    const maxOrder = list.reduce((m, i) => Math.max(m, i.sort_order || 0), 0)
+    await supabase.from('checklist_items').insert({ store_id: storeId, period, area, content: newContent.trim(), sort_order: maxOrder + 1 })
+    setNewContent(''); setAddingArea(null); load()
+  }
+  async function saveEdit(id: string) {
+    await supabase.from('checklist_items').update({ content: editContent.trim() }).eq('id', id)
+    setEditingId(null); load()
+  }
+  async function deactivate(id: string) {
+    if (!confirm('이 항목을 목록에서 뺄까요? (기록은 남아있어요)')) return
+    await supabase.from('checklist_items').update({ is_active: false }).eq('id', id)
+    load()
+  }
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>⏳ 불러오는 중...</div>
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        {(['open', 'mid', 'close'] as const).map(p => (
+          <button key={p} onClick={() => setPeriod(p)} style={{
+            flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+            background: period === p ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#F4F6F9',
+            color: period === p ? '#fff' : '#888',
+          }}>{PERIOD_EMOJI[p]} {PERIOD_LABEL[p]}</button>
+        ))}
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '12px 14px', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>{PERIOD_LABEL[period]} 체크리스트</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: periodTotal > 0 && periodDone === periodTotal ? '#00B894' : '#888' }}>{periodDone} / {periodTotal}</span>
+        </div>
+        <div style={{ height: 7, borderRadius: 4, background: '#F0F2F5', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: periodTotal > 0 ? `${Math.round(periodDone / periodTotal * 100)}%` : '0%', background: periodTotal > 0 && periodDone === periodTotal ? '#00B894' : 'linear-gradient(90deg,#FF6B35,#E84393)' }} />
+        </div>
+      </div>
+
+      {isAdmin && (
+        <button onClick={() => setEditMode(v => !v)} style={{ marginBottom: 12, padding: '7px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: editMode ? 'rgba(108,92,231,0.08)' : '#fff', color: editMode ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+          {editMode ? '✓ 편집 완료' : '✏️ 항목 관리'}
+        </button>
+      )}
+
+      {sectionData.length === 0 && !isAdmin && (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: '#bbb', fontSize: 13 }}>등록된 체크리스트 항목이 없어요</div>
+      )}
+
+      {sectionData.map(({ area, list, doneCount, total }) => {
+        const cfg = AREA_CONFIG[area]
+        const key = `${period}-${area}`
+        const isOpen = expanded.has(key)
+        return (
+          <div key={area} style={{ marginBottom: 10 }}>
+            <button onClick={() => toggleExpand(area)} style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 14px', borderRadius: 12, border: '1px solid #E8ECF0',
+              background: total > 0 && doneCount === total ? 'rgba(0,184,148,0.06)' : '#fff', cursor: 'pointer',
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{cfg.emoji} {cfg.label}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: total > 0 && doneCount === total ? '#00B894' : '#888' }}>{doneCount}/{total}</span>
+                <span style={{ fontSize: 11, color: '#bbb' }}>{isOpen ? '▲' : '▼'}</span>
+              </span>
+            </button>
+            {isOpen && (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {list.map(item => {
+                  const doneToday = checks[item.id] || []
+                  const isDone = doneToday.length > 0
+                  return (
+                    <div key={item.id} style={{ background: '#fff', border: isDone ? '1px solid rgba(0,184,148,0.25)' : '1px solid #E8ECF0', borderRadius: 10, padding: '10px 12px' }}>
+                      {editingId === item.id ? (
+                        <div>
+                          <input value={editContent} onChange={e => setEditContent(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => saveEdit(item.id)} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
+                            <button onClick={() => setEditingId(null)} style={{ flex: 1, padding: 8, borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span onClick={() => toggle(item)} style={{ fontSize: 19, color: isDone ? '#00B894' : '#ddd', cursor: 'pointer', flexShrink: 0 }}>{isDone ? '✅' : '⬜'}</span>
+                          <div onClick={() => !editMode && toggle(item)} style={{ flex: 1, minWidth: 0, cursor: editMode ? 'default' : 'pointer' }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: isDone ? '#888' : '#1a1a2e', textDecoration: isDone ? 'line-through' : 'none' }}>{item.content}</div>
+                            {isDone && <div style={{ fontSize: 10, color: '#00B894', marginTop: 2 }}>{doneToday.map((c: any) => c.checked_by).join(', ')}님이 {new Date(doneToday[0].checked_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit' })}에 완료</div>}
+                          </div>
+                          {editMode && (
+                            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                              <button onClick={() => { setEditingId(item.id); setEditContent(item.content) }} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 11, cursor: 'pointer' }}>수정</button>
+                              <button onClick={() => deactivate(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                {editMode && (
+                  addingArea === area ? (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="새 항목 입력"
+                        onKeyDown={e => { if (e.key === 'Enter') addItem(area) }}
+                        style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, boxSizing: 'border-box' }} />
+                      <button onClick={() => addItem(area)} style={{ padding: '9px 14px', borderRadius: 8, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>추가</button>
+                      <button onClick={() => { setAddingArea(null); setNewContent('') }} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setAddingArea(area)} style={{ padding: '9px 0', borderRadius: 8, border: '1px dashed #C8CCD4', background: '#F8F9FB', color: '#888', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ 항목 추가</button>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
