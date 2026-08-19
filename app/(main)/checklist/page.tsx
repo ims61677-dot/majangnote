@@ -136,7 +136,7 @@ export default function ChecklistPage() {
         <button onClick={() => setTab('ops')} style={tabBtn(tab === 'ops')}>🗂 오픈·마감</button>
         <button onClick={() => setTab('today')} style={tabBtn(tab === 'today')}>📋 기타 할 일</button>
         {isAdmin && <button onClick={() => setTab('manage')} style={tabBtn(tab === 'manage')}>⚙️ 기타 항목</button>}
-        {isAdmin && <button onClick={() => setTab('stats')} style={tabBtn(tab === 'stats')}>📊 통계</button>}
+        {isAdmin && <button onClick={() => setTab('stats')} style={tabBtn(tab === 'stats')}>📊 기타 통계</button>}
       </div>
 
       {loading ? (
@@ -587,6 +587,7 @@ function defaultPeriod(): 'open' | 'mid' | 'close' {
 }
 
 function OpsChecklistTab({ storeId, myName, isAdmin, supabase }: { storeId: string; myName: string; isAdmin: boolean; supabase: any }) {
+  const [mode, setMode] = useState<'today' | 'stats'>('today')
   const [period, setPeriod] = useState<'open' | 'mid' | 'close'>(defaultPeriod())
   const [items, setItems] = useState<any[]>([])
   const [checks, setChecks] = useState<Record<string, any[]>>({})
@@ -670,6 +671,23 @@ function OpsChecklistTab({ storeId, myName, isAdmin, supabase }: { storeId: stri
 
   return (
     <div>
+      {isAdmin && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+          <button onClick={() => setMode('today')} style={{
+            padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+            background: mode === 'today' ? '#1a1a2e' : '#F4F6F9', color: mode === 'today' ? '#fff' : '#888',
+          }}>✅ 오늘 체크</button>
+          <button onClick={() => setMode('stats')} style={{
+            padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+            background: mode === 'stats' ? '#1a1a2e' : '#F4F6F9', color: mode === 'stats' ? '#fff' : '#888',
+          }}>📊 월별 통계</button>
+        </div>
+      )}
+
+      {mode === 'stats' && isAdmin ? (
+        <OpsStatsSection items={items} storeId={storeId} supabase={supabase} />
+      ) : (
+      <>
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         {(['open', 'mid', 'close'] as const).map(p => (
           <button key={p} onClick={() => setPeriod(p)} style={{
@@ -768,6 +786,153 @@ function OpsChecklistTab({ storeId, myName, isAdmin, supabase }: { storeId: stri
           </div>
         )
       })}
+      </>
+      )}
+    </div>
+  )
+}
+
+// ── 오픈·마감 체크리스트 월별 통계 ──
+function OpsStatsSection({ items, storeId, supabase }: { items: any[]; storeId: string; supabase: any }) {
+  const now = new Date()
+  const [year, setYear] = useState(now.getFullYear())
+  const [month, setMonth] = useState(now.getMonth() + 1)
+  const [checksByDate, setChecksByDate] = useState<Record<string, Set<string>>>({})
+  const [loading, setLoading] = useState(true)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+
+  const monthStart = `${year}-${pad(month)}-01`
+  const dim = daysInMonth(year, month)
+  const monthEnd = `${year}-${pad(month)}-${pad(dim)}`
+  const today = todayStr()
+  const effectiveEnd = monthEnd < today ? monthEnd : today
+
+  useEffect(() => { if (storeId && items.length > 0) load() }, [storeId, items.length, year, month])
+
+  async function load() {
+    setLoading(true)
+    setSelectedDate(null)
+    const ids = items.map(i => i.id)
+    const { data } = await supabase.from('checklist_item_checks').select('item_id, work_date')
+      .in('item_id', ids).gte('work_date', monthStart).lte('work_date', monthEnd)
+    const map: Record<string, Set<string>> = {}
+    ;(data || []).forEach((c: any) => { if (!map[c.work_date]) map[c.work_date] = new Set(); map[c.work_date].add(c.item_id) })
+    setChecksByDate(map)
+    setLoading(false)
+  }
+
+  const totalItems = items.length
+  const byPeriod: Record<string, any[]> = {
+    open: items.filter(i => i.time_slot === 'open'),
+    mid: items.filter(i => i.time_slot === 'mid'),
+    close: items.filter(i => i.time_slot === 'close'),
+  }
+
+  function dayStats(dateStr: string) {
+    const doneSet = checksByDate[dateStr] || new Set<string>()
+    const doneCount = items.filter(i => doneSet.has(i.id)).length
+    const pct = totalItems > 0 ? Math.round(doneCount / totalItems * 100) : 0
+    const periodPct: Record<string, { done: number; total: number }> = {}
+    ;(['open', 'mid', 'close'] as const).forEach(p => {
+      const list = byPeriod[p]
+      periodPct[p] = { done: list.filter(i => doneSet.has(i.id)).length, total: list.length }
+    })
+    return { doneCount, pct, periodPct, doneSet }
+  }
+
+  let sumPct = 0, countedDays = 0, fullDays = 0, zeroDays = 0
+  if (effectiveEnd >= monthStart) {
+    for (let d = new Date(monthStart + 'T00:00:00'); toDateStr(d) <= effectiveEnd; d.setDate(d.getDate() + 1)) {
+      const { pct } = dayStats(toDateStr(d))
+      sumPct += pct; countedDays++
+      if (pct === 100) fullDays++
+      if (pct === 0) zeroDays++
+    }
+  }
+  const avgPct = countedDays > 0 ? Math.round(sumPct / countedDays) : 0
+
+  const firstDow = new Date(monthStart + 'T00:00:00').getDay()
+  const cells: (string | null)[] = Array(firstDow).fill(null)
+  for (let day = 1; day <= dim; day++) cells.push(`${year}-${pad(month)}-${pad(day)}`)
+
+  function cellColor(pct: number) {
+    if (pct === 100) return '#00B894'
+    if (pct >= 50) return '#FDC400'
+    if (pct > 0) return '#FF6B35'
+    return '#E84393'
+  }
+
+  const sel = selectedDate ? dayStats(selectedDate) : null
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <button onClick={() => { if (month === 1) { setYear(y => y - 1); setMonth(12) } else setMonth(m => m - 1) }}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', cursor: 'pointer' }}>◀</button>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{year}년 {month}월</span>
+        <button onClick={() => { if (month === 12) { setYear(y => y + 1); setMonth(1) } else setMonth(m => m + 1) }}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', cursor: 'pointer' }}>▶</button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 16 }}>
+        <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '12px 10px', textAlign: 'center' }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: avgPct >= 90 ? '#00B894' : avgPct >= 60 ? '#FDC400' : '#E84393' }}>{avgPct}%</div>
+          <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>평균 완료율</div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '12px 10px', textAlign: 'center' }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#00B894' }}>{fullDays}일</div>
+          <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>100% 완료일</div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '12px 10px', textAlign: 'center' }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: zeroDays > 0 ? '#E84393' : '#888' }}>{zeroDays}일</div>
+          <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>미실행일</div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 12 }}>⏳ 불러오는 중...</div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4, marginBottom: 16 }}>
+            {DOW.map(d => <div key={d} style={{ textAlign: 'center', fontSize: 11, color: '#aaa', fontWeight: 700 }}>{d}</div>)}
+            {cells.map((ds, idx) => {
+              if (!ds) return <div key={idx} />
+              const isFuture = ds > today
+              if (isFuture) return <div key={ds} style={{ aspectRatio: '1', borderRadius: 8, background: '#F8F9FB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#ddd' }}>{Number(ds.slice(8, 10))}</div>
+              const { pct } = dayStats(ds)
+              const dayNum = Number(ds.slice(8, 10))
+              return (
+                <button key={ds} onClick={() => setSelectedDate(ds)} style={{
+                  aspectRatio: '1', borderRadius: 8, border: selectedDate === ds ? '2px solid #1a1a2e' : 'none',
+                  background: cellColor(pct), color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 2, gap: 1,
+                }}>
+                  <span>{dayNum}</span>
+                  <span style={{ fontSize: 9, fontWeight: 400 }}>{pct}%</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {sel && selectedDate && (
+            <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: '#1a1a2e' }}>{selectedDate} 상세 ({sel.doneCount}/{totalItems} · {sel.pct}%)</div>
+              {(['open', 'mid', 'close'] as const).map(p => {
+                const { done, total } = sel.periodPct[p]
+                const missingItems = byPeriod[p].filter(i => !sel.doneSet.has(i.id))
+                return (
+                  <div key={p} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: p !== 'close' ? '1px solid #F4F6F9' : 'none' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: total > 0 && done === total ? '#00B894' : '#888', marginBottom: 4 }}>{PERIOD_EMOJI[p]} {PERIOD_LABEL[p]} {done}/{total}</div>
+                    {missingItems.length > 0 && (
+                      <div style={{ fontSize: 11, color: '#E84393', lineHeight: 1.6 }}>미완료: {missingItems.map(i => i.content).join(', ')}</div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
