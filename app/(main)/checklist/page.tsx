@@ -144,6 +144,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [editMode, setEditMode] = useState(false)
+  const [etcFilter, setEtcFilter] = useState<'all' | 'none' | 'daily' | 'weekly' | 'monthly'>('all')
   const [showInactive, setShowInactive] = useState(false)
   const [addingArea, setAddingArea] = useState<string | null>(null)
   const [newContent, setNewContent] = useState('')
@@ -199,16 +200,26 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     () => activeItems.filter(i => i.area === 'etc' && appliesOnDate(i, today)),
     [activeItems, today]
   )
+  // 기타 할일은 매주·매달 항목이 대부분이라 "오늘 해당하는 것만" 보면 관리가 안 돼요.
+  // 편집모드에서는 오늘 여부와 상관없이 전체를 반복주기별로 필터링해서 볼 수 있게 해요.
+  const etcAllActive = useMemo(() => activeItems.filter(i => i.area === 'etc'), [activeItems])
+  const etcFiltered = useMemo(
+    () => etcFilter === 'all' ? etcAllActive : etcAllActive.filter(i => (i.repeat_type || 'daily') === etcFilter),
+    [etcAllActive, etcFilter]
+  )
 
   const areasForPeriod = period === 'close' && isAdmin ? ['hall', 'kitchen', 'storage', 'admin'] : ['hall', 'kitchen', 'storage']
 
   const structuredSections = areasForPeriod.map(area => {
-    const list = periodItems.filter(i => i.area === area)
-    const doneCount = list.filter(i => (checks[i.id] || []).length > 0).length
-    return { area, list, doneCount, total: list.length }
+    const todayList = periodItems.filter(i => i.area === area)
+    const inactiveList = editMode && showInactive ? items.filter(i => i.area === area && i.time_slot === period && i.is_active === false) : []
+    const doneCount = todayList.filter(i => (checks[i.id] || []).length > 0).length
+    return { area, list: [...todayList, ...inactiveList], doneCount, total: todayList.length }
   })
+  const etcInactiveList = editMode && showInactive ? items.filter(i => i.area === 'etc' && i.is_active === false && (etcFilter === 'all' || (i.repeat_type || 'daily') === etcFilter)) : []
   const etcSection = {
-    area: 'etc', list: etcItemsToday,
+    area: 'etc',
+    list: editMode ? [...etcFiltered, ...etcInactiveList] : etcItemsToday,
     doneCount: etcItemsToday.filter(i => (checks[i.id] || []).length > 0).length,
     total: etcItemsToday.length,
   }
@@ -216,13 +227,6 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
 
   const periodTotal = structuredSections.reduce((s, x) => s + x.total, 0)
   const periodDone = structuredSections.reduce((s, x) => s + x.doneCount, 0)
-
-  // 편집 모드에서만 필요 — 비활성 항목까지 보여줄지 여부
-  const visibleItemsFor = (area: string, todayList: any[]) => {
-    if (!editMode || !showInactive) return todayList
-    const inactive = items.filter(i => i.area === area && i.is_active === false && (area === 'etc' ? true : i.time_slot === period))
-    return [...todayList, ...inactive]
-  }
 
   function toggleExpand(area: string) {
     setExpanded(prev => {
@@ -340,7 +344,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
             const cfg = AREA_CONFIG[area]
             const key = `${period}-${area}`
             const isOpen = expanded.has(key)
-            const displayList = visibleItemsFor(area, list)
+            const displayList = list
             const isEtc = area === 'etc'
             return (
               <div key={area} style={{ marginBottom: 10 }}>
@@ -357,10 +361,26 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                 </button>
                 {isOpen && (
                   <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {isEtc && editMode && (
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                        {(['all', 'none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
+                          <button key={rt} onClick={() => setEtcFilter(rt)} style={{
+                            padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                            border: etcFilter === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
+                            background: etcFilter === rt ? 'rgba(108,92,231,0.08)' : '#fff',
+                            color: etcFilter === rt ? '#6C5CE7' : '#888',
+                          }}>{rt === 'all' ? '전체' : REPEAT_LABEL[rt]}</button>
+                        ))}
+                      </div>
+                    )}
+                    {isEtc && editMode && displayList.length === 0 && (
+                      <div style={{ textAlign: 'center', padding: 16, color: '#bbb', fontSize: 12 }}>해당하는 항목이 없어요</div>
+                    )}
                     {displayList.map(item => {
                       const doneToday = checks[item.id] || []
                       const isDone = doneToday.length > 0
                       const isInactive = item.is_active === false
+                      const isDueToday = isEtc ? appliesOnDate(item, today) : true
                       return (
                         <div key={item.id} style={{
                           background: isInactive ? '#F8F9FB' : '#fff',
@@ -393,11 +413,13 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                             </div>
                           ) : (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              {!isInactive && <span onClick={() => toggle(item)} style={{ fontSize: 19, color: isDone ? '#00B894' : '#ddd', cursor: 'pointer', flexShrink: 0 }}>{isDone ? '✅' : '⬜'}</span>}
-                              <div onClick={() => !editMode && !isInactive && toggle(item)} style={{ flex: 1, minWidth: 0, cursor: editMode || isInactive ? 'default' : 'pointer' }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: isDone ? '#888' : '#1a1a2e', textDecoration: isDone ? 'line-through' : 'none' }}>{item.content}</div>
+                              {!isInactive && isDueToday && <span onClick={() => toggle(item)} style={{ fontSize: 19, color: isDone ? '#00B894' : '#ddd', cursor: 'pointer', flexShrink: 0 }}>{isDone ? '✅' : '⬜'}</span>}
+                              {!isInactive && !isDueToday && <span style={{ fontSize: 19, color: '#eee', flexShrink: 0 }}>⬜</span>}
+                              <div onClick={() => !editMode && !isInactive && isDueToday && toggle(item)} style={{ flex: 1, minWidth: 0, cursor: editMode || isInactive || !isDueToday ? 'default' : 'pointer' }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: isDone ? '#888' : !isDueToday ? '#bbb' : '#1a1a2e', textDecoration: isDone ? 'line-through' : 'none' }}>{item.content}</div>
                                 <div style={{ display: 'flex', gap: 6, marginTop: 3, alignItems: 'center', flexWrap: 'wrap' }}>
                                   {isInactive && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>꺼짐</span>}
+                                  {!isDueToday && !isInactive && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#F4F6F9', color: '#aaa' }}>오늘 해당 없음</span>}
                                   {isEtc && item.repeat_type && item.repeat_type !== 'daily' && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>{REPEAT_LABEL[item.repeat_type]}</span>}
                                   {isEtc && item.category && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#F4F6F9', color: '#888' }}>{item.category}</span>}
                                   {isDone && !isInactive && <span style={{ fontSize: 10, color: '#00B894' }}>{doneToday.map((c: any) => c.checked_by).join(', ')}님이 {new Date(doneToday[0].checked_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit' })}에 완료</span>}
