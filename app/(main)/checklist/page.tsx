@@ -42,6 +42,79 @@ function defaultPeriod(): 'open' | 'mid' | 'close' {
   return 'close'
 }
 
+// ── 업종별 기본 세트 (새 매장이 빈 체크리스트로 시작할 때 제안) ──
+type PresetItem = { time_slot: 'open' | 'close'; area: 'hall' | 'kitchen' | 'storage'; content: string }
+const PRESETS: Record<string, { label: string; emoji: string; areaLabels?: Record<string, string>; items: PresetItem[] }> = {
+  restaurant: {
+    label: '요식업 (식당·레스토랑)', emoji: '🍽',
+    items: [
+      { time_slot: 'open', area: 'hall', content: '출입문·바닥 청소 및 정리' },
+      { time_slot: 'open', area: 'hall', content: '테이블·의자 청소' },
+      { time_slot: 'open', area: 'hall', content: '조명·음악·냉난방 켜기' },
+      { time_slot: 'open', area: 'hall', content: '셀프바·기본 비품 채우기' },
+      { time_slot: 'open', area: 'hall', content: '예약 현황 확인' },
+      { time_slot: 'open', area: 'hall', content: 'POS·카드단말기 작동 확인' },
+      { time_slot: 'open', area: 'kitchen', content: '위생 점검 및 손 소독' },
+      { time_slot: 'open', area: 'kitchen', content: '냉장고·냉동고 온도 확인' },
+      { time_slot: 'open', area: 'kitchen', content: '재료 신선도·유통기한 확인' },
+      { time_slot: 'open', area: 'kitchen', content: '당일 재료 손질·준비' },
+      { time_slot: 'open', area: 'storage', content: '입고 확인' },
+      { time_slot: 'open', area: 'storage', content: '재고 수량 확인' },
+      { time_slot: 'close', area: 'hall', content: '테이블·바닥 마감 청소' },
+      { time_slot: 'close', area: 'hall', content: '매출 정산' },
+      { time_slot: 'close', area: 'hall', content: '다음날 예약 확인' },
+      { time_slot: 'close', area: 'kitchen', content: '남은 재료 정리·폐기 기록' },
+      { time_slot: 'close', area: 'kitchen', content: '조리기구 세척' },
+      { time_slot: 'close', area: 'kitchen', content: '가스밸브 잠금 확인' },
+      { time_slot: 'close', area: 'storage', content: '재고 최종 확인' },
+      { time_slot: 'close', area: 'storage', content: '부족 품목 발주 기록' },
+    ],
+  },
+  cafe: {
+    label: '카페', emoji: '☕',
+    areaLabels: { hall: '매장', kitchen: '바(주방)', storage: '재고' },
+    items: [
+      { time_slot: 'open', area: 'hall', content: '테이블·의자 정리' },
+      { time_slot: 'open', area: 'hall', content: '조명·음악 켜기' },
+      { time_slot: 'open', area: 'hall', content: '매장 청소 상태 확인' },
+      { time_slot: 'open', area: 'hall', content: 'POS 작동 확인' },
+      { time_slot: 'open', area: 'kitchen', content: '원두·시럽 재고 확인' },
+      { time_slot: 'open', area: 'kitchen', content: '머신 예열·청소' },
+      { time_slot: 'open', area: 'kitchen', content: '우유·유제품 유통기한 확인' },
+      { time_slot: 'open', area: 'storage', content: '재고 수량 확인' },
+      { time_slot: 'open', area: 'storage', content: '유통기한 임박 품목 확인' },
+      { time_slot: 'close', area: 'hall', content: '마감 청소' },
+      { time_slot: 'close', area: 'hall', content: '매출 정산' },
+      { time_slot: 'close', area: 'hall', content: '쓰레기 정리' },
+      { time_slot: 'close', area: 'kitchen', content: '머신 세척' },
+      { time_slot: 'close', area: 'kitchen', content: '냉장고 정리' },
+      { time_slot: 'close', area: 'kitchen', content: '원두통 밀봉' },
+      { time_slot: 'close', area: 'storage', content: '재고 최종 확인' },
+      { time_slot: 'close', area: 'storage', content: '부족 품목 발주 기록' },
+    ],
+  },
+  service: {
+    label: '판매·서비스업 (미용실·소매점 등)', emoji: '💇',
+    areaLabels: { hall: '매장', kitchen: '작업공간', storage: '재고' },
+    items: [
+      { time_slot: 'open', area: 'hall', content: '매장 청소' },
+      { time_slot: 'open', area: 'hall', content: '조명·음악 켜기' },
+      { time_slot: 'open', area: 'hall', content: '진열·디스플레이 정리' },
+      { time_slot: 'open', area: 'hall', content: 'POS 작동 확인' },
+      { time_slot: 'open', area: 'kitchen', content: '도구·기기 위생 점검' },
+      { time_slot: 'open', area: 'kitchen', content: '소모품 확인' },
+      { time_slot: 'open', area: 'storage', content: '재고 수량 확인' },
+      { time_slot: 'open', area: 'storage', content: '유통기한·소진 품목 확인' },
+      { time_slot: 'close', area: 'hall', content: '마감 청소' },
+      { time_slot: 'close', area: 'hall', content: '매출 정산' },
+      { time_slot: 'close', area: 'hall', content: '다음날 예약 확인' },
+      { time_slot: 'close', area: 'kitchen', content: '도구 소독·정리' },
+      { time_slot: 'close', area: 'storage', content: '재고 최종 확인' },
+      { time_slot: 'close', area: 'storage', content: '부족 품목 발주 기록' },
+    ],
+  },
+}
+
 export default function ChecklistPage() {
   const supabase = createSupabaseBrowserClient()
   const [storeId, setStoreId] = useState('')
@@ -156,10 +229,19 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const [editRepeat, setEditRepeat] = useState('daily')
   const [editOriginDate, setEditOriginDate] = useState(todayStr())
   const [editCategory, setEditCategory] = useState('')
+  const [bulkMode, setBulkMode] = useState(false)
+  const [labels, setLabels] = useState<{ areas: Record<string, string>; periods: Record<string, string> }>({ areas: {}, periods: {} })
+  const [showLabelSettings, setShowLabelSettings] = useState(false)
+  const [labelDraft, setLabelDraft] = useState<{ areas: Record<string, string>; periods: Record<string, string> }>({ areas: {}, periods: {} })
+  const [showPresetPicker, setShowPresetPicker] = useState(false)
+  const [applyingPreset, setApplyingPreset] = useState(false)
 
   const today = todayStr()
 
-  useEffect(() => { if (storeId) load() }, [storeId])
+  const areaLabel = (area: string) => labels.areas[area] || AREA_CONFIG[area]?.label || area
+  const periodLabel = (p: string) => labels.periods[p] || PERIOD_LABEL[p] || p
+
+  useEffect(() => { if (storeId) { load(); loadLabels() } }, [storeId])
 
   async function load() {
     setLoading(true)
@@ -177,6 +259,47 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
       setEverChecked(new Set((everRows || []).map((r: any) => r.item_id)))
     } else { setChecks({}); setEverChecked(new Set()) }
     setLoading(false)
+  }
+
+  async function loadLabels() {
+    const { data } = await supabase.from('store_settings').select('value').eq('store_id', storeId).eq('key', 'checklist_labels').maybeSingle()
+    if (data?.value) {
+      try {
+        const parsed = JSON.parse(data.value)
+        setLabels({ areas: parsed.areas || {}, periods: parsed.periods || {} })
+      } catch {}
+    }
+  }
+
+  async function saveLabels(next: { areas: Record<string, string>; periods: Record<string, string> }) {
+    await supabase.from('store_settings').upsert(
+      { store_id: storeId, key: 'checklist_labels', value: JSON.stringify(next), updated_at: new Date().toISOString() },
+      { onConflict: 'store_id,key' }
+    )
+    setLabels(next)
+  }
+
+  function openLabelSettings() {
+    setLabelDraft({
+      areas: { hall: areaLabel('hall'), kitchen: areaLabel('kitchen'), storage: areaLabel('storage') },
+      periods: { open: periodLabel('open'), mid: periodLabel('mid'), close: periodLabel('close') },
+    })
+    setShowLabelSettings(true)
+  }
+
+  async function applyPreset(key: string) {
+    const preset = PRESETS[key]
+    if (!preset) return
+    setApplyingPreset(true)
+    const rows = preset.items.map((it, idx) => ({
+      store_id: storeId, time_slot: it.time_slot, area: it.area, content: it.content,
+      sort_order: idx, repeat_type: 'daily', origin_date: todayStr(), category: null,
+    }))
+    await supabase.from('checklist_items').insert(rows)
+    if (preset.areaLabels) await saveLabels({ areas: { ...labels.areas, ...preset.areaLabels }, periods: labels.periods })
+    setApplyingPreset(false)
+    setShowPresetPicker(false)
+    load()
   }
 
   async function toggle(item: any) {
@@ -240,18 +363,26 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     if (!newContent.trim()) return
     const isEtc = area === 'etc'
     const list = items.filter(i => i.area === area && (isEtc || i.time_slot === period))
-    const maxOrder = list.reduce((m, i) => Math.max(m, i.sort_order || 0), 0)
-    await supabase.from('checklist_items').insert({
-      store_id: storeId,
-      time_slot: isEtc ? 'etc' : period,
-      area,
-      content: newContent.trim(),
-      sort_order: maxOrder + 1,
-      repeat_type: isEtc ? newRepeat : 'daily',
-      origin_date: isEtc ? newOriginDate : todayStr(),
-      category: isEtc ? (newCategory.trim() || null) : null,
+    let maxOrder = list.reduce((m, i) => Math.max(m, i.sort_order || 0), 0)
+    const contents = bulkMode
+      ? newContent.split('\n').map(s => s.trim()).filter(Boolean)
+      : [newContent.trim()]
+    if (contents.length === 0) return
+    const rows = contents.map(c => {
+      maxOrder += 1
+      return {
+        store_id: storeId,
+        time_slot: isEtc ? 'etc' : period,
+        area,
+        content: c,
+        sort_order: maxOrder,
+        repeat_type: isEtc ? newRepeat : 'daily',
+        origin_date: isEtc ? newOriginDate : todayStr(),
+        category: isEtc ? (newCategory.trim() || null) : null,
+      }
     })
-    setNewContent(''); setNewCategory(''); setNewRepeat('daily'); setNewOriginDate(todayStr()); setAddingArea(null)
+    await supabase.from('checklist_items').insert(rows)
+    setNewContent(''); setNewCategory(''); setNewRepeat('daily'); setNewOriginDate(todayStr()); setAddingArea(null); setBulkMode(false)
     load()
   }
 
@@ -299,7 +430,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
       </div>
 
       {mode === 'stats' ? (
-        <OpsStatsSection items={activeItems} storeId={storeId} supabase={supabase} />
+        <OpsStatsSection items={activeItems} storeId={storeId} supabase={supabase} periodLabels={labels.periods} />
       ) : (
         <>
           <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
@@ -308,13 +439,13 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                 flex: 1, padding: '10px 0', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
                 background: period === p ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#F4F6F9',
                 color: period === p ? '#fff' : '#888',
-              }}>{PERIOD_EMOJI[p]} {PERIOD_LABEL[p]}</button>
+              }}>{PERIOD_EMOJI[p]} {periodLabel(p)}</button>
             ))}
           </div>
 
           <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '12px 14px', marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>{PERIOD_LABEL[period]} 체크리스트</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>{periodLabel(period)} 체크리스트</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: periodTotal > 0 && periodDone === periodTotal ? '#00B894' : '#888' }}>{periodDone} / {periodTotal}</span>
             </div>
             <div style={{ height: 7, borderRadius: 4, background: '#F0F2F5', overflow: 'hidden' }}>
@@ -328,16 +459,79 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                 {editMode ? '✓ 편집 완료' : '✏️ 항목 관리'}
               </button>
               {editMode && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#888', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
-                  꺼진 항목 보기
-                </label>
+                <>
+                  <button onClick={openLabelSettings} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>⚙️ 화면 이름 설정</button>
+                  <button onClick={() => setShowPresetPicker(true)} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🎁 기본 세트 추가</button>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#888', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+                    꺼진 항목 보기
+                  </label>
+                </>
               )}
+            </div>
+          )}
+
+          {showLabelSettings && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+              <div style={{ background: '#fff', width: '100%', maxWidth: 420, borderRadius: '20px 20px 0 0', padding: 20, maxHeight: '85vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>⚙️ 화면 이름 설정</span>
+                  <button onClick={() => setShowLabelSettings(false)} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+                </div>
+                <div style={{ fontSize: 11, color: '#aaa', marginBottom: 14 }}>업종에 안 맞으면 이름을 바꿔주세요 (예: 홀→매장, 주방→작업공간)</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6 }}>구역 이름</div>
+                {(['hall', 'kitchen', 'storage'] as const).map(a => (
+                  <input key={a} value={labelDraft.areas[a] ?? ''} onChange={e => setLabelDraft(d => ({ ...d, areas: { ...d.areas, [a]: e.target.value } }))}
+                    placeholder={AREA_CONFIG[a].label}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
+                ))}
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#888', margin: '10px 0 6px' }}>시간대 이름</div>
+                {(['open', 'mid', 'close'] as const).map(p => (
+                  <input key={p} value={labelDraft.periods[p] ?? ''} onChange={e => setLabelDraft(d => ({ ...d, periods: { ...d.periods, [p]: e.target.value } }))}
+                    placeholder={PERIOD_LABEL[p]}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
+                ))}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button onClick={async () => { await saveLabels(labelDraft); setShowLabelSettings(false) }} style={{ flex: 1, padding: '11px 0', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#FF6B35,#E84393)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>저장</button>
+                  <button onClick={async () => { await saveLabels({ areas: {}, periods: {} }); setShowLabelSettings(false) }} style={{ padding: '11px 14px', borderRadius: 10, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 13, cursor: 'pointer' }}>기본값으로</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showPresetPicker && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+              <div style={{ background: '#fff', width: '100%', maxWidth: 420, borderRadius: '20px 20px 0 0', padding: 20, maxHeight: '85vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>🎁 기본 세트 추가</span>
+                  <button onClick={() => setShowPresetPicker(false)} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
+                </div>
+                <div style={{ fontSize: 11, color: '#aaa', marginBottom: 14 }}>업종에 맞는 기본 항목을 한 번에 추가해요 (구역 이름도 자동으로 맞춰져요)</div>
+                {Object.entries(PRESETS).map(([key, preset]) => (
+                  <button key={key} disabled={applyingPreset} onClick={() => applyPreset(key)} style={{
+                    width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12,
+                    border: '1px solid #E8ECF0', background: '#F8F9FB', marginBottom: 8, cursor: applyingPreset ? 'wait' : 'pointer',
+                  }}>
+                    <span style={{ fontSize: 20 }}>{preset.emoji}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{preset.label}</div>
+                      <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>기본 항목 {preset.items.length}개 추가</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
           {sectionData.length === 0 && !isAdmin && (
             <div style={{ textAlign: 'center', padding: '40px 0', color: '#bbb', fontSize: 13 }}>등록된 체크리스트 항목이 없어요</div>
+          )}
+
+          {isAdmin && !editMode && items.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '32px 16px', border: '1px dashed #C8CCD4', borderRadius: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: '#888', marginBottom: 10 }}>아직 체크리스트 항목이 없어요. 업종에 맞는 기본 세트로 빠르게 시작해보세요.</div>
+              <button onClick={() => setShowPresetPicker(true)} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#FF6B35,#E84393)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>🎁 기본 세트 고르기</button>
+            </div>
           )}
 
           {sectionData.map(({ area, list, doneCount, total }) => {
@@ -353,7 +547,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                   padding: '12px 14px', borderRadius: 12, border: '1px solid #E8ECF0',
                   background: total > 0 && doneCount === total ? 'rgba(0,184,148,0.06)' : '#fff', cursor: 'pointer',
                 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{cfg.emoji} {cfg.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{cfg.emoji} {areaLabel(area)}</span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: total > 0 && doneCount === total ? '#00B894' : '#888' }}>{doneCount}/{total}</span>
                     <span style={{ fontSize: 11, color: '#bbb' }}>{isOpen ? '▲' : '▼'}</span>
@@ -446,8 +640,17 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                     {editMode && (
                       addingArea === area ? (
                         <div style={{ background: '#F8F9FB', borderRadius: 10, padding: 10, border: '1px dashed #C8CCD4' }}>
-                          <input value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="새 항목 입력"
-                            style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: isEtc ? 8 : 0, boxSizing: 'border-box' }} />
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#888', cursor: 'pointer', marginBottom: 6 }}>
+                            <input type="checkbox" checked={bulkMode} onChange={e => setBulkMode(e.target.checked)} />
+                            여러 줄로 한번에 추가 (한 줄에 항목 하나씩)
+                          </label>
+                          {bulkMode ? (
+                            <textarea value={newContent} onChange={e => setNewContent(e.target.value)} placeholder={'예)\n손 씻기\n조리대 청소\n재고 확인'} rows={5}
+                              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: isEtc ? 8 : 0, boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
+                          ) : (
+                            <input value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="새 항목 입력"
+                              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: isEtc ? 8 : 0, boxSizing: 'border-box' }} />
+                          )}
                           {isEtc && (
                             <>
                               <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>반복주기</div>
@@ -470,7 +673,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                           )}
                           <div style={{ display: 'flex', gap: 6, marginTop: isEtc ? 0 : 8 }}>
                             <button onClick={() => addItem(area)} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>추가</button>
-                            <button onClick={() => { setAddingArea(null); setNewContent(''); setNewCategory(''); setNewRepeat('daily'); setNewOriginDate(todayStr()) }} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                            <button onClick={() => { setAddingArea(null); setNewContent(''); setNewCategory(''); setNewRepeat('daily'); setNewOriginDate(todayStr()); setBulkMode(false) }} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
                           </div>
                         </div>
                       ) : (
@@ -489,7 +692,8 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
 }
 
 // ── 월별 통계 (전체 공개 — 직원도 볼 수 있어요) ──
-function OpsStatsSection({ items, storeId, supabase }: { items: any[]; storeId: string; supabase: any }) {
+function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: any[]; storeId: string; supabase: any; periodLabels: Record<string, string> }) {
+  const periodLabel = (p: string) => periodLabels[p] || PERIOD_LABEL[p] || p
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -615,7 +819,7 @@ function OpsStatsSection({ items, storeId, supabase }: { items: any[]; storeId: 
                 const missingItems = sel.applicable.filter(i => i.time_slot === p && !sel.doneSet.has(i.id))
                 return (
                   <div key={p} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: p !== 'etc' ? '1px solid #F4F6F9' : 'none' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: total > 0 && done === total ? '#00B894' : '#888', marginBottom: 4 }}>{PERIOD_EMOJI[p]} {PERIOD_LABEL[p]} {done}/{total}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: total > 0 && done === total ? '#00B894' : '#888', marginBottom: 4 }}>{PERIOD_EMOJI[p]} {periodLabel(p)} {done}/{total}</div>
                     {missingItems.length > 0 && (
                       <div style={{ fontSize: 11, color: '#E84393', lineHeight: 1.6 }}>미완료: {missingItems.map(i => i.content).join(', ')}</div>
                     )}
