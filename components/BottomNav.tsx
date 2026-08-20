@@ -27,6 +27,7 @@ const MORE_ITEMS = [
   { href: '/analytics',   ic: '📈', l: '분석' },
   { href: '/staff',       ic: '👥', l: '직원관리' },
   { href: '/recipe',      ic: '🍳', l: '레시피' },
+  { href: '/manual',      ic: '📘', l: '매뉴얼' },
   { href: '/goal',        ic: '🎯', l: '목표매출' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
   { href: '/advance',     ic: '💸', l: '선입금' },
