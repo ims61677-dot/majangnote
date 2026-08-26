@@ -1416,6 +1416,31 @@ export default function ClosingPage() {
   useEffect(() => { if (storeId) loadClosing(storeId, selectedDate) }, [selectedDate, storeId])
   useEffect(() => { closingRef.current = closing }, [closing])
 
+  // ★ 매장 태블릿처럼 앱을 계속 켜놓고 쓰는 경우, 자정이 지나도 selectedDate가 그대로 남아있어서
+  // 다음날 입력하는 매출이 전날 마감일지에 계속 저장되는 문제 방지.
+  // 입력 중이 아닐 때(autoSaveStatus === 'idle')만, "오늘"을 보고 있던 경우에 한해 새 날짜로 자동 전환.
+  const autoSaveStatusRef = useRef(autoSaveStatus)
+  useEffect(() => { autoSaveStatusRef.current = autoSaveStatus }, [autoSaveStatus])
+  const lastKnownTodayRef = useRef(todayStr)
+  useEffect(() => {
+    function checkDayRollover() {
+      const nowStr = toDateStr(new Date())
+      if (nowStr === lastKnownTodayRef.current) return
+      const prevToday = lastKnownTodayRef.current
+      lastKnownTodayRef.current = nowStr
+      if (autoSaveStatusRef.current !== 'idle') return // 입력 중이면 건드리지 않음
+      setSelectedDate(prev => prev === prevToday ? nowStr : prev)
+    }
+    const timer = setInterval(checkDayRollover, 60000)
+    document.addEventListener('visibilitychange', checkDayRollover)
+    window.addEventListener('focus', checkDayRollover)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', checkDayRollover)
+      window.removeEventListener('focus', checkDayRollover)
+    }
+  }, [])
+
   useEffect(() => {
     if (isOwner && storeId) loadEditLogs(storeId)
   }, [isOwner, storeId])
