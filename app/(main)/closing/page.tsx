@@ -1424,7 +1424,7 @@ export default function ClosingPage() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden' && autoSaveStatus === 'pending') {
         if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
-        performSave(true)
+        saveNow()
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -1648,7 +1648,7 @@ export default function ClosingPage() {
     if (selectedDate !== todayStr) return
     if (isSavingRef.current) return
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
-    autoSaveTimer.current = setTimeout(() => performSave(true), 100)
+    autoSaveTimer.current = setTimeout(() => saveNow(), 100)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, todayStr])
 
