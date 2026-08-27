@@ -700,6 +700,7 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
   const [checksByDate, setChecksByDate] = useState<Record<string, Set<string>>>({})
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [showAllMiss, setShowAllMiss] = useState(false)
 
   const monthStart = `${year}-${pad(month)}-01`
   const dim = daysInMonth(year, month)
@@ -712,6 +713,7 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
   async function load() {
     setLoading(true)
     setSelectedDate(null)
+    setShowAllMiss(false)
     const ids = items.map(i => i.id)
     const { data } = await supabase.from('checklist_item_checks').select('item_id, work_date')
       .in('item_id', ids).gte('work_date', monthStart).lte('work_date', monthEnd)
@@ -736,16 +738,22 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
   }
 
   let sumPct = 0, countedDays = 0, fullDays = 0, zeroDays = 0
+  const missCounts: Record<string, number> = {}
   if (effectiveEnd >= monthStart) {
     for (let d = new Date(monthStart + 'T00:00:00'); toDateStr(d) <= effectiveEnd; d.setDate(d.getDate() + 1)) {
-      const { pct, total } = dayStats(toDateStr(d))
+      const { pct, total, applicable, doneSet } = dayStats(toDateStr(d))
       if (total === 0) continue
       sumPct += pct; countedDays++
       if (pct === 100) fullDays++
       if (pct === 0) zeroDays++
+      applicable.forEach(i => { if (!doneSet.has(i.id)) missCounts[i.id] = (missCounts[i.id] || 0) + 1 })
     }
   }
   const avgPct = countedDays > 0 ? Math.round(sumPct / countedDays) : 0
+  const missRanking = Object.entries(missCounts)
+    .map(([id, count]) => ({ item: items.find(i => i.id === id), count }))
+    .filter((x): x is { item: any; count: number } => !!x.item)
+    .sort((a, b) => b.count - a.count)
 
   const firstDow = new Date(monthStart + 'T00:00:00').getDay()
   const cells: (string | null)[] = Array(firstDow).fill(null)
@@ -809,6 +817,34 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
               )
             })}
           </div>
+
+          {countedDays > 0 && (
+            <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: '#1a1a2e' }}>⚠️ 이번 달 자주 놓친 항목</div>
+              {missRanking.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#00B894', fontWeight: 600 }}>🎉 이번 달 놓친 항목이 없어요!</div>
+              ) : (
+                <>
+                  {(showAllMiss ? missRanking : missRanking.slice(0, 6)).map(({ item, count }) => (
+                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #F8F9FB' }}>
+                      <span style={{ fontSize: 13, flexShrink: 0 }}>{AREA_CONFIG[item.area]?.emoji || '📌'}</span>
+                      <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.content}
+                        <span style={{ color: '#ccc', marginLeft: 6 }}>{periodLabel(item.time_slot)}</span>
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#E84393', flexShrink: 0 }}>{count}회 미완료</span>
+                    </div>
+                  ))}
+                  {missRanking.length > 6 && (
+                    <button onClick={() => setShowAllMiss(v => !v)}
+                      style={{ width: '100%', marginTop: 8, padding: 8, borderRadius: 8, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', fontSize: 11, cursor: 'pointer' }}>
+                      {showAllMiss ? '접기' : `전체 ${missRanking.length}개 보기`}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {sel && selectedDate && (
             <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: 14 }}>
