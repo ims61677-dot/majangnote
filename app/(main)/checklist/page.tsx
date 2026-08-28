@@ -217,7 +217,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [editMode, setEditMode] = useState(false)
-  const [etcFilter, setEtcFilter] = useState<'all' | 'none' | 'daily' | 'weekly' | 'monthly'>('all')
+  const [repeatFilter, setRepeatFilter] = useState<'all' | 'none' | 'daily' | 'weekly' | 'monthly'>('all')
   const [showInactive, setShowInactive] = useState(false)
   const [addingArea, setAddingArea] = useState<string | null>(null)
   const [newContent, setNewContent] = useState('')
@@ -323,23 +323,28 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     () => activeItems.filter(i => i.area === 'etc' && appliesOnDate(i, today)),
     [activeItems, today]
   )
-  // 기타 할일은 매주·매달 항목이 대부분이라 "오늘 해당하는 것만" 보면 관리가 안 돼요.
-  // 편집모드에서는 오늘 여부와 상관없이 전체를 반복주기별로 필터링해서 볼 수 있게 해요.
-  const etcAllActive = useMemo(() => activeItems.filter(i => i.area === 'etc'), [activeItems])
-  const etcFiltered = useMemo(
-    () => etcFilter === 'all' ? etcAllActive : etcAllActive.filter(i => (i.repeat_type || 'daily') === etcFilter),
-    [etcAllActive, etcFilter]
-  )
+  // 주간·월간 항목은 "오늘 해당하는 것만" 보면 편집모드에서 관리가 안 돼요.
+  // 편집모드에서는 오늘 여부와 상관없이 전체를 반복주기별로 필터링해서 볼 수 있게 해요. (기타뿐 아니라 홀/주방/창고/관리도 동일)
+  function areaAllActive(area: string) {
+    return activeItems.filter(i => i.area === area && (area === 'etc' || i.time_slot === period))
+  }
+  function areaFiltered(area: string) {
+    const all = areaAllActive(area)
+    return repeatFilter === 'all' ? all : all.filter(i => (i.repeat_type || 'daily') === repeatFilter)
+  }
+  const etcAllActive = useMemo(() => areaAllActive('etc'), [activeItems])
+  const etcFiltered = useMemo(() => areaFiltered('etc'), [activeItems, repeatFilter])
 
   const areasForPeriod = period === 'close' && isAdmin ? ['hall', 'kitchen', 'storage', 'admin'] : ['hall', 'kitchen', 'storage']
 
   const structuredSections = areasForPeriod.map(area => {
     const todayList = periodItems.filter(i => i.area === area)
-    const inactiveList = editMode && showInactive ? items.filter(i => i.area === area && i.time_slot === period && i.is_active === false) : []
+    const inactiveList = editMode && showInactive ? items.filter(i => i.area === area && i.time_slot === period && i.is_active === false && (repeatFilter === 'all' || (i.repeat_type || 'daily') === repeatFilter)) : []
     const doneCount = todayList.filter(i => (checks[i.id] || []).length > 0).length
-    return { area, list: [...todayList, ...inactiveList], doneCount, total: todayList.length }
+    const list = editMode ? [...areaFiltered(area), ...inactiveList] : todayList
+    return { area, list, doneCount, total: todayList.length }
   })
-  const etcInactiveList = editMode && showInactive ? items.filter(i => i.area === 'etc' && i.is_active === false && (etcFilter === 'all' || (i.repeat_type || 'daily') === etcFilter)) : []
+  const etcInactiveList = editMode && showInactive ? items.filter(i => i.area === 'etc' && i.is_active === false && (repeatFilter === 'all' || (i.repeat_type || 'daily') === repeatFilter)) : []
   const etcSection = {
     area: 'etc',
     list: editMode ? [...etcFiltered, ...etcInactiveList] : etcItemsToday,
@@ -376,8 +381,8 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
         area,
         content: c,
         sort_order: maxOrder,
-        repeat_type: isEtc ? newRepeat : 'daily',
-        origin_date: isEtc ? newOriginDate : todayStr(),
+        repeat_type: newRepeat,
+        origin_date: newOriginDate,
         category: isEtc ? (newCategory.trim() || null) : null,
       }
     })
@@ -392,8 +397,8 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   }
 
   async function saveEdit(item: any) {
-    const patch: any = { content: editContent.trim() }
-    if (item.area === 'etc') { patch.repeat_type = editRepeat; patch.origin_date = editOriginDate; patch.category = editCategory.trim() || null }
+    const patch: any = { content: editContent.trim(), repeat_type: editRepeat, origin_date: editOriginDate }
+    if (item.area === 'etc') { patch.category = editCategory.trim() || null }
     await supabase.from('checklist_items').update(patch).eq('id', item.id)
     setEditingId(null); load()
   }
@@ -555,26 +560,26 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                 </button>
                 {isOpen && (
                   <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {isEtc && editMode && (
+                    {editMode && (
                       <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                         {(['all', 'none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
-                          <button key={rt} onClick={() => setEtcFilter(rt)} style={{
+                          <button key={rt} onClick={() => setRepeatFilter(rt)} style={{
                             padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                            border: etcFilter === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
-                            background: etcFilter === rt ? 'rgba(108,92,231,0.08)' : '#fff',
-                            color: etcFilter === rt ? '#6C5CE7' : '#888',
+                            border: repeatFilter === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
+                            background: repeatFilter === rt ? 'rgba(108,92,231,0.08)' : '#fff',
+                            color: repeatFilter === rt ? '#6C5CE7' : '#888',
                           }}>{rt === 'all' ? '전체' : REPEAT_LABEL[rt]}</button>
                         ))}
                       </div>
                     )}
-                    {isEtc && editMode && displayList.length === 0 && (
+                    {editMode && displayList.length === 0 && (
                       <div style={{ textAlign: 'center', padding: 16, color: '#bbb', fontSize: 12 }}>해당하는 항목이 없어요</div>
                     )}
                     {displayList.map(item => {
                       const doneToday = checks[item.id] || []
                       const isDone = doneToday.length > 0
                       const isInactive = item.is_active === false
-                      const isDueToday = isEtc ? appliesOnDate(item, today) : true
+                      const isDueToday = appliesOnDate(item, today)
                       return (
                         <div key={item.id} style={{
                           background: isInactive ? '#F8F9FB' : '#fff',
@@ -584,21 +589,19 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                           {editingId === item.id ? (
                             <div>
                               <input value={editContent} onChange={e => setEditContent(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
+                              <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                                {(['none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
+                                  <button key={rt} onClick={() => setEditRepeat(rt)} style={{
+                                    padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                    border: editRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
+                                    background: editRepeat === rt ? 'rgba(108,92,231,0.08)' : '#fff',
+                                    color: editRepeat === rt ? '#6C5CE7' : '#888',
+                                  }}>{REPEAT_LABEL[rt]}</button>
+                                ))}
+                              </div>
+                              <input type="date" value={editOriginDate} onChange={e => setEditOriginDate(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
                               {isEtc && (
-                                <>
-                                  <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-                                    {(['none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
-                                      <button key={rt} onClick={() => setEditRepeat(rt)} style={{
-                                        padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                                        border: editRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
-                                        background: editRepeat === rt ? 'rgba(108,92,231,0.08)' : '#fff',
-                                        color: editRepeat === rt ? '#6C5CE7' : '#888',
-                                      }}>{REPEAT_LABEL[rt]}</button>
-                                    ))}
-                                  </div>
-                                  <input type="date" value={editOriginDate} onChange={e => setEditOriginDate(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
-                                  <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="카테고리 (선택)" style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
-                                </>
+                                <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="카테고리 (선택)" style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
                               )}
                               <div style={{ display: 'flex', gap: 6 }}>
                                 <button onClick={() => saveEdit(item)} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
@@ -614,7 +617,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                                 <div style={{ display: 'flex', gap: 6, marginTop: 3, alignItems: 'center', flexWrap: 'wrap' }}>
                                   {isInactive && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>꺼짐</span>}
                                   {!isDueToday && !isInactive && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#F4F6F9', color: '#aaa' }}>오늘 해당 없음</span>}
-                                  {isEtc && item.repeat_type && item.repeat_type !== 'daily' && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7' }}>{REPEAT_LABEL[item.repeat_type]}</span>}
+                                  {item.repeat_type && item.repeat_type !== 'daily' && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7', fontWeight: 700 }}>{REPEAT_LABEL[item.repeat_type]}</span>}
                                   {isEtc && item.category && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#F4F6F9', color: '#888' }}>{item.category}</span>}
                                   {isDone && !isInactive && <span style={{ fontSize: 10, color: '#00B894' }}>{doneToday.map((c: any) => c.checked_by).join(', ')}님이 {new Date(doneToday[0].checked_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit' })}에 완료</span>}
                                 </div>
@@ -646,32 +649,30 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                           </label>
                           {bulkMode ? (
                             <textarea value={newContent} onChange={e => setNewContent(e.target.value)} placeholder={'예)\n손 씻기\n조리대 청소\n재고 확인'} rows={5}
-                              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: isEtc ? 8 : 0, boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
+                              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
                           ) : (
                             <input value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="새 항목 입력"
-                              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: isEtc ? 8 : 0, boxSizing: 'border-box' }} />
+                              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
                           )}
+                          <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>반복주기</div>
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                            {(['none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
+                              <button key={rt} onClick={() => setNewRepeat(rt)} style={{
+                                padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                border: newRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
+                                background: newRepeat === rt ? 'rgba(108,92,231,0.08)' : '#fff',
+                                color: newRepeat === rt ? '#6C5CE7' : '#888',
+                              }}>{REPEAT_LABEL[rt]}</button>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>{newRepeat === 'none' ? '날짜' : '시작일'}</div>
+                          <input type="date" value={newOriginDate} onChange={e => setNewOriginDate(e.target.value)}
+                            style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
                           {isEtc && (
-                            <>
-                              <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>반복주기</div>
-                              <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                                {(['none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
-                                  <button key={rt} onClick={() => setNewRepeat(rt)} style={{
-                                    padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                                    border: newRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
-                                    background: newRepeat === rt ? 'rgba(108,92,231,0.08)' : '#fff',
-                                    color: newRepeat === rt ? '#6C5CE7' : '#888',
-                                  }}>{REPEAT_LABEL[rt]}</button>
-                                ))}
-                              </div>
-                              <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>{newRepeat === 'none' ? '날짜' : '시작일'}</div>
-                              <input type="date" value={newOriginDate} onChange={e => setNewOriginDate(e.target.value)}
-                                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
-                              <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="카테고리 (선택, 예: 위생)"
-                                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
-                            </>
+                            <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="카테고리 (선택, 예: 위생)"
+                              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
                           )}
-                          <div style={{ display: 'flex', gap: 6, marginTop: isEtc ? 0 : 8 }}>
+                          <div style={{ display: 'flex', gap: 6 }}>
                             <button onClick={() => addItem(area)} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>추가</button>
                             <button onClick={() => { setAddingArea(null); setNewContent(''); setNewCategory(''); setNewRepeat('daily'); setNewOriginDate(todayStr()); setBulkMode(false) }} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
                           </div>
@@ -698,6 +699,7 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [checksByDate, setChecksByDate] = useState<Record<string, Set<string>>>({})
+  const [staffCounts, setStaffCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [showAllMiss, setShowAllMiss] = useState(false)
@@ -715,11 +717,16 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
     setSelectedDate(null)
     setShowAllMiss(false)
     const ids = items.map(i => i.id)
-    const { data } = await supabase.from('checklist_item_checks').select('item_id, work_date')
+    const { data } = await supabase.from('checklist_item_checks').select('item_id, work_date, checked_by')
       .in('item_id', ids).gte('work_date', monthStart).lte('work_date', monthEnd)
     const map: Record<string, Set<string>> = {}
-    ;(data || []).forEach((c: any) => { if (!map[c.work_date]) map[c.work_date] = new Set(); map[c.work_date].add(c.item_id) })
+    const staffMap: Record<string, number> = {}
+    ;(data || []).forEach((c: any) => {
+      if (!map[c.work_date]) map[c.work_date] = new Set(); map[c.work_date].add(c.item_id)
+      if (c.checked_by) staffMap[c.checked_by] = (staffMap[c.checked_by] || 0) + 1
+    })
     setChecksByDate(map)
+    setStaffCounts(staffMap)
     setLoading(false)
   }
 
@@ -843,6 +850,22 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {Object.keys(staffCounts).length > 0 && (
+            <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, color: '#1a1a2e' }}>🏆 이번 달 체크 횟수</div>
+              <div style={{ fontSize: 10, color: '#bbb', marginBottom: 10 }}>담당자 지정은 없어서, 얼마나 많이 체크했는지만 볼 수 있어요</div>
+              {Object.entries(staffCounts).sort((a, b) => b[1] - a[1]).map(([name, count], idx) => (
+                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #F8F9FB' }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: idx === 0 ? '#FDC400' : idx === 1 ? '#aaa' : idx === 2 ? '#E8A87C' : '#ccc', width: 18, flexShrink: 0 }}>
+                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', flexShrink: 0 }}>{count}회</span>
+                </div>
+              ))}
             </div>
           )}
 
