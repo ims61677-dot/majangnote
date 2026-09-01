@@ -403,7 +403,8 @@ function ReceiveModal({ order, userName, places, onClose, onSaved }: { order: an
       }, { onConflict: 'item_id,place' })
     }
 
-    await supabase.from('orders').update({ status: 'received', received_by: userName, received_at: receivedAt ? new Date(receivedAt + 'T12:00:00').toISOString() : new Date().toISOString() }).eq('id', order.id)
+    const recvAtIso = receivedAt ? new Date(receivedAt + 'T12:00:00').toISOString() : new Date().toISOString()
+    await supabase.from('orders').update({ status: 'received', received_by: userName, received_at: recvAtIso, ...(!order.confirmed_at ? { confirmed_at: recvAtIso } : {}) }).eq('id', order.id)
     setSaving(false)
     onSaved(); onClose()
   }
@@ -617,7 +618,8 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         order_id: order.id, received_quantity: Number(recvQty) || order.quantity,
         received_by: resolvedBy.trim(), received_at: now, inventory_applied: false, memo: memo.trim() || null,
       }).select().single()
-      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      // ⚠️ 주문확인(confirmed_at) 없이 이슈→수령완료로 넘어가는 발주는 결산에 안 잡히므로, 없으면 이 시점 값으로 채워줌
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now, ...(!order.confirmed_at ? { confirmed_at: now } : {}) }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert({
         order_id: order.id, changed_by: resolvedBy.trim(), field_name: '교환 수령', before_value: '이슈있음', after_value: `교환품 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null
       })
@@ -628,7 +630,8 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         return_type: 'exchange', return_by: resolvedBy.trim(), return_at: now,
         return_memo: memo.trim() || null, memo: memo.trim() || null,
       })
-      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      // ⚠️ 주문확인(confirmed_at) 없이 이슈→수령완료로 넘어가는 발주는 결산에 안 잡히므로, 없으면 이 시점 값으로 채워줌
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now, ...(!order.confirmed_at ? { confirmed_at: now } : {}) }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert([
         { order_id: order.id, changed_by: resolvedBy.trim(), field_name: '반품 처리', before_value: '이슈있음', after_value: '반품완료', memo: memo.trim() || null },
         { order_id: order.id, changed_by: resolvedBy.trim(), field_name: '교환 수령', before_value: '반품완료', after_value: `교환품 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null },
@@ -638,13 +641,15 @@ function ResolveIssueModal({ order, userName, onClose, onSaved }: { order: any; 
         order_id: order.id, received_quantity: Number(recvQty) || order.quantity,
         received_by: resolvedBy.trim(), received_at: now, inventory_applied: false, memo: memo.trim() || null,
       })
-      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      // ⚠️ 주문확인(confirmed_at) 없이 이슈→수령완료로 넘어가는 발주는 결산에 안 잡히므로, 없으면 이 시점 값으로 채워줌
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now, ...(!order.confirmed_at ? { confirmed_at: now } : {}) }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert({
         order_id: order.id, changed_by: resolvedBy.trim(), field_name: '추가 수령',
         before_value: '이슈있음', after_value: `추가 ${recvQty}${order.unit} 수령완료`, memo: memo.trim() || null,
       })
     } else {
-      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now }).eq('id', order.id)
+      // ⚠️ 주문확인(confirmed_at) 없이 이슈→수령완료로 넘어가는 발주는 결산에 안 잡히므로, 없으면 이 시점 값으로 채워줌
+      await supabase.from('orders').update({ status: 'received', received_by: resolvedBy.trim(), received_at: now, ...(!order.confirmed_at ? { confirmed_at: now } : {}) }).eq('id', order.id)
       await supabase.from('order_receipt_logs').insert({
         order_id: order.id, changed_by: resolvedBy.trim(), field_name: '기타 처리',
         before_value: '이슈있음', after_value: memo.trim() || '기타 처리 완료', memo: memo.trim() || null,
