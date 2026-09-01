@@ -35,6 +35,7 @@ const AREA_CONFIG: Record<string, { label: string; emoji: string }> = {
   admin: { label: '관리자 확인', emoji: '👑' },
   etc: { label: '기타 할일', emoji: '🗂' },
 }
+const DEFAULT_AREA_ORDER = ['etc', 'hall', 'kitchen', 'storage']
 function defaultPeriod(): 'open' | 'mid' | 'close' {
   const h = new Date().getHours()
   if (h < 11) return 'open'
@@ -233,9 +234,9 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const [editOriginDate, setEditOriginDate] = useState(todayStr())
   const [editCategory, setEditCategory] = useState('')
   const [bulkMode, setBulkMode] = useState(false)
-  const [labels, setLabels] = useState<{ areas: Record<string, string>; periods: Record<string, string> }>({ areas: {}, periods: {} })
+  const [labels, setLabels] = useState<{ areas: Record<string, string>; periods: Record<string, string>; order?: string[] }>({ areas: {}, periods: {} })
   const [showLabelSettings, setShowLabelSettings] = useState(false)
-  const [labelDraft, setLabelDraft] = useState<{ areas: Record<string, string>; periods: Record<string, string> }>({ areas: {}, periods: {} })
+  const [labelDraft, setLabelDraft] = useState<{ areas: Record<string, string>; periods: Record<string, string>; order: string[] }>({ areas: {}, periods: {}, order: DEFAULT_AREA_ORDER })
   const [showPresetPicker, setShowPresetPicker] = useState(false)
   const [applyingPreset, setApplyingPreset] = useState(false)
 
@@ -269,12 +270,12 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     if (data?.value) {
       try {
         const parsed = JSON.parse(data.value)
-        setLabels({ areas: parsed.areas || {}, periods: parsed.periods || {} })
+        setLabels({ areas: parsed.areas || {}, periods: parsed.periods || {}, order: parsed.order || undefined })
       } catch {}
     }
   }
 
-  async function saveLabels(next: { areas: Record<string, string>; periods: Record<string, string> }) {
+  async function saveLabels(next: { areas: Record<string, string>; periods: Record<string, string>; order?: string[] }) {
     await supabase.from('store_settings').upsert(
       { store_id: storeId, key: 'checklist_labels', value: JSON.stringify(next), updated_at: new Date().toISOString() },
       { onConflict: 'store_id,key' }
@@ -286,8 +287,20 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     setLabelDraft({
       areas: { hall: areaLabel('hall'), kitchen: areaLabel('kitchen'), storage: areaLabel('storage') },
       periods: { open: periodLabel('open'), mid: periodLabel('mid'), close: periodLabel('close') },
+      order: labels.order && labels.order.length === 4 ? labels.order : DEFAULT_AREA_ORDER,
     })
     setShowLabelSettings(true)
+  }
+
+  function moveAreaOrder(area: string, dir: -1 | 1) {
+    setLabelDraft(d => {
+      const arr = [...d.order]
+      const idx = arr.indexOf(area)
+      const swapIdx = idx + dir
+      if (idx < 0 || swapIdx < 0 || swapIdx >= arr.length) return d
+      ;[arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]]
+      return { ...d, order: arr }
+    })
   }
 
   async function applyPreset(key: string) {
@@ -355,7 +368,13 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     doneCount: etcItemsToday.filter(i => (checks[i.id] || []).length > 0).length,
     total: etcItemsToday.length,
   }
-  const sectionData = [etcSection, ...structuredSections].filter(s => s.total > 0 || isAdmin)
+  const areaOrder = labels.order && labels.order.length === 4 ? labels.order : DEFAULT_AREA_ORDER
+  const allSections = [etcSection, ...structuredSections]
+  const orderedSections = [...allSections].sort((a, b) => {
+    const ai = areaOrder.indexOf(a.area); const bi = areaOrder.indexOf(b.area)
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi)
+  })
+  const sectionData = orderedSections.filter(s => s.total > 0 || isAdmin)
 
   // ── 🔁 주간·월간 탭 (관리자 확인 구역은 대표·관리자에게만) ──
   const recurringActive = useMemo(() => activeItems.filter(i => isRecurring(i) && (i.area !== 'admin' || isAdmin)), [activeItems, isAdmin])
@@ -547,9 +566,15 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                       </div>
                       <input type="date" value={editOriginDate} onChange={e => setEditOriginDate(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
                       <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="카테고리 (선택)" style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
-                      <div style={{ display: 'flex', gap: 6 }}>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                         <button onClick={() => saveEdit(item)} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
                         <button onClick={() => setEditingId(null)} style={{ flex: 1, padding: 8, borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => { setEditingId(null); deactivate(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>끄기</button>
+                        {!everChecked.has(item.id) && (
+                          <button onClick={() => { setEditingId(null); hardDelete(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -698,9 +723,21 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                     placeholder={PERIOD_LABEL[p]}
                     style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
                 ))}
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#888', margin: '10px 0 6px' }}>구역 표시 순서</div>
+                <div style={{ fontSize: 10, color: '#bbb', marginBottom: 8 }}>"오늘 체크" 화면에서 구역 카드가 나오는 순서예요</div>
+                {labelDraft.order.map((a, i) => (
+                  <div key={a} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', border: '1px solid #E8ECF0', borderRadius: 8, marginBottom: 6, background: '#F8F9FB' }}>
+                    <span style={{ fontSize: 13 }}>{AREA_CONFIG[a]?.emoji}</span>
+                    <span style={{ flex: 1, fontSize: 13, color: '#1a1a2e' }}>{a === 'etc' ? AREA_CONFIG.etc.label : (labelDraft.areas[a] || AREA_CONFIG[a]?.label)}</span>
+                    <button onClick={() => moveAreaOrder(a, -1)} disabled={i === 0}
+                      style={{ background: 'none', border: 'none', color: i === 0 ? '#eee' : '#888', cursor: i === 0 ? 'default' : 'pointer', fontSize: 14, padding: '2px 6px' }}>▲</button>
+                    <button onClick={() => moveAreaOrder(a, 1)} disabled={i === labelDraft.order.length - 1}
+                      style={{ background: 'none', border: 'none', color: i === labelDraft.order.length - 1 ? '#eee' : '#888', cursor: i === labelDraft.order.length - 1 ? 'default' : 'pointer', fontSize: 14, padding: '2px 6px' }}>▼</button>
+                  </div>
+                ))}
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                   <button onClick={async () => { await saveLabels(labelDraft); setShowLabelSettings(false) }} style={{ flex: 1, padding: '11px 0', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#FF6B35,#E84393)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>저장</button>
-                  <button onClick={async () => { await saveLabels({ areas: {}, periods: {} }); setShowLabelSettings(false) }} style={{ padding: '11px 14px', borderRadius: 10, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 13, cursor: 'pointer' }}>기본값으로</button>
+                  <button onClick={async () => { await saveLabels({ areas: {}, periods: {}, order: DEFAULT_AREA_ORDER }); setShowLabelSettings(false) }} style={{ padding: '11px 14px', borderRadius: 10, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 13, cursor: 'pointer' }}>기본값으로</button>
                 </div>
               </div>
             </div>
@@ -805,9 +842,15 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                               {isEtc && (
                                 <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="카테고리 (선택)" style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
                               )}
-                              <div style={{ display: 'flex', gap: 6 }}>
+                              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                                 <button onClick={() => saveEdit(item)} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
                                 <button onClick={() => setEditingId(null)} style={{ flex: 1, padding: 8, borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                              </div>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button onClick={() => { setEditingId(null); deactivate(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>끄기</button>
+                                {!everChecked.has(item.id) && (
+                                  <button onClick={() => { setEditingId(null); hardDelete(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
+                                )}
                               </div>
                             </div>
                           ) : (
