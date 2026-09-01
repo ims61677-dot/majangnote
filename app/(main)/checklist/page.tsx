@@ -209,7 +209,7 @@ function ClosingBanner({ closingTodos, closingChecks, closingDateLabel, onToggle
 
 // ── 오픈·중간점검·마감 + 기타 할일 통합 체크리스트 ──
 function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string; myName: string; isAdmin: boolean; supabase: any }) {
-  const [mode, setMode] = useState<'today' | 'stats'>('today')
+  const [mode, setMode] = useState<'today' | 'weekly' | 'stats'>('today')
   const [period, setPeriod] = useState<'open' | 'mid' | 'close'>(defaultPeriod())
   const [items, setItems] = useState<any[]>([])
   const [checks, setChecks] = useState<Record<string, any[]>>({})
@@ -218,6 +218,9 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [editMode, setEditMode] = useState(false)
   const [repeatFilter, setRepeatFilter] = useState<'all' | 'none' | 'daily' | 'weekly' | 'monthly'>('all')
+  const [recurringFilter, setRecurringFilter] = useState<'all' | 'weekly' | 'monthly'>('all')
+  const [showRecurringAddForm, setShowRecurringAddForm] = useState(false)
+  const [newRecurringArea, setNewRecurringArea] = useState('etc')
   const [showInactive, setShowInactive] = useState(false)
   const [addingArea, setAddingArea] = useState<string | null>(null)
   const [newContent, setNewContent] = useState('')
@@ -314,19 +317,20 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   }
 
   const activeItems = useMemo(() => items.filter(i => i.is_active !== false), [items])
+  // 주간·월간 항목은 "✅ 오늘 체크" 탭(홀/주방/창고/관리/기타)이 아니라 별도의 "🔁 주간·월간" 탭에서만 관리해요.
+  const isRecurring = (i: any) => i.repeat_type === 'weekly' || i.repeat_type === 'monthly'
 
   const periodItems = useMemo(
-    () => activeItems.filter(i => i.time_slot === period && appliesOnDate(i, today)),
+    () => activeItems.filter(i => i.time_slot === period && !isRecurring(i) && appliesOnDate(i, today)),
     [activeItems, period, today]
   )
   const etcItemsToday = useMemo(
-    () => activeItems.filter(i => i.area === 'etc' && appliesOnDate(i, today)),
+    () => activeItems.filter(i => i.area === 'etc' && !isRecurring(i) && appliesOnDate(i, today)),
     [activeItems, today]
   )
-  // 주간·월간 항목은 "오늘 해당하는 것만" 보면 편집모드에서 관리가 안 돼요.
-  // 편집모드에서는 오늘 여부와 상관없이 전체를 반복주기별로 필터링해서 볼 수 있게 해요. (기타뿐 아니라 홀/주방/창고/관리도 동일)
+  // 편집모드에서는 오늘 여부와 상관없이 전체를(하루만/매일) 필터링해서 볼 수 있게 해요.
   function areaAllActive(area: string) {
-    return activeItems.filter(i => i.area === area && (area === 'etc' || i.time_slot === period))
+    return activeItems.filter(i => i.area === area && !isRecurring(i) && (area === 'etc' || i.time_slot === period))
   }
   function areaFiltered(area: string) {
     const all = areaAllActive(area)
@@ -339,12 +343,12 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
 
   const structuredSections = areasForPeriod.map(area => {
     const todayList = periodItems.filter(i => i.area === area)
-    const inactiveList = editMode && showInactive ? items.filter(i => i.area === area && i.time_slot === period && i.is_active === false && (repeatFilter === 'all' || (i.repeat_type || 'daily') === repeatFilter)) : []
+    const inactiveList = editMode && showInactive ? items.filter(i => i.area === area && i.time_slot === period && !isRecurring(i) && i.is_active === false && (repeatFilter === 'all' || (i.repeat_type || 'daily') === repeatFilter)) : []
     const doneCount = todayList.filter(i => (checks[i.id] || []).length > 0).length
     const list = editMode ? [...areaFiltered(area), ...inactiveList] : todayList
     return { area, list, doneCount, total: todayList.length }
   })
-  const etcInactiveList = editMode && showInactive ? items.filter(i => i.area === 'etc' && i.is_active === false && (repeatFilter === 'all' || (i.repeat_type || 'daily') === repeatFilter)) : []
+  const etcInactiveList = editMode && showInactive ? items.filter(i => i.area === 'etc' && !isRecurring(i) && i.is_active === false && (repeatFilter === 'all' || (i.repeat_type || 'daily') === repeatFilter)) : []
   const etcSection = {
     area: 'etc',
     list: editMode ? [...etcFiltered, ...etcInactiveList] : etcItemsToday,
@@ -352,6 +356,14 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     total: etcItemsToday.length,
   }
   const sectionData = [etcSection, ...structuredSections].filter(s => s.total > 0 || isAdmin)
+
+  // ── 🔁 주간·월간 탭 (관리자 확인 구역은 대표·관리자에게만) ──
+  const recurringActive = useMemo(() => activeItems.filter(i => isRecurring(i) && (i.area !== 'admin' || isAdmin)), [activeItems, isAdmin])
+  const recurringToday = useMemo(() => recurringActive.filter(i => appliesOnDate(i, today)), [recurringActive, today])
+  const recurringInactive = editMode && showInactive ? items.filter(i => isRecurring(i) && i.is_active === false && (recurringFilter === 'all' || i.repeat_type === recurringFilter)) : []
+  const recurringFilteredList = recurringFilter === 'all' ? recurringActive : recurringActive.filter(i => i.repeat_type === recurringFilter)
+  const recurringList = editMode ? [...recurringFilteredList, ...recurringInactive] : recurringToday
+  const recurringDone = recurringToday.filter(i => (checks[i.id] || []).length > 0).length
 
   const periodTotal = structuredSections.reduce((s, x) => s + x.total, 0)
   const periodDone = structuredSections.reduce((s, x) => s + x.doneCount, 0)
@@ -397,10 +409,31 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   }
 
   async function saveEdit(item: any) {
-    const patch: any = { content: editContent.trim(), repeat_type: editRepeat, origin_date: editOriginDate }
-    if (item.area === 'etc') { patch.category = editCategory.trim() || null }
+    const patch: any = { content: editContent.trim(), repeat_type: editRepeat, origin_date: editOriginDate, category: editCategory.trim() || null }
     await supabase.from('checklist_items').update(patch).eq('id', item.id)
     setEditingId(null); load()
+  }
+
+  async function addRecurringItem() {
+    if (!newContent.trim()) return
+    const list = items.filter(i => i.area === newRecurringArea && i.time_slot === 'etc')
+    let maxOrder = list.reduce((m, i) => Math.max(m, i.sort_order || 0), 0)
+    const contents = bulkMode
+      ? newContent.split('\n').map(s => s.trim()).filter(Boolean)
+      : [newContent.trim()]
+    if (contents.length === 0) return
+    const repeat = newRepeat === 'weekly' || newRepeat === 'monthly' ? newRepeat : 'weekly'
+    const rows = contents.map(c => {
+      maxOrder += 1
+      return {
+        store_id: storeId, time_slot: 'etc', area: newRecurringArea, content: c,
+        sort_order: maxOrder, repeat_type: repeat, origin_date: newOriginDate,
+        category: newCategory.trim() || null,
+      }
+    })
+    await supabase.from('checklist_items').insert(rows)
+    setNewContent(''); setNewCategory(''); setNewRepeat('weekly'); setNewOriginDate(todayStr()); setShowRecurringAddForm(false); setBulkMode(false)
+    load()
   }
 
   async function deactivate(id: string) {
@@ -428,6 +461,10 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
           padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
           background: mode === 'today' ? '#1a1a2e' : '#F4F6F9', color: mode === 'today' ? '#fff' : '#888',
         }}>✅ 오늘 체크</button>
+        <button onClick={() => setMode('weekly')} style={{
+          padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+          background: mode === 'weekly' ? '#1a1a2e' : '#F4F6F9', color: mode === 'weekly' ? '#fff' : '#888',
+        }}>🔁 주간·월간</button>
         <button onClick={() => setMode('stats')} style={{
           padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
           background: mode === 'stats' ? '#1a1a2e' : '#F4F6F9', color: mode === 'stats' ? '#fff' : '#888',
@@ -436,6 +473,171 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
 
       {mode === 'stats' ? (
         <OpsStatsSection items={activeItems} storeId={storeId} supabase={supabase} periodLabels={labels.periods} />
+      ) : mode === 'weekly' ? (
+        <div>
+          <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '12px 14px', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>오늘 해당하는 주간·월간 업무</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: recurringToday.length > 0 && recurringDone === recurringToday.length ? '#00B894' : '#888' }}>{recurringDone} / {recurringToday.length}</span>
+            </div>
+            <div style={{ height: 7, borderRadius: 4, background: '#F0F2F5', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: recurringToday.length > 0 ? `${Math.round(recurringDone / recurringToday.length * 100)}%` : '0%', background: recurringToday.length > 0 && recurringDone === recurringToday.length ? '#00B894' : 'linear-gradient(90deg,#FF6B35,#E84393)' }} />
+            </div>
+          </div>
+
+          {isAdmin && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <button onClick={() => setEditMode(v => !v)} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: editMode ? 'rgba(108,92,231,0.08)' : '#fff', color: editMode ? '#6C5CE7' : '#888', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                {editMode ? '✓ 편집 완료' : '✏️ 항목 관리'}
+              </button>
+              {editMode && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#888', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+                  꺼진 항목 보기
+                </label>
+              )}
+            </div>
+          )}
+
+          {editMode && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              {(['all', 'weekly', 'monthly'] as const).map(rt => (
+                <button key={rt} onClick={() => setRecurringFilter(rt)} style={{
+                  padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                  border: recurringFilter === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
+                  background: recurringFilter === rt ? 'rgba(108,92,231,0.08)' : '#fff',
+                  color: recurringFilter === rt ? '#6C5CE7' : '#888',
+                }}>{rt === 'all' ? '전체' : REPEAT_LABEL[rt]}</button>
+              ))}
+            </div>
+          )}
+
+          {recurringList.length === 0 && !editMode && (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#bbb', fontSize: 13 }}>오늘 해당하는 주간·월간 업무가 없어요</div>
+          )}
+          {recurringList.length === 0 && editMode && (
+            <div style={{ textAlign: 'center', padding: 16, color: '#bbb', fontSize: 12 }}>해당하는 항목이 없어요</div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+            {recurringList.map(item => {
+              const doneToday = checks[item.id] || []
+              const isDone = doneToday.length > 0
+              const isInactive = item.is_active === false
+              const isDueToday = appliesOnDate(item, today)
+              const cfg = AREA_CONFIG[item.area]
+              return (
+                <div key={item.id} style={{
+                  background: isInactive ? '#F8F9FB' : '#fff',
+                  border: isInactive ? '1px dashed #ddd' : isDone ? '1px solid rgba(0,184,148,0.25)' : '1px solid #E8ECF0',
+                  borderRadius: 10, padding: '10px 12px', opacity: isInactive ? 0.7 : 1,
+                }}>
+                  {editingId === item.id ? (
+                    <div>
+                      <input value={editContent} onChange={e => setEditContent(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                        {(['weekly', 'monthly'] as const).map(rt => (
+                          <button key={rt} onClick={() => setEditRepeat(rt)} style={{
+                            padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                            border: editRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
+                            background: editRepeat === rt ? 'rgba(108,92,231,0.08)' : '#fff',
+                            color: editRepeat === rt ? '#6C5CE7' : '#888',
+                          }}>{REPEAT_LABEL[rt]}</button>
+                        ))}
+                      </div>
+                      <input type="date" value={editOriginDate} onChange={e => setEditOriginDate(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
+                      <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="카테고리 (선택)" style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => saveEdit(item)} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
+                        <button onClick={() => setEditingId(null)} style={{ flex: 1, padding: 8, borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {!isInactive && isDueToday && <span onClick={() => toggle(item)} style={{ fontSize: 19, color: isDone ? '#00B894' : '#ddd', cursor: 'pointer', flexShrink: 0 }}>{isDone ? '✅' : '⬜'}</span>}
+                      {!isInactive && !isDueToday && <span style={{ fontSize: 19, color: '#eee', flexShrink: 0 }}>⬜</span>}
+                      <div onClick={() => !editMode && !isInactive && isDueToday && toggle(item)} style={{ flex: 1, minWidth: 0, cursor: editMode || isInactive || !isDueToday ? 'default' : 'pointer' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: isDone ? '#888' : !isDueToday ? '#bbb' : '#1a1a2e', textDecoration: isDone ? 'line-through' : 'none' }}>{item.content}</div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 3, alignItems: 'center', flexWrap: 'wrap' }}>
+                          {cfg && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#F4F6F9', color: '#888' }}>{cfg.emoji} {areaLabel(item.area)}</span>}
+                          {item.repeat_type && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7', fontWeight: 700 }}>{REPEAT_LABEL[item.repeat_type]}</span>}
+                          {isInactive && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>꺼짐</span>}
+                          {!isDueToday && !isInactive && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#F4F6F9', color: '#aaa' }}>오늘 해당 없음</span>}
+                          {item.category && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#F4F6F9', color: '#888' }}>{item.category}</span>}
+                          {isDone && !isInactive && <span style={{ fontSize: 10, color: '#00B894' }}>{doneToday.map((c: any) => c.checked_by).join(', ')}님이 {new Date(doneToday[0].checked_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit' })}에 완료</span>}
+                        </div>
+                      </div>
+                      {editMode && (
+                        <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          {isInactive ? (
+                            <button onClick={() => restore(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(0,184,148,0.3)', background: 'rgba(0,184,148,0.06)', color: '#00B894', fontSize: 11, cursor: 'pointer' }}>복원</button>
+                          ) : (
+                            <button onClick={() => startEdit(item)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 11, cursor: 'pointer' }}>수정</button>
+                          )}
+                          {!isInactive && <button onClick={() => deactivate(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>끄기</button>}
+                          {!everChecked.has(item.id) && (
+                            <button onClick={() => hardDelete(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {editMode && (
+            showRecurringAddForm ? (
+              <div style={{ background: '#F8F9FB', borderRadius: 10, padding: 10, border: '1px dashed #C8CCD4' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#888', cursor: 'pointer', marginBottom: 6 }}>
+                  <input type="checkbox" checked={bulkMode} onChange={e => setBulkMode(e.target.checked)} />
+                  여러 줄로 한번에 추가 (한 줄에 항목 하나씩)
+                </label>
+                {bulkMode ? (
+                  <textarea value={newContent} onChange={e => setNewContent(e.target.value)} placeholder={'예)\n유리창 닦기\n냉장고 온도 점검'} rows={5}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
+                ) : (
+                  <input value={newContent} onChange={e => setNewContent(e.target.value)} placeholder="새 업무 입력"
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
+                )}
+                <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>구역</div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                  {(['hall', 'kitchen', 'storage', 'admin', 'etc'] as const).map(a => (
+                    <button key={a} onClick={() => setNewRecurringArea(a)} style={{
+                      padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      border: newRecurringArea === a ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
+                      background: newRecurringArea === a ? 'rgba(108,92,231,0.08)' : '#fff',
+                      color: newRecurringArea === a ? '#6C5CE7' : '#888',
+                    }}>{AREA_CONFIG[a].emoji} {areaLabel(a)}</button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>반복주기</div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                  {(['weekly', 'monthly'] as const).map(rt => (
+                    <button key={rt} onClick={() => setNewRepeat(rt)} style={{
+                      padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      border: newRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
+                      background: newRepeat === rt ? 'rgba(108,92,231,0.08)' : '#fff',
+                      color: newRepeat === rt ? '#6C5CE7' : '#888',
+                    }}>{REPEAT_LABEL[rt]}</button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>시작일 ({newRepeat === 'monthly' ? '매달 이 날짜' : '매주 이 요일'})</div>
+                <input type="date" value={newOriginDate} onChange={e => setNewOriginDate(e.target.value)}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
+                <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="카테고리 (선택, 예: 위생)"
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={addRecurringItem} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>추가</button>
+                  <button onClick={() => { setShowRecurringAddForm(false); setNewContent(''); setNewCategory(''); setNewRepeat('weekly'); setNewOriginDate(todayStr()); setBulkMode(false) }} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => { setNewRepeat('weekly'); setShowRecurringAddForm(true) }} style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: '1px dashed #C8CCD4', background: '#F8F9FB', color: '#888', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ 주간·월간 업무 추가</button>
+            )
+          )}
+        </div>
       ) : (
         <>
           <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
@@ -590,7 +792,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                             <div>
                               <input value={editContent} onChange={e => setEditContent(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
                               <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-                                {(['none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
+                                {(['none', 'daily'] as const).map(rt => (
                                   <button key={rt} onClick={() => setEditRepeat(rt)} style={{
                                     padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                                     border: editRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
@@ -656,7 +858,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                           )}
                           <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>반복주기</div>
                           <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                            {(['none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
+                            {(['none', 'daily'] as const).map(rt => (
                               <button key={rt} onClick={() => setNewRepeat(rt)} style={{
                                 padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                                 border: newRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
