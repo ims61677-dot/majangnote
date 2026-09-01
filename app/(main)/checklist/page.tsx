@@ -902,9 +902,13 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [checksByDate, setChecksByDate] = useState<Record<string, Set<string>>>({})
   const [staffCounts, setStaffCounts] = useState<Record<string, number>>({})
+  const [staffChecks, setStaffChecks] = useState<Record<string, { item_id: string; work_date: string }[]>>({})
+  const [expandedStaff, setExpandedStaff] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [showAllMiss, setShowAllMiss] = useState(false)
+  const [statsView, setStatsView] = useState<'calendar' | 'items'>('calendar')
+  const [expandedItem, setExpandedItem] = useState<string | null>(null)
 
   const monthStart = `${year}-${pad(month)}-01`
   const dim = daysInMonth(year, month)
@@ -918,17 +922,24 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
     setLoading(true)
     setSelectedDate(null)
     setShowAllMiss(false)
+    setExpandedStaff(null)
     const ids = items.map(i => i.id)
     const { data } = await supabase.from('checklist_item_checks').select('item_id, work_date, checked_by')
       .in('item_id', ids).gte('work_date', monthStart).lte('work_date', monthEnd)
     const map: Record<string, Set<string>> = {}
     const staffMap: Record<string, number> = {}
+    const staffLog: Record<string, { item_id: string; work_date: string }[]> = {}
     ;(data || []).forEach((c: any) => {
       if (!map[c.work_date]) map[c.work_date] = new Set(); map[c.work_date].add(c.item_id)
-      if (c.checked_by) staffMap[c.checked_by] = (staffMap[c.checked_by] || 0) + 1
+      if (c.checked_by) {
+        staffMap[c.checked_by] = (staffMap[c.checked_by] || 0) + 1
+        if (!staffLog[c.checked_by]) staffLog[c.checked_by] = []
+        staffLog[c.checked_by].push({ item_id: c.item_id, work_date: c.work_date })
+      }
     })
     setChecksByDate(map)
     setStaffCounts(staffMap)
+    setStaffChecks(staffLog)
     setLoading(false)
   }
 
@@ -964,6 +975,29 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
     .filter((x): x is { item: any; count: number } => !!x.item)
     .sort((a, b) => b.count - a.count)
 
+  // ── 📋 항목별 통계: 전체 항목의 이번 달 완료율 (낮은 순) ──
+  function buildItemStats() {
+    const acc: Record<string, { done: number; total: number; missDates: string[] }> = {}
+    if (effectiveEnd >= monthStart) {
+      for (let d = new Date(monthStart + 'T00:00:00'); toDateStr(d) <= effectiveEnd; d.setDate(d.getDate() + 1)) {
+        const ds = toDateStr(d)
+        const doneSet = checksByDate[ds] || new Set<string>()
+        items.forEach(item => {
+          if (!appliesOnDate(item, ds)) return
+          if (!acc[item.id]) acc[item.id] = { done: 0, total: 0, missDates: [] }
+          acc[item.id].total++
+          if (doneSet.has(item.id)) acc[item.id].done++
+          else acc[item.id].missDates.push(ds)
+        })
+      }
+    }
+    return Object.entries(acc)
+      .map(([id, s]) => ({ item: items.find(i => i.id === id), ...s, pct: s.total > 0 ? Math.round(s.done / s.total * 100) : 0 }))
+      .filter((x): x is { item: any; done: number; total: number; missDates: string[]; pct: number } => !!x.item)
+      .sort((a, b) => a.pct - b.pct)
+  }
+  const itemStatsList = buildItemStats()
+
   const firstDow = new Date(monthStart + 'T00:00:00').getDay()
   const cells: (string | null)[] = Array(firstDow).fill(null)
   for (let day = 1; day <= dim; day++) cells.push(`${year}-${pad(month)}-${pad(day)}`)
@@ -987,6 +1021,59 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
           style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', cursor: 'pointer' }}>▶</button>
       </div>
 
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        <button onClick={() => setStatsView('calendar')} style={{
+          padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+          background: statsView === 'calendar' ? '#1a1a2e' : '#F4F6F9', color: statsView === 'calendar' ? '#fff' : '#888',
+        }}>📅 달력</button>
+        <button onClick={() => setStatsView('items')} style={{
+          padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+          background: statsView === 'items' ? '#1a1a2e' : '#F4F6F9', color: statsView === 'items' ? '#fff' : '#888',
+        }}>📋 항목별</button>
+      </div>
+
+      {statsView === 'items' ? (
+        loading ? (
+          <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 12 }}>⏳ 불러오는 중...</div>
+        ) : (
+          <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, color: '#1a1a2e' }}>📋 항목별 이번 달 완료율</div>
+            <div style={{ fontSize: 10, color: '#bbb', marginBottom: 10 }}>완료율 낮은 순으로 정렬했어요. 항목을 누르면 놓친 날짜를 볼 수 있어요</div>
+            {itemStatsList.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 20, color: '#bbb', fontSize: 12 }}>이번 달 데이터가 없어요</div>
+            )}
+            {itemStatsList.map(({ item, done, total, missDates, pct }) => {
+              const isExp = expandedItem === item.id
+              return (
+                <div key={item.id} style={{ borderBottom: '1px solid #F8F9FB', padding: '8px 0' }}>
+                  <div onClick={() => setExpandedItem(isExp ? null : item.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <span style={{ fontSize: 13, flexShrink: 0 }}>{AREA_CONFIG[item.area]?.emoji || '📌'}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.content}
+                        {item.repeat_type && item.repeat_type !== 'daily' && <span style={{ color: '#6C5CE7', marginLeft: 6, fontWeight: 700 }}>{REPEAT_LABEL[item.repeat_type]}</span>}
+                      </div>
+                      <div style={{ height: 5, borderRadius: 3, background: '#F0F2F5', overflow: 'hidden', marginTop: 4, width: '100%' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, background: cellColor(pct) }} />
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: cellColor(pct), flexShrink: 0, width: 70, textAlign: 'right' }}>{pct}% ({done}/{total})</span>
+                  </div>
+                  {isExp && missDates.length > 0 && (
+                    <div style={{ fontSize: 11, color: '#E84393', marginTop: 6, marginLeft: 21, lineHeight: 1.6 }}>
+                      놓친 날짜: {missDates.map(d => d.slice(5).replace('-', '/')).join(', ')}
+                    </div>
+                  )}
+                  {isExp && missDates.length === 0 && (
+                    <div style={{ fontSize: 11, color: '#00B894', marginTop: 6, marginLeft: 21 }}>🎉 이번 달 다 완료했어요!</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )
+      ) : (
+      <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 16 }}>
         <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '12px 10px', textAlign: 'center' }}>
           <div style={{ fontSize: 18, fontWeight: 800, color: avgPct >= 90 ? '#00B894' : avgPct >= 60 ? '#FDC400' : '#E84393' }}>{avgPct}%</div>
@@ -1059,15 +1146,36 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
             <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: 14, marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, color: '#1a1a2e' }}>🏆 이번 달 체크 횟수</div>
               <div style={{ fontSize: 10, color: '#bbb', marginBottom: 10 }}>담당자 지정은 없어서, 얼마나 많이 체크했는지만 볼 수 있어요</div>
-              {Object.entries(staffCounts).sort((a, b) => b[1] - a[1]).map(([name, count], idx) => (
-                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #F8F9FB' }}>
-                  <span style={{ fontSize: 12, fontWeight: 800, color: idx === 0 ? '#FDC400' : idx === 1 ? '#aaa' : idx === 2 ? '#E8A87C' : '#ccc', width: 18, flexShrink: 0 }}>
-                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', flexShrink: 0 }}>{count}회</span>
-                </div>
-              ))}
+              {Object.entries(staffCounts).sort((a, b) => b[1] - a[1]).map(([name, count], idx) => {
+                const isExp = expandedStaff === name
+                const log = [...(staffChecks[name] || [])].sort((a, b) => b.work_date.localeCompare(a.work_date))
+                return (
+                  <div key={name}>
+                    <div onClick={() => setExpandedStaff(isExp ? null : name)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #F8F9FB', cursor: 'pointer' }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: idx === 0 ? '#FDC400' : idx === 1 ? '#aaa' : idx === 2 ? '#E8A87C' : '#ccc', width: 18, flexShrink: 0 }}>
+                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#6C5CE7', flexShrink: 0 }}>{count}회</span>
+                      <span style={{ fontSize: 10, color: '#ccc', flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
+                    </div>
+                    {isExp && (
+                      <div style={{ background: '#F8F9FB', borderRadius: 8, padding: '8px 10px', margin: '6px 0 10px', maxHeight: 240, overflowY: 'auto' }}>
+                        {log.map((c, i) => {
+                          const it = items.find(x => x.id === c.item_id)
+                          return (
+                            <div key={i} style={{ fontSize: 11, color: '#666', padding: '3px 0', display: 'flex', gap: 6 }}>
+                              <span style={{ color: '#aaa', flexShrink: 0 }}>{c.work_date.slice(5).replace('-', '/')}</span>
+                              <span style={{ flexShrink: 0 }}>{it ? (AREA_CONFIG[it.area]?.emoji || '📌') : '📌'}</span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it?.content || '(삭제된 항목)'}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -1090,6 +1198,8 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
             </div>
           )}
         </>
+      )}
+      </>
       )}
     </div>
   )
