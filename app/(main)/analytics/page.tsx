@@ -186,6 +186,9 @@ export default function AnalyticsPage() {
   const [placeTrackers, setPlaceTrackers] = useState<any[]>([])
   const [placeHistory, setPlaceHistory] = useState<any[]>([])
 
+  const [hasFoodCostAccess, setHasFoodCostAccess] = useState(false)
+  const [foodCostAmount, setFoodCostAmount] = useState<number|null>(null)
+
   useEffect(() => {
     const check = () => setIsPC(window.innerWidth >= 768)
     check(); window.addEventListener('resize', check); return () => window.removeEventListener('resize', check)
@@ -198,6 +201,34 @@ export default function AnalyticsPage() {
   }, [])
 
   useEffect(() => { if (storeId) loadData(storeId, year, month) }, [storeId, year, month])
+
+  // 식재료비 비율은 결산과 동일한 민감 정보라, 결산 열람 권한이 있는 경우에만 계산/표시
+  useEffect(() => {
+    if (!storeId) return
+    const user = JSON.parse(localStorage.getItem('mj_user') || '{}')
+    async function checkAccessAndLoad() {
+      let allowed = false
+      if (user.role === 'owner' && user.is_super_owner) allowed = true
+      else if (user.role === 'manager' && user.id) {
+        const { data } = await supabase.from('settlement_permissions').select('id').eq('store_id', storeId).eq('profile_id', user.id).maybeSingle()
+        allowed = !!data
+      }
+      setHasFoodCostAccess(allowed)
+      if (!allowed) { setFoodCostAmount(null); return }
+      const moNum = month + 1
+      const { data: foodSheets } = await supabase.from('settlement_sheets').select('id').eq('store_id', storeId).eq('category', 'food')
+      const sheetIds = (foodSheets || []).map((s:any) => s.id)
+      if (sheetIds.length === 0) { setFoodCostAmount(0); return }
+      const [{ data: entries }, { data: linkedOrders }] = await Promise.all([
+        supabase.from('settlement_entries').select('sheet_id,amount').eq('store_id', storeId).eq('year', year).eq('month', moNum).in('sheet_id', sheetIds),
+        supabase.from('orders').select('settlement_sheet_id,settlement_amount').eq('store_id', storeId).eq('settlement_year', year).eq('settlement_month', moNum).in('settlement_sheet_id', sheetIds),
+      ])
+      const entrySum = (entries || []).reduce((s:number, e:any) => s + (e.amount || 0), 0)
+      const orderSum = (linkedOrders || []).reduce((s:number, o:any) => s + (o.settlement_amount || 0), 0)
+      setFoodCostAmount(entrySum + orderSum)
+    }
+    checkAccessAndLoad()
+  }, [storeId, year, month])
 
   async function loadData(sid:string, y:number, m:number) {
     setLoading(true)
@@ -283,6 +314,7 @@ export default function AnalyticsPage() {
   }).sort((a,b)=>a.day-b.day), [prevYearClosings, prevYearSalesRows])
 
   const totalSales = useMemo(()=>daily.reduce((s,d)=>s+d.amount,0),[daily])
+  const foodCostPct = useMemo(()=> (foodCostAmount!=null && totalSales>0) ? Math.round((foodCostAmount/totalSales)*1000)/10 : null, [foodCostAmount, totalSales])
   const totalCount = useMemo(()=>daily.reduce((s,d)=>s+d.count,0),[daily])
   const totalCancel = useMemo(()=>daily.reduce((s,d)=>s+d.cancel,0),[daily])
   const totalDiscount = useMemo(()=>daily.reduce((s,d)=>s+d.discount,0),[daily])
@@ -676,6 +708,12 @@ export default function AnalyticsPage() {
             <HBar key={p.name} label={p.name} value={p.amount} max={maxPlatform} color={p.color} />
           ))}
         </div>
+        {hasFoodCostAccess && foodCostPct!=null && (
+          <div style={{ marginTop:12, padding:'10px 14px', borderRadius:12, background:'rgba(255,107,53,0.06)', border:'1px solid rgba(255,107,53,0.2)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span style={{ fontSize:12, color:'#888', fontWeight:600 }}>🥕 식재료비 비율 (매출 대비)</span>
+            <span style={{ fontSize:16, fontWeight:900, color:'#FF6B35' }}>{foodCostPct}%{foodCostAmount!=null && <span style={{ fontSize:11, color:'#aaa', fontWeight:600, marginLeft:6 }}>({fmtW(foodCostAmount)})</span>}</span>
+          </div>
+        )}
       </DropSection>
 
       {/* 마케팅 요약 드롭 */}
@@ -1494,6 +1532,12 @@ export default function AnalyticsPage() {
                       <div style={{ marginTop:10 }}>
                         {platforms.slice(0,3).map(p=><HBar key={p.name} label={p.name} value={p.amount} max={maxPlatform} color={p.color} />)}
                       </div>
+                      {hasFoodCostAccess && foodCostPct!=null && (
+                        <div style={{ marginTop:12, padding:'10px 14px', borderRadius:12, background:'rgba(255,107,53,0.06)', border:'1px solid rgba(255,107,53,0.2)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                          <span style={{ fontSize:12, color:'#888', fontWeight:600 }}>🥕 식재료비 비율 (매출 대비)</span>
+                          <span style={{ fontSize:16, fontWeight:900, color:'#FF6B35' }}>{foodCostPct}%{foodCostAmount!=null && <span style={{ fontSize:11, color:'#aaa', fontWeight:600, marginLeft:6 }}>({fmtW(foodCostAmount)})</span>}</span>
+                        </div>
+                      )}
                     </DropSection>
                   </>
                 )}

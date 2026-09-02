@@ -16,18 +16,20 @@ const PAYMENT_COLORS: Record<string,string> = { '카드':'#6C5CE7','현금':'#00
 const ICONS = ['📋','🌐','🛒','🥩','🐟','🍺','🥤','📦','👤','⚡','💳','🧾','💰','🏠','🚗','📱','🔧','✂️','🎯','💬']
 
 const DEFAULT_SHEETS = [
-  { name:'인터넷발주', icon:'🌐', sheet_type:'expense', sort_order:1 },
-  { name:'마트발주',   icon:'🛒', sheet_type:'expense', sort_order:2 },
-  { name:'육류',       icon:'🥩', sheet_type:'expense', sort_order:3 },
-  { name:'수산물',     icon:'🐟', sheet_type:'expense', sort_order:4 },
-  { name:'주류',       icon:'🍺', sheet_type:'expense', sort_order:5 },
-  { name:'음료',       icon:'🥤', sheet_type:'expense', sort_order:6 },
-  { name:'기타재료',   icon:'📦', sheet_type:'expense', sort_order:7 },
-  { name:'인건비',     icon:'👤', sheet_type:'expense', sort_order:8 },
-  { name:'공과금',     icon:'⚡', sheet_type:'expense', sort_order:9 },
-  { name:'기타관리비', icon:'📋', sheet_type:'expense', sort_order:10 },
-  { name:'수수료',     icon:'💳', sheet_type:'expense', sort_order:11 },
-  { name:'세금',       icon:'🧾', sheet_type:'expense', sort_order:12 },
+  { name:'식재료 인터넷 발주', icon:'🌐', sheet_type:'expense', sort_order:1, category:'food' },
+  { name:'일반 인터넷 발주',   icon:'🌐', sheet_type:'expense', sort_order:2, category:null },
+  { name:'식재료 마트 발주',   icon:'🛒', sheet_type:'expense', sort_order:3, category:'food' },
+  { name:'일반 마트 발주',     icon:'🛒', sheet_type:'expense', sort_order:4, category:null },
+  { name:'육류',       icon:'🥩', sheet_type:'expense', sort_order:5, category:'food' },
+  { name:'수산물',     icon:'🐟', sheet_type:'expense', sort_order:6, category:'food' },
+  { name:'주류',       icon:'🍺', sheet_type:'expense', sort_order:7, category:null },
+  { name:'음료',       icon:'🥤', sheet_type:'expense', sort_order:8, category:'food' },
+  { name:'기타재료',   icon:'📦', sheet_type:'expense', sort_order:9, category:'food' },
+  { name:'인건비',     icon:'👤', sheet_type:'expense', sort_order:10, category:null },
+  { name:'공과금',     icon:'⚡', sheet_type:'expense', sort_order:11, category:null },
+  { name:'기타관리비', icon:'📋', sheet_type:'expense', sort_order:12, category:null },
+  { name:'수수료',     icon:'💳', sheet_type:'expense', sort_order:13, category:null },
+  { name:'세금',       icon:'🧾', sheet_type:'expense', sort_order:14, category:null },
 ]
 
 async function exportSheetExcel(sheet: any, allItems: any[], year: number, month: number) {
@@ -446,9 +448,10 @@ function EntryModal({ sheet, entry, storeId, userName, year, month, onSave, onCl
 // ── 시트 관리 모달 ─────────────────────────────────────────
 function SheetManageModal({ sheets, storeId, onSave, onClose }: { sheets:any[]; storeId:string; onSave:()=>void; onClose:()=>void }) {
   const supabase = createSupabaseBrowserClient()
-  const [newName, setNewName] = useState(''); const [newIcon, setNewIcon] = useState('📋'); const [saving, setSaving] = useState(false); const [editId, setEditId] = useState<string|null>(null); const [editName, setEditName] = useState('')
-  async function handleAdd() { if (!newName.trim()) return; setSaving(true); const maxOrder=sheets.reduce((max,s)=>Math.max(max,s.sort_order||0),0); await supabase.from('settlement_sheets').insert({ store_id:storeId, name:newName.trim(), icon:newIcon, sheet_type:'expense', sort_order:maxOrder+1 }); setNewName(''); setSaving(false); onSave() }
+  const [newName, setNewName] = useState(''); const [newIcon, setNewIcon] = useState('📋'); const [newIsFood, setNewIsFood] = useState(false); const [saving, setSaving] = useState(false); const [editId, setEditId] = useState<string|null>(null); const [editName, setEditName] = useState('')
+  async function handleAdd() { if (!newName.trim()) return; setSaving(true); const maxOrder=sheets.reduce((max,s)=>Math.max(max,s.sort_order||0),0); await supabase.from('settlement_sheets').insert({ store_id:storeId, name:newName.trim(), icon:newIcon, sheet_type:'expense', sort_order:maxOrder+1, category:newIsFood?'food':null }); setNewName(''); setNewIsFood(false); setSaving(false); onSave() }
   async function handleToggle(sheet:any) { await supabase.from('settlement_sheets').update({ is_active:!sheet.is_active }).eq('id',sheet.id); onSave() }
+  async function handleToggleCategory(sheet:any) { await supabase.from('settlement_sheets').update({ category: sheet.category==='food'?null:'food' }).eq('id',sheet.id); onSave() }
   async function handleRename(id:string) { if (!editName.trim()) return; await supabase.from('settlement_sheets').update({ name:editName.trim() }).eq('id',id); setEditId(null); onSave() }
   async function handleDelete(sheet:any) { if (!confirm(`"${sheet.name}" 시트를 삭제할까요?`)) return; await supabase.from('settlement_sheets').delete().eq('id',sheet.id); onSave() }
   return (
@@ -458,13 +461,14 @@ function SheetManageModal({ sheets, storeId, onSave, onClose }: { sheets:any[]; 
         {sheets.filter(s=>s.sheet_type!=='sales').map(sheet=>(
           <div key={sheet.id} style={{ padding:'10px 14px', background:sheet.is_active?'#fff':'#F8F9FB', borderRadius:10, border:`1px solid ${sheet.is_active?'#E8ECF0':'#F0F0F0'}`, marginBottom:6 }}>
             {editId===sheet.id?<div style={{ display:'flex', gap:6 }}><input value={editName} onChange={e=>setEditName(e.target.value)} style={{ ...inp, flex:1 }} autoFocus /><button onClick={()=>handleRename(sheet.id)} style={{ padding:'6px 12px', borderRadius:8, background:'linear-gradient(135deg,#FF6B35,#E84393)', border:'none', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>저장</button><button onClick={()=>setEditId(null)} style={{ padding:'6px 10px', borderRadius:8, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#888', cursor:'pointer', fontSize:12 }}>취소</button></div>
-            :<div style={{ display:'flex', alignItems:'center', gap:8 }}><span style={{ fontSize:18 }}>{sheet.icon}</span><span style={{ flex:1, fontSize:13, fontWeight:600, color:sheet.is_active?'#1a1a2e':'#aaa' }}>{sheet.name}</span><button onClick={()=>{ setEditId(sheet.id); setEditName(sheet.name) }} style={{ background:'none', border:'none', fontSize:11, color:'#6C5CE7', cursor:'pointer' }}>수정</button><button onClick={()=>handleToggle(sheet)} style={{ padding:'2px 8px', borderRadius:6, border:`1px solid ${sheet.is_active?'rgba(0,184,148,0.3)':'#E8ECF0'}`, background:sheet.is_active?'rgba(0,184,148,0.08)':'#F4F6F9', color:sheet.is_active?'#00B894':'#aaa', fontSize:10, fontWeight:700, cursor:'pointer' }}>{sheet.is_active?'활성':'비활성'}</button><button onClick={()=>handleDelete(sheet)} style={{ background:'none', border:'none', color:'#E84393', fontSize:11, cursor:'pointer' }}>삭제</button></div>}
+            :<div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}><span style={{ fontSize:18 }}>{sheet.icon}</span><span style={{ flex:1, fontSize:13, fontWeight:600, color:sheet.is_active?'#1a1a2e':'#aaa' }}>{sheet.name}</span><button onClick={()=>{ setEditId(sheet.id); setEditName(sheet.name) }} style={{ background:'none', border:'none', fontSize:11, color:'#6C5CE7', cursor:'pointer' }}>수정</button><button onClick={()=>handleToggleCategory(sheet)} title="식재료비 계산에 포함할지 여부" style={{ padding:'2px 8px', borderRadius:6, border:`1px solid ${sheet.category==='food'?'rgba(255,107,53,0.35)':'#E8ECF0'}`, background:sheet.category==='food'?'rgba(255,107,53,0.1)':'#F4F6F9', color:sheet.category==='food'?'#FF6B35':'#aaa', fontSize:10, fontWeight:700, cursor:'pointer' }}>{sheet.category==='food'?'🥕 식재료':'식재료 아님'}</button><button onClick={()=>handleToggle(sheet)} style={{ padding:'2px 8px', borderRadius:6, border:`1px solid ${sheet.is_active?'rgba(0,184,148,0.3)':'#E8ECF0'}`, background:sheet.is_active?'rgba(0,184,148,0.08)':'#F4F6F9', color:sheet.is_active?'#00B894':'#aaa', fontSize:10, fontWeight:700, cursor:'pointer' }}>{sheet.is_active?'활성':'비활성'}</button><button onClick={()=>handleDelete(sheet)} style={{ background:'none', border:'none', color:'#E84393', fontSize:11, cursor:'pointer' }}>삭제</button></div>}
           </div>
         ))}
         <div style={{ background:'rgba(255,107,53,0.04)', borderRadius:12, padding:14, border:'1px dashed rgba(255,107,53,0.3)', marginTop:8 }}>
           <div style={{ fontSize:12, fontWeight:700, color:'#FF6B35', marginBottom:10 }}>+ 새 시트 추가</div>
           <div style={{ marginBottom:8 }}><span style={lbl}>시트 이름</span><input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleAdd()} placeholder="예: 포장재" style={inp} /></div>
           <div style={{ marginBottom:12 }}><span style={lbl}>아이콘</span><div style={{ display:'flex', flexWrap:'wrap', gap:5 }}>{ICONS.map(ic=><button key={ic} onClick={()=>setNewIcon(ic)} style={{ width:34, height:34, borderRadius:8, border:newIcon===ic?'2px solid #FF6B35':'1px solid #E8ECF0', background:newIcon===ic?'rgba(255,107,53,0.1)':'#F8F9FB', fontSize:17, cursor:'pointer' }}>{ic}</button>)}</div></div>
+          <label style={{ display:'flex', alignItems:'center', gap:6, marginBottom:12, cursor:'pointer' }}><input type="checkbox" checked={newIsFood} onChange={e=>setNewIsFood(e.target.checked)} /><span style={{ fontSize:12, color:'#555' }}>🥕 식재료 지출로 표시 (분석 페이지 식재료비율에 포함)</span></label>
           <button onClick={handleAdd} disabled={saving||!newName.trim()} style={{ width:'100%', padding:'11px 0', borderRadius:10, background:newName.trim()?'linear-gradient(135deg,#FF6B35,#E84393)':'#E8ECF0', border:'none', color:newName.trim()?'#fff':'#aaa', fontSize:13, fontWeight:700, cursor:newName.trim()?'pointer':'default' }}>{saving?'추가 중...':'시트 추가'}</button>
         </div>
       </div>
