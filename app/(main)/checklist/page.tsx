@@ -228,11 +228,13 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const [newRepeat, setNewRepeat] = useState('daily')
   const [newOriginDate, setNewOriginDate] = useState(todayStr())
   const [newCategory, setNewCategory] = useState('')
+  const [newImportant, setNewImportant] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
   const [editRepeat, setEditRepeat] = useState('daily')
   const [editOriginDate, setEditOriginDate] = useState(todayStr())
   const [editCategory, setEditCategory] = useState('')
+  const [editImportant, setEditImportant] = useState(false)
   const [bulkMode, setBulkMode] = useState(false)
   const [labels, setLabels] = useState<{ areas: Record<string, string>; periods: Record<string, string>; order?: string[] }>({ areas: {}, periods: {} })
   const [showLabelSettings, setShowLabelSettings] = useState(false)
@@ -336,6 +338,40 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     }
   }
 
+  // 구역 일괄 확인: 오늘 해당하고 아직 안 한 "비중요" 항목만 한번에 체크 (중요 항목은 개별 확인 유지)
+  async function checkAllInSection(list: any[]) {
+    const targets = list.filter(item =>
+      item.is_active !== false && !item.is_important && appliesOnDate(item, today) && (checks[item.id] || []).length === 0
+    )
+    if (targets.length === 0) return
+    const tempIds: Record<string, string> = {}
+    setChecks(prev => {
+      const next = { ...prev }
+      targets.forEach(item => {
+        const tempId = `temp-${item.id}-${Date.now()}`
+        tempIds[item.id] = tempId
+        next[item.id] = [...(next[item.id] || []), { id: tempId, item_id: item.id, work_date: today, checked_by: myName }]
+      })
+      return next
+    })
+    setEverChecked(prev => { const n = new Set(prev); targets.forEach(item => n.add(item.id)); return n })
+    const { data, error } = await supabase.from('checklist_item_checks')
+      .insert(targets.map(item => ({ item_id: item.id, work_date: today, checked_by: myName })))
+      .select()
+    if (error) { load(); return }
+    if (data) {
+      setChecks(prev => {
+        const next = { ...prev }
+        targets.forEach((item, idx) => {
+          const real = data.find((d: any) => d.item_id === item.id) || data[idx]
+          if (!real) return
+          next[item.id] = (next[item.id] || []).map((c: any) => c.id === tempIds[item.id] ? real : c)
+        })
+        return next
+      })
+    }
+  }
+
   const activeItems = useMemo(() => items.filter(i => i.is_active !== false), [items])
   // 주간·월간 항목은 "✅ 오늘 체크" 탭(홀/주방/창고/관리/기타)이 아니라 별도의 "🔁 주간·월간" 탭에서만 관리해요.
   const isRecurring = (i: any) => i.repeat_type === 'weekly' || i.repeat_type === 'monthly'
@@ -422,20 +458,22 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
         repeat_type: newRepeat,
         origin_date: newOriginDate,
         category: isEtc ? (newCategory.trim() || null) : null,
+        is_important: newImportant,
       }
     })
     await supabase.from('checklist_items').insert(rows)
-    setNewContent(''); setNewCategory(''); setNewRepeat('daily'); setNewOriginDate(todayStr()); setAddingArea(null); setBulkMode(false)
+    setNewContent(''); setNewCategory(''); setNewRepeat('daily'); setNewOriginDate(todayStr()); setNewImportant(false); setAddingArea(null); setBulkMode(false)
     load()
   }
 
   function startEdit(item: any) {
     setEditingId(item.id); setEditContent(item.content)
     setEditRepeat(item.repeat_type || 'daily'); setEditOriginDate(item.origin_date || todayStr()); setEditCategory(item.category || '')
+    setEditImportant(!!item.is_important)
   }
 
   async function saveEdit(item: any) {
-    const patch: any = { content: editContent.trim(), repeat_type: editRepeat, origin_date: editOriginDate, category: editCategory.trim() || null }
+    const patch: any = { content: editContent.trim(), repeat_type: editRepeat, origin_date: editOriginDate, category: editCategory.trim() || null, is_important: editImportant }
     await supabase.from('checklist_items').update(patch).eq('id', item.id)
     setEditingId(null); load()
   }
@@ -454,11 +492,11 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
       return {
         store_id: storeId, time_slot: 'etc', area: newRecurringArea, content: c,
         sort_order: maxOrder, repeat_type: repeat, origin_date: newOriginDate,
-        category: newCategory.trim() || null,
+        category: newCategory.trim() || null, is_important: newImportant,
       }
     })
     await supabase.from('checklist_items').insert(rows)
-    setNewContent(''); setNewCategory(''); setNewRepeat('weekly'); setNewOriginDate(todayStr()); setShowRecurringAddForm(false); setBulkMode(false)
+    setNewContent(''); setNewCategory(''); setNewRepeat('weekly'); setNewOriginDate(todayStr()); setNewImportant(false); setShowRecurringAddForm(false); setBulkMode(false)
     load()
   }
 
@@ -573,6 +611,10 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                       </div>
                       <input type="date" value={editOriginDate} onChange={e => setEditOriginDate(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
                       <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="카테고리 (선택)" style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#E84393', cursor: 'pointer', marginBottom: 6, fontWeight: 600 }}>
+                        <input type="checkbox" checked={editImportant} onChange={e => setEditImportant(e.target.checked)} />
+                        ⭐ 중요 항목 (일괄 확인 제외)
+                      </label>
                       <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                         <button onClick={() => saveEdit(item)} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
                         <button onClick={() => setEditingId(null)} style={{ flex: 1, padding: 8, borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
@@ -589,7 +631,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                       {!isInactive && isDueToday && <span onClick={() => toggle(item)} style={{ fontSize: 19, color: isDone ? '#00B894' : '#ddd', cursor: 'pointer', flexShrink: 0 }}>{isDone ? '✅' : '⬜'}</span>}
                       {!isInactive && !isDueToday && <span style={{ fontSize: 19, color: '#eee', flexShrink: 0 }}>⬜</span>}
                       <div onClick={() => !editMode && !isInactive && isDueToday && toggle(item)} style={{ flex: 1, minWidth: 0, cursor: editMode || isInactive || !isDueToday ? 'default' : 'pointer' }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: isDone ? '#888' : !isDueToday ? '#bbb' : '#1a1a2e', textDecoration: isDone ? 'line-through' : 'none' }}>{item.content}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: isDone ? '#888' : !isDueToday ? '#bbb' : '#1a1a2e', textDecoration: isDone ? 'line-through' : 'none' }}>{item.is_important && <span style={{ color: '#E84393', marginRight: 4 }}>⭐</span>}{item.content}</div>
                         <div style={{ display: 'flex', gap: 6, marginTop: 3, alignItems: 'center', flexWrap: 'wrap' }}>
                           {cfg && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#F4F6F9', color: '#888' }}>{cfg.emoji} {areaLabel(item.area)}</span>}
                           {item.repeat_type && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(108,92,231,0.1)', color: '#6C5CE7', fontWeight: 700 }}>{REPEAT_LABEL[item.repeat_type]}</span>}
@@ -660,9 +702,13 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                   style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
                 <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="카테고리 (선택, 예: 위생)"
                   style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#E84393', cursor: 'pointer', marginBottom: 8, fontWeight: 600 }}>
+                  <input type="checkbox" checked={newImportant} onChange={e => setNewImportant(e.target.checked)} />
+                  ⭐ 중요 항목으로 표시 (일괄 확인에서 제외되고 개별 체크만 가능)
+                </label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button onClick={addRecurringItem} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>추가</button>
-                  <button onClick={() => { setShowRecurringAddForm(false); setNewContent(''); setNewCategory(''); setNewRepeat('weekly'); setNewOriginDate(todayStr()); setBulkMode(false) }} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                  <button onClick={() => { setShowRecurringAddForm(false); setNewContent(''); setNewCategory(''); setNewRepeat('weekly'); setNewOriginDate(todayStr()); setNewImportant(false); setBulkMode(false) }} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
                 </div>
               </div>
             ) : (
@@ -806,6 +852,15 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                 </button>
                 {isOpen && (
                   <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {!editMode && (() => {
+                      const remaining = list.filter(item => item.is_active !== false && !item.is_important && appliesOnDate(item, today) && (checks[item.id] || []).length === 0)
+                      return remaining.length > 0 ? (
+                        <button onClick={() => checkAllInSection(list)} style={{
+                          padding: '8px 0', borderRadius: 8, border: '1px dashed rgba(0,184,148,0.4)',
+                          background: 'rgba(0,184,148,0.06)', color: '#00B894', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        }}>✅ 비중요 항목 일괄 확인 ({remaining.length}개)</button>
+                      ) : null
+                    })()}
                     {editMode && (
                       <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                         {(['all', 'none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
@@ -849,6 +904,10 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                               {isEtc && (
                                 <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="카테고리 (선택)" style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
                               )}
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#E84393', cursor: 'pointer', marginBottom: 6, fontWeight: 600 }}>
+                                <input type="checkbox" checked={editImportant} onChange={e => setEditImportant(e.target.checked)} />
+                                ⭐ 중요 항목 (일괄 확인 제외)
+                              </label>
                               <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                                 <button onClick={() => saveEdit(item)} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>저장</button>
                                 <button onClick={() => setEditingId(null)} style={{ flex: 1, padding: 8, borderRadius: 7, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
@@ -865,7 +924,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                               {!isInactive && isDueToday && <span onClick={() => toggle(item)} style={{ fontSize: 19, color: isDone ? '#00B894' : '#ddd', cursor: 'pointer', flexShrink: 0 }}>{isDone ? '✅' : '⬜'}</span>}
                               {!isInactive && !isDueToday && <span style={{ fontSize: 19, color: '#eee', flexShrink: 0 }}>⬜</span>}
                               <div onClick={() => !editMode && !isInactive && isDueToday && toggle(item)} style={{ flex: 1, minWidth: 0, cursor: editMode || isInactive || !isDueToday ? 'default' : 'pointer' }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: isDone ? '#888' : !isDueToday ? '#bbb' : '#1a1a2e', textDecoration: isDone ? 'line-through' : 'none' }}>{item.content}</div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: isDone ? '#888' : !isDueToday ? '#bbb' : '#1a1a2e', textDecoration: isDone ? 'line-through' : 'none' }}>{item.is_important && <span style={{ color: '#E84393', marginRight: 4 }}>⭐</span>}{item.content}</div>
                                 <div style={{ display: 'flex', gap: 6, marginTop: 3, alignItems: 'center', flexWrap: 'wrap' }}>
                                   {isInactive && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(232,67,147,0.1)', color: '#E84393', fontWeight: 700 }}>꺼짐</span>}
                                   {!isDueToday && !isInactive && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#F4F6F9', color: '#aaa' }}>오늘 해당 없음</span>}
@@ -924,9 +983,13 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                             <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="카테고리 (선택, 예: 위생)"
                               style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
                           )}
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#E84393', cursor: 'pointer', marginBottom: 8, fontWeight: 600 }}>
+                            <input type="checkbox" checked={newImportant} onChange={e => setNewImportant(e.target.checked)} />
+                            ⭐ 중요 항목으로 표시 (일괄 확인에서 제외되고 개별 체크만 가능)
+                          </label>
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button onClick={() => addItem(area)} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>추가</button>
-                            <button onClick={() => { setAddingArea(null); setNewContent(''); setNewCategory(''); setNewRepeat('daily'); setNewOriginDate(todayStr()); setBulkMode(false) }} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                            <button onClick={() => { setAddingArea(null); setNewContent(''); setNewCategory(''); setNewRepeat('daily'); setNewOriginDate(todayStr()); setNewImportant(false); setBulkMode(false) }} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 12, cursor: 'pointer' }}>취소</button>
                           </div>
                         </div>
                       ) : (
