@@ -322,11 +322,18 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     const mine = checks[item.id] || []
     if (mine.length > 0) {
       const target = mine.find((c: any) => c.checked_by === myName) || mine[0]
-      await supabase.from('checklist_item_checks').delete().eq('id', target.id)
+      // 낙관적 업데이트: 전체 재조회(load()) 없이 화면에서 바로 지워서 버벅임 없이 반응
+      setChecks(prev => ({ ...prev, [item.id]: (prev[item.id] || []).filter((c: any) => c.id !== target.id) }))
+      const { error } = await supabase.from('checklist_item_checks').delete().eq('id', target.id)
+      if (error) load() // 실패했을 때만 전체 재조회로 되돌림
     } else {
-      await supabase.from('checklist_item_checks').insert({ item_id: item.id, work_date: today, checked_by: myName })
+      const tempId = `temp-${item.id}-${Date.now()}`
+      setChecks(prev => ({ ...prev, [item.id]: [...(prev[item.id] || []), { id: tempId, item_id: item.id, work_date: today, checked_by: myName }] }))
+      setEverChecked(prev => new Set(prev).add(item.id))
+      const { data, error } = await supabase.from('checklist_item_checks').insert({ item_id: item.id, work_date: today, checked_by: myName }).select().single()
+      if (error) { load(); return }
+      if (data) setChecks(prev => ({ ...prev, [item.id]: (prev[item.id] || []).map((c: any) => c.id === tempId ? data : c) }))
     }
-    load()
   }
 
   const activeItems = useMemo(() => items.filter(i => i.is_active !== false), [items])
