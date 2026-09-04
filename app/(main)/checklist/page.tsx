@@ -222,6 +222,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const [recurringFilter, setRecurringFilter] = useState<'all' | 'weekly' | 'monthly'>('all')
   const [showRecurringAddForm, setShowRecurringAddForm] = useState(false)
   const [newRecurringArea, setNewRecurringArea] = useState('etc')
+  const [recurringView, setRecurringView] = useState<'today' | 'weeks'>('today')
   const [showInactive, setShowInactive] = useState(false)
   const [addingArea, setAddingArea] = useState<string | null>(null)
   const [newContent, setNewContent] = useState('')
@@ -539,6 +540,21 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
         <OpsStatsSection items={activeItems} storeId={storeId} supabase={supabase} periodLabels={labels.periods} />
       ) : mode === 'weekly' ? (
         <div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            <button onClick={() => setRecurringView('today')} style={{
+              flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+              background: recurringView === 'today' ? '#1a1a2e' : '#F4F6F9', color: recurringView === 'today' ? '#fff' : '#888',
+            }}>✅ 오늘 확인</button>
+            <button onClick={() => setRecurringView('weeks')} style={{
+              flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+              background: recurringView === 'weeks' ? '#1a1a2e' : '#F4F6F9', color: recurringView === 'weeks' ? '#fff' : '#888',
+            }}>📆 주차별 보기</button>
+          </div>
+
+          {recurringView === 'weeks' ? (
+            <WeeklyBreakdownView items={recurringActive} storeId={storeId} supabase={supabase} />
+          ) : (
+          <>
           <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '12px 14px', marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e' }}>오늘 해당하는 주간·월간 업무</span>
@@ -714,6 +730,8 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
             ) : (
               <button onClick={() => { setNewRepeat('weekly'); setShowRecurringAddForm(true) }} style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: '1px dashed #C8CCD4', background: '#F8F9FB', color: '#888', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ 주간·월간 업무 추가</button>
             )
+          )}
+          </>
           )}
         </div>
       ) : (
@@ -1002,6 +1020,127 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
             )
           })}
         </>
+      )}
+    </div>
+  )
+}
+
+// ── 📆 주간·월간 탭: 이번 달 주차별 보기 (목표매출과 동일한 방식으로 1~5주차를 나눔) ──
+function getWeekNum(y: number, m: number, d: number) {
+  const startDow = new Date(y, m - 1, 1).getDay()
+  return Math.ceil((d + (startDow === 0 ? 6 : startDow - 1)) / 7)
+}
+function getWeeksInMonth(y: number, m: number) { return getWeekNum(y, m, daysInMonth(y, m)) }
+function getWeekDays(y: number, m: number, week: number) {
+  const days: number[] = []
+  for (let d = 1; d <= daysInMonth(y, m); d++) if (getWeekNum(y, m, d) === week) days.push(d)
+  return days
+}
+
+function WeeklyBreakdownView({ items, storeId, supabase }: { items: any[]; storeId: string; supabase: any }) {
+  const now = new Date()
+  const [year, setYear] = useState(now.getFullYear())
+  const [month, setMonth] = useState(now.getMonth() + 1)
+  const [checksByDate, setChecksByDate] = useState<Record<string, Set<string>>>({})
+  const [loading, setLoading] = useState(true)
+  const [expandedWeek, setExpandedWeek] = useState<number | null>(null)
+
+  const weeklyItems = useMemo(() => items.filter(i => i.repeat_type === 'weekly'), [items])
+  const monthStart = `${year}-${pad(month)}-01`
+  const dim = daysInMonth(year, month)
+  const monthEnd = `${year}-${pad(month)}-${pad(dim)}`
+  const today = todayStr()
+
+  useEffect(() => { if (storeId) load() }, [storeId, weeklyItems.length, year, month])
+
+  async function load() {
+    setLoading(true)
+    setExpandedWeek(null)
+    const ids = weeklyItems.map(i => i.id)
+    if (ids.length === 0) { setChecksByDate({}); setLoading(false); return }
+    const { data } = await supabase.from('checklist_item_checks').select('item_id, work_date')
+      .in('item_id', ids).gte('work_date', monthStart).lte('work_date', monthEnd)
+    const map: Record<string, Set<string>> = {}
+    ;(data || []).forEach((c: any) => { if (!map[c.work_date]) map[c.work_date] = new Set(); map[c.work_date].add(c.item_id) })
+    setChecksByDate(map)
+    setLoading(false)
+  }
+
+  const weeksInMonth = getWeeksInMonth(year, month)
+
+  function weekStats(week: number) {
+    const days = getWeekDays(year, month, week)
+    const rows: { item: any; dateStr: string | null; status: 'done' | 'missed' | 'upcoming' | 'na' }[] = []
+    weeklyItems.forEach(item => {
+      const dueDay = days.find(d => appliesOnDate(item, `${year}-${pad(month)}-${pad(d)}`))
+      if (dueDay === undefined) { rows.push({ item, dateStr: null, status: 'na' }); return }
+      const dateStr = `${year}-${pad(month)}-${pad(dueDay)}`
+      const done = checksByDate[dateStr]?.has(item.id)
+      const status: 'done' | 'missed' | 'upcoming' = done ? 'done' : (dateStr > today ? 'upcoming' : 'missed')
+      rows.push({ item, dateStr, status })
+    })
+    const applicable = rows.filter(r => r.status !== 'na')
+    const doneCount = applicable.filter(r => r.status === 'done').length
+    return { rows: applicable, doneCount, total: applicable.length, days }
+  }
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 12 }}>⏳ 불러오는 중...</div>
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <button onClick={() => { if (month === 1) { setYear(y => y - 1); setMonth(12) } else setMonth(m => m - 1) }}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', cursor: 'pointer' }}>◀</button>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{year}년 {month}월</span>
+        <button onClick={() => { if (month === 12) { setYear(y => y + 1); setMonth(1) } else setMonth(m => m + 1) }}
+          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #E8ECF0', background: '#fff', cursor: 'pointer' }}>▶</button>
+      </div>
+
+      {weeklyItems.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 12 }}>등록된 매주 반복 항목이 없어요</div>
+      ) : (
+        Array.from({ length: weeksInMonth }, (_, i) => i + 1).map(week => {
+          const { rows, doneCount, total, days } = weekStats(week)
+          const isCurrent = days.some(d => `${year}-${pad(month)}-${pad(d)}` === today)
+          const isExp = expandedWeek === week
+          const pct = total > 0 ? Math.round(doneCount / total * 100) : 0
+          const rangeLabel = days.length > 0 ? `${month}/${days[0]}~${month}/${days[days.length - 1]}` : ''
+          return (
+            <div key={week} style={{ background: '#fff', border: isCurrent ? '1.5px solid #FF6B35' : '1px solid #E8ECF0', borderRadius: 12, padding: 14, marginBottom: 10 }}>
+              <div onClick={() => total > 0 && setExpandedWeek(isExp ? null : week)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: total > 0 ? 'pointer' : 'default' }}>
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: '#1a1a2e' }}>{month}월 {week}주차</span>
+                  <span style={{ fontSize: 11, color: '#bbb', marginLeft: 6 }}>({rangeLabel})</span>
+                  {isCurrent && <span style={{ fontSize: 10, color: '#FF6B35', fontWeight: 700, marginLeft: 6 }}>← 현재</span>}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {total > 0 ? (
+                    <span style={{ fontSize: 12, fontWeight: 700, color: doneCount === total ? '#00B894' : '#888' }}>{doneCount}/{total}</span>
+                  ) : (
+                    <span style={{ fontSize: 11, color: '#ccc' }}>해당 없음</span>
+                  )}
+                  {total > 0 && <span style={{ fontSize: 11, color: '#bbb' }}>{isExp ? '▲' : '▼'}</span>}
+                </div>
+              </div>
+              {total > 0 && (
+                <div style={{ height: 6, borderRadius: 3, background: '#F0F2F5', overflow: 'hidden', marginTop: 8 }}>
+                  <div style={{ height: '100%', width: `${pct}%`, background: doneCount === total ? '#00B894' : 'linear-gradient(90deg,#FF6B35,#E84393)' }} />
+                </div>
+              )}
+              {isExp && (
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {rows.map(r => (
+                    <div key={r.item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '4px 0', borderTop: '1px solid #F8F9FB' }}>
+                      <span>{r.status === 'done' ? '✅' : r.status === 'upcoming' ? '⏳' : '❌'}</span>
+                      <span style={{ flex: 1, color: '#444' }}>{AREA_CONFIG[r.item.area]?.emoji} {r.item.content}{r.item.is_important && <span style={{ color: '#E84393', marginLeft: 4 }}>⭐</span>}</span>
+                      <span style={{ color: '#aaa', fontSize: 10 }}>{r.dateStr?.slice(5).replace('-', '/')}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })
       )}
     </div>
   )
