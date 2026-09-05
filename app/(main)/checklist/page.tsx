@@ -510,10 +510,28 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     await supabase.from('checklist_items').update({ is_active: true }).eq('id', id)
     load()
   }
+  async function moveItemOrder(list: any[], item: any, dir: -1 | 1) {
+    const idx = list.findIndex(i => i.id === item.id)
+    const swapIdx = idx + dir
+    if (idx < 0 || swapIdx < 0 || swapIdx >= list.length) return
+    const other = list[swapIdx]
+    const a = item.sort_order ?? 0
+    const b = other.sort_order ?? 0
+    await Promise.all([
+      supabase.from('checklist_items').update({ sort_order: b }).eq('id', item.id),
+      supabase.from('checklist_items').update({ sort_order: a }).eq('id', other.id),
+    ])
+    load()
+  }
   async function hardDelete(id: string) {
-    if (!confirm('이 항목을 완전히 삭제할까요? 되돌릴 수 없어요. (체크 기록이 없는 항목만 삭제할 수 있어요)')) return
+    const hasHistory = everChecked.has(id)
+    const msg = hasHistory
+      ? '이 항목은 체크 기록이 있어요. 삭제하면 항목과 함께 그동안의 체크 기록(월별 통계·랭킹에 반영된 내역 포함)도 전부 사라지고 되돌릴 수 없어요. 정말 삭제할까요?'
+      : '이 항목을 완전히 삭제할까요? 되돌릴 수 없어요.'
+    if (!confirm(msg)) return
+    await supabase.from('checklist_item_checks').delete().eq('item_id', id)
     const { error } = await supabase.from('checklist_items').delete().eq('id', id)
-    if (error) { alert('삭제하지 못했어요. 체크 기록이 있는 항목은 "끄기"만 가능해요.'); return }
+    if (error) { alert('삭제하지 못했어요: ' + error.message); return }
     load()
   }
 
@@ -600,7 +618,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-            {recurringList.map(item => {
+            {recurringList.map((item, itemIdx) => {
               const doneToday = checks[item.id] || []
               const isDone = doneToday.length > 0
               const isInactive = item.is_active === false
@@ -637,9 +655,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                       </div>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button onClick={() => { setEditingId(null); deactivate(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>끄기</button>
-                        {!everChecked.has(item.id) && (
-                          <button onClick={() => { setEditingId(null); hardDelete(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
-                        )}
+                        <button onClick={() => { setEditingId(null); hardDelete(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
                       </div>
                     </div>
                   ) : (
@@ -659,15 +675,15 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                       </div>
                       {editMode && (
                         <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          <button onClick={() => moveItemOrder(recurringList, item, -1)} disabled={itemIdx === 0} style={{ padding: '5px 7px', borderRadius: 6, border: '1px solid #E8ECF0', background: '#fff', color: itemIdx === 0 ? '#ddd' : '#888', fontSize: 11, cursor: itemIdx === 0 ? 'default' : 'pointer' }}>▲</button>
+                          <button onClick={() => moveItemOrder(recurringList, item, 1)} disabled={itemIdx === recurringList.length - 1} style={{ padding: '5px 7px', borderRadius: 6, border: '1px solid #E8ECF0', background: '#fff', color: itemIdx === recurringList.length - 1 ? '#ddd' : '#888', fontSize: 11, cursor: itemIdx === recurringList.length - 1 ? 'default' : 'pointer' }}>▼</button>
                           {isInactive ? (
                             <button onClick={() => restore(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(0,184,148,0.3)', background: 'rgba(0,184,148,0.06)', color: '#00B894', fontSize: 11, cursor: 'pointer' }}>복원</button>
                           ) : (
                             <button onClick={() => startEdit(item)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 11, cursor: 'pointer' }}>수정</button>
                           )}
                           {!isInactive && <button onClick={() => deactivate(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>끄기</button>}
-                          {!everChecked.has(item.id) && (
-                            <button onClick={() => hardDelete(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
-                          )}
+                          <button onClick={() => hardDelete(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
                         </div>
                       )}
                     </div>
@@ -894,7 +910,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                     {editMode && displayList.length === 0 && (
                       <div style={{ textAlign: 'center', padding: 16, color: '#bbb', fontSize: 12 }}>해당하는 항목이 없어요</div>
                     )}
-                    {displayList.map(item => {
+                    {displayList.map((item, itemIdx) => {
                       const doneToday = checks[item.id] || []
                       const isDone = doneToday.length > 0
                       const isInactive = item.is_active === false
@@ -932,9 +948,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                               </div>
                               <div style={{ display: 'flex', gap: 6 }}>
                                 <button onClick={() => { setEditingId(null); deactivate(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>끄기</button>
-                                {!everChecked.has(item.id) && (
-                                  <button onClick={() => { setEditingId(null); hardDelete(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
-                                )}
+                                <button onClick={() => { setEditingId(null); hardDelete(item.id) }} style={{ flex: 1, padding: 7, borderRadius: 7, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
                               </div>
                             </div>
                           ) : (
@@ -953,15 +967,15 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                               </div>
                               {editMode && (
                                 <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                  <button onClick={() => moveItemOrder(displayList, item, -1)} disabled={itemIdx === 0} style={{ padding: '5px 7px', borderRadius: 6, border: '1px solid #E8ECF0', background: '#fff', color: itemIdx === 0 ? '#ddd' : '#888', fontSize: 11, cursor: itemIdx === 0 ? 'default' : 'pointer' }}>▲</button>
+                                  <button onClick={() => moveItemOrder(displayList, item, 1)} disabled={itemIdx === displayList.length - 1} style={{ padding: '5px 7px', borderRadius: 6, border: '1px solid #E8ECF0', background: '#fff', color: itemIdx === displayList.length - 1 ? '#ddd' : '#888', fontSize: 11, cursor: itemIdx === displayList.length - 1 ? 'default' : 'pointer' }}>▼</button>
                                   {isInactive ? (
                                     <button onClick={() => restore(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(0,184,148,0.3)', background: 'rgba(0,184,148,0.06)', color: '#00B894', fontSize: 11, cursor: 'pointer' }}>복원</button>
                                   ) : (
                                     <button onClick={() => startEdit(item)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 11, cursor: 'pointer' }}>수정</button>
                                   )}
                                   {!isInactive && <button onClick={() => deactivate(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: 'rgba(232,67,147,0.06)', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>끄기</button>}
-                                  {!everChecked.has(item.id) && (
-                                    <button onClick={() => hardDelete(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
-                                  )}
+                                  <button onClick={() => hardDelete(item.id)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
                                 </div>
                               )}
                             </div>
