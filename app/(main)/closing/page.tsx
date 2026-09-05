@@ -1345,6 +1345,8 @@ export default function ClosingPage() {
   const [newCheckItem, setNewCheckItem] = useState('')
   const [soldouts, setSoldouts] = useState<any[]>([])
   const [newSoldout, setNewSoldout] = useState('')
+  const [leftovers, setLeftovers] = useState<any[]>([])
+  const [newLeftover, setNewLeftover] = useState('')
   const [nextTodos, setNextTodos] = useState<any[]>([])
   const [todoChecks, setTodoChecks] = useState<Record<string, any[]>>({})
   const [newTodo, setNewTodo] = useState('')
@@ -1606,6 +1608,9 @@ export default function ClosingPage() {
       const { data: so } = await supabase.from('closing_soldout').select('*').eq('closing_id', cl.id).order('created_at')
       setSoldouts(so || [])
 
+      const { data: lo } = await supabase.from('closing_leftover').select('*').eq('closing_id', cl.id).order('created_at')
+      setLeftovers(lo || [])
+
       const { data: todos } = await supabase.from('closing_next_todos').select('*').eq('closing_id', cl.id).order('created_at')
       setNextTodos(todos || [])
       if (todos && todos.length > 0) {
@@ -1653,7 +1658,7 @@ export default function ClosingPage() {
       setCashAmount(0); setNote(''); setMemo(''); setDiscountAmount(0)
       setStaffCount(0); setOpenTime(''); setCloseTime('')
       setSales({}); setCounts({}); setCancelCounts({})
-      setChecks({}); setSoldouts([]); setNextTodos([]); setTodoChecks({})
+      setChecks({}); setSoldouts([]); setLeftovers([]); setNextTodos([]); setTodoChecks({})
       setReviews({}); setSkippedChecks(new Set()); setReviewTouched(new Set())
       prevDataRef.current = null
       // ★ ref도 반드시 초기화 (미초기화 시 이전 날 데이터가 다음 날에 복사되는 버그 방지)
@@ -1884,6 +1889,19 @@ export default function ClosingPage() {
     setSoldouts(p => p.filter(x => x.id !== id))
   }
 
+  async function addLeftover() {
+    if (!newLeftover.trim()) return
+    const closingId = await getOrCreateClosingId()
+    const { data } = await supabase.from('closing_leftover').insert({ closing_id: closingId, menu_name: newLeftover.trim(), created_by: userName }).select().single()
+    setLeftovers(p => [...p, data]); setNewLeftover('')
+  }
+
+  async function deleteLeftover(id: string) {
+    if (!isManager) { alert('매니저/대표만 삭제할 수 있습니다.'); return }
+    await supabase.from('closing_leftover').delete().eq('id', id)
+    setLeftovers(p => p.filter(x => x.id !== id))
+  }
+
   async function addNextTodo() {
     if (!newTodo.trim()) return
     const closingId = await getOrCreateClosingId()
@@ -1956,6 +1974,7 @@ export default function ClosingPage() {
         supabase.from('closing_checks').delete().eq('closing_id', cl.id),
         supabase.from('closing_reviews').delete().eq('closing_id', cl.id),
         supabase.from('closing_soldout').delete().eq('closing_id', cl.id),
+        supabase.from('closing_leftover').delete().eq('closing_id', cl.id),
         supabase.from('closing_next_todos').delete().eq('closing_id', cl.id),
       ])
       await supabase.from('closings').delete().eq('id', cl.id)
@@ -1965,7 +1984,7 @@ export default function ClosingPage() {
       setCashAmount(0); setNote(''); setMemo(''); setDiscountAmount(0)
       setStaffCount(0); setOpenTime(''); setCloseTime('')
       setSales({}); setCounts({}); setCancelCounts({})
-      setChecks({}); setSoldouts([]); setNextTodos([]); setTodoChecks({})
+      setChecks({}); setSoldouts([]); setLeftovers([]); setNextTodos([]); setTodoChecks({})
       setReviews({}); setSkippedChecks(new Set()); setReviewTouched(new Set())
       writerRef.current = ''; closeStaffRef.current = ''; staffCountRef.current = 0
       openTimeRef.current = ''; closeTimeRef.current = ''; discountAmountRef.current = 0
@@ -2419,6 +2438,25 @@ export default function ClosingPage() {
         <div style={{ display:'flex', gap:8, marginTop:6 }}>
           <input value={newSoldout} onChange={e => setNewSoldout(e.target.value)} onKeyDown={e => e.key==='Enter' && addSoldout()} placeholder="품절 메뉴명 입력" style={{ ...inp, flex:1 }} />
           <button onClick={addSoldout} style={{ padding:'8px 12px', borderRadius:8, background:'rgba(232,67,147,0.1)', border:'1px solid rgba(232,67,147,0.3)', color:'#E84393', fontSize:12, fontWeight:700, cursor:'pointer' }}>추가</button>
+        </div>
+      </div>
+
+      {/* ⑧-1 잔반 많이 남은 메뉴 */}
+      <div style={bx}>
+        <div style={{ fontSize:12, fontWeight:700, color:'#1a1a2e', marginBottom:10 }}>🍽️ 잔반 많이 남은 메뉴</div>
+        {leftovers.length === 0 && <div style={{ fontSize:12, color:'#bbb', textAlign:'center', padding:'8px 0', marginBottom:8 }}>잔반 많이 남은 메뉴 없음 ✓</div>}
+        {leftovers.map(lo => (
+          <div key={lo.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 12px', borderRadius:9, background:'rgba(253,196,0,0.08)', border:'1px solid rgba(253,196,0,0.3)', marginBottom:6 }}>
+            <div>
+              <span style={{ fontSize:13, color:'#1a1a2e' }}>{lo.menu_name}</span>
+              <span style={{ fontSize:10, color:'#bbb', marginLeft:8 }}>{lo.created_by}</span>
+            </div>
+            {isManager && <button onClick={() => deleteLeftover(lo.id)} style={{ background:'none', border:'none', fontSize:11, color:'#E84393', cursor:'pointer' }}>삭제</button>}
+          </div>
+        ))}
+        <div style={{ display:'flex', gap:8, marginTop:6 }}>
+          <input value={newLeftover} onChange={e => setNewLeftover(e.target.value)} onKeyDown={e => e.key==='Enter' && addLeftover()} placeholder="잔반 많이 남은 메뉴명 입력" style={{ ...inp, flex:1 }} />
+          <button onClick={addLeftover} style={{ padding:'8px 12px', borderRadius:8, background:'rgba(253,196,0,0.15)', border:'1px solid rgba(253,196,0,0.4)', color:'#B8860B', fontSize:12, fontWeight:700, cursor:'pointer' }}>추가</button>
         </div>
       </div>
 

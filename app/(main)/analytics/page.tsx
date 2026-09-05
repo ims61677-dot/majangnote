@@ -183,6 +183,7 @@ export default function AnalyticsPage() {
   const [prevYearSalesRows, setPrevYearSalesRows] = useState<any[]>([])
   const [goal, setGoal] = useState<any>(null)
   const [reviewRows, setReviewRows] = useState<any[]>([])
+  const [leftoverRows, setLeftoverRows] = useState<any[]>([])
   const [placeTrackers, setPlaceTrackers] = useState<any[]>([])
   const [placeHistory, setPlaceHistory] = useState<any[]>([])
 
@@ -243,7 +244,9 @@ export default function AnalyticsPage() {
       setSalesRows(sv || [])
       const { data: rv } = await supabase.from('closing_reviews').select('*').in('closing_id', cls.map((c:any)=>c.id))
       setReviewRows(rv || [])
-    } else { setSalesRows([]); setReviewRows([]) }
+      const { data: lo } = await supabase.from('closing_leftover').select('*').in('closing_id', cls.map((c:any)=>c.id))
+      setLeftoverRows(lo || [])
+    } else { setSalesRows([]); setReviewRows([]); setLeftoverRows([]) }
 
     // 전월
     let pm = m-1, py = y; if (pm < 0) { pm = 11; py-- }
@@ -315,6 +318,11 @@ export default function AnalyticsPage() {
 
   const totalSales = useMemo(()=>daily.reduce((s,d)=>s+d.amount,0),[daily])
   const foodCostPct = useMemo(()=> (foodCostAmount!=null && totalSales>0) ? Math.round((foodCostAmount/totalSales)*1000)/10 : null, [foodCostAmount, totalSales])
+  const leftoverRanking = useMemo(() => {
+    const counts: Record<string, number> = {}
+    leftoverRows.forEach((r:any) => { counts[r.menu_name] = (counts[r.menu_name]||0) + 1 })
+    return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a,b) => b.count - a.count)
+  }, [leftoverRows])
   const totalCount = useMemo(()=>daily.reduce((s,d)=>s+d.count,0),[daily])
   const totalCancel = useMemo(()=>daily.reduce((s,d)=>s+d.cancel,0),[daily])
   const totalDiscount = useMemo(()=>daily.reduce((s,d)=>s+d.discount,0),[daily])
@@ -1163,6 +1171,27 @@ export default function AnalyticsPage() {
             </>
           )
         })()}
+      </DropSection>
+
+      <DropSection id="m-leftover" title="🍽️ 잔반 메뉴 분석" summary={leftoverRanking.length>0?`${leftoverRanking[0].name} ${leftoverRanking[0].count}회 1위`:'기록 없음'} summaryColor="#FDC400">
+        {leftoverRanking.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'20px 0', color:'#bbb', fontSize:12 }}>이번 달 기록된 잔반 메뉴가 없어요</div>
+        ) : (
+          <table style={tbl}>
+            <thead><tr style={{ borderBottom:'1px solid #F0F2F5' }}>
+              {['순위','메뉴','횟수'].map(h=><th key={h} style={{ fontSize:10, color:'#aaa', fontWeight:700, padding:'6px 8px', textAlign:'left' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {leftoverRanking.map((r,i)=>(
+                <tr key={r.name} style={{ borderBottom:'1px solid #F8F9FB' }}>
+                  <td style={{ fontSize:12, padding:'8px 8px', fontWeight:700, color:i===0?'#FDC400':'#888' }}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+                  <td style={{ fontSize:13, padding:'8px 8px', color:'#1a1a2e' }}>{r.name}</td>
+                  <td style={{ fontSize:13, padding:'8px 8px', fontWeight:700, color:'#E84393' }}>{r.count}회</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </DropSection>
     </div>
   )
