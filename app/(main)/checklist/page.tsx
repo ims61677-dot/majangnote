@@ -517,11 +517,20 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     const other = list[swapIdx]
     const a = item.sort_order ?? 0
     const b = other.sort_order ?? 0
-    await Promise.all([
+    // 낙관적 업데이트: 전체 재조회(load()) 없이 화면에서 바로 순서를 바꿔서 버벅임 없이 반응
+    // (sort_order 값만 바꾸면 화면에 반영이 안 돼서, items 배열 안에서의 실제 위치도 함께 바꿔줌)
+    setItems(prev => {
+      const next = prev.map(i => i.id === item.id ? { ...i, sort_order: b } : i.id === other.id ? { ...i, sort_order: a } : i)
+      const ia = next.findIndex(i => i.id === item.id)
+      const ib = next.findIndex(i => i.id === other.id)
+      if (ia !== -1 && ib !== -1) { const tmp = next[ia]; next[ia] = next[ib]; next[ib] = tmp }
+      return next
+    })
+    const [{ error: e1 }, { error: e2 }] = await Promise.all([
       supabase.from('checklist_items').update({ sort_order: b }).eq('id', item.id),
       supabase.from('checklist_items').update({ sort_order: a }).eq('id', other.id),
     ])
-    load()
+    if (e1 || e2) load() // 실패했을 때만 전체 재조회로 되돌림
   }
   async function hardDelete(id: string) {
     const hasHistory = everChecked.has(id)
