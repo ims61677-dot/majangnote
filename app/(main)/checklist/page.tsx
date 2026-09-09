@@ -968,18 +968,6 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                         }}>✅ 비중요 항목 일괄 확인 ({remaining.length}개)</button>
                       ) : null
                     })()}
-                    {editMode && (
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                        {(['all', 'none', 'daily'] as const).map(rt => (
-                          <button key={rt} onClick={() => setRepeatFilter(rt)} style={{
-                            padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                            border: repeatFilter === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
-                            background: repeatFilter === rt ? 'rgba(108,92,231,0.08)' : '#fff',
-                            color: repeatFilter === rt ? '#6C5CE7' : '#888',
-                          }}>{rt === 'all' ? '전체' : REPEAT_LABEL[rt]}</button>
-                        ))}
-                      </div>
-                    )}
                     {editMode && displayList.length === 0 && (
                       <div style={{ textAlign: 'center', padding: 16, color: '#bbb', fontSize: 12 }}>해당하는 항목이 없어요</div>
                     )}
