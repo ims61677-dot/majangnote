@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 
 const REPEAT_LABEL: Record<string, string> = {
-  none: '하루만', daily: '매일', weekly: '매주', monthly: '매달',
+  none: '하루만', daily: '매일', weekly: '매주', biweekly: '격주', monthly: '매달',
 }
 const DOW = ['일', '월', '화', '수', '목', '금', '토']
 
@@ -12,7 +12,7 @@ function toDateStr(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)
 function todayStr() { return toDateStr(new Date()) }
 
 // 항목이 특정 날짜에 적용되는지 (반복주기 기반) — 오픈·마감 구조화 항목(항상 매일)과
-// 기타 할일(하루만/매일/매주/매달) 모두 이 함수 하나로 판단합니다.
+// 기타 할일(하루만/매일/매주/격주/매달) 모두 이 함수 하나로 판단합니다.
 function appliesOnDate(item: any, dateStr: string) {
   if (item.origin_date > dateStr) return false
   if (!item.repeat_type || item.repeat_type === 'none') return item.origin_date === dateStr
@@ -20,6 +20,11 @@ function appliesOnDate(item: any, dateStr: string) {
   const d = new Date(dateStr + 'T00:00:00')
   if (item.repeat_type === 'daily') return true
   if (item.repeat_type === 'weekly') return od.getDay() === d.getDay()
+  if (item.repeat_type === 'biweekly') {
+    if (od.getDay() !== d.getDay()) return false
+    const weeksDiff = Math.round((d.getTime() - od.getTime()) / (7 * 86400000))
+    return weeksDiff % 2 === 0
+  }
   if (item.repeat_type === 'monthly') return od.getDate() === d.getDate()
   return false
 }
@@ -218,8 +223,8 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [editMode, setEditMode] = useState(false)
-  const [repeatFilter, setRepeatFilter] = useState<'all' | 'none' | 'daily' | 'weekly' | 'monthly'>('all')
-  const [recurringFilter, setRecurringFilter] = useState<'all' | 'weekly' | 'monthly'>('all')
+  const [repeatFilter, setRepeatFilter] = useState<'all' | 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly'>('all')
+  const [recurringFilter, setRecurringFilter] = useState<'all' | 'weekly' | 'biweekly' | 'monthly'>('all')
   const [showRecurringAddForm, setShowRecurringAddForm] = useState(false)
   const [newRecurringArea, setNewRecurringArea] = useState('etc')
   const [recurringView, setRecurringView] = useState<'today' | 'weeks'>('today')
@@ -375,7 +380,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
 
   const activeItems = useMemo(() => items.filter(i => i.is_active !== false), [items])
   // 주간·월간 항목은 "✅ 오늘 체크" 탭(홀/주방/창고/관리/기타)이 아니라 별도의 "🔁 주간·월간" 탭에서만 관리해요.
-  const isRecurring = (i: any) => i.repeat_type === 'weekly' || i.repeat_type === 'monthly'
+  const isRecurring = (i: any) => i.repeat_type === 'weekly' || i.repeat_type === 'biweekly' || i.repeat_type === 'monthly'
 
   const periodItems = useMemo(
     () => activeItems.filter(i => i.time_slot === period && !isRecurring(i) && appliesOnDate(i, today)),
@@ -487,7 +492,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
       ? newContent.split('\n').map(s => s.trim()).filter(Boolean)
       : [newContent.trim()]
     if (contents.length === 0) return
-    const repeat = newRepeat === 'weekly' || newRepeat === 'monthly' ? newRepeat : 'weekly'
+    const repeat = newRepeat === 'weekly' || newRepeat === 'biweekly' || newRepeat === 'monthly' ? newRepeat : 'weekly'
     const rows = contents.map(c => {
       maxOrder += 1
       return {
@@ -608,7 +613,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
 
           {editMode && (
             <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-              {(['all', 'weekly', 'monthly'] as const).map(rt => (
+              {(['all', 'weekly', 'biweekly', 'monthly'] as const).map(rt => (
                 <button key={rt} onClick={() => setRecurringFilter(rt)} style={{
                   padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                   border: recurringFilter === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
@@ -643,7 +648,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                     <div>
                       <input value={editContent} onChange={e => setEditContent(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 6, boxSizing: 'border-box' }} />
                       <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-                        {(['weekly', 'monthly'] as const).map(rt => (
+                        {(['weekly', 'biweekly', 'monthly'] as const).map(rt => (
                           <button key={rt} onClick={() => setEditRepeat(rt)} style={{
                             padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                             border: editRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
@@ -729,7 +734,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                 </div>
                 <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>반복주기</div>
                 <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                  {(['weekly', 'monthly'] as const).map(rt => (
+                  {(['weekly', 'biweekly', 'monthly'] as const).map(rt => (
                     <button key={rt} onClick={() => setNewRepeat(rt)} style={{
                       padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                       border: newRepeat === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
@@ -738,7 +743,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                     }}>{REPEAT_LABEL[rt]}</button>
                   ))}
                 </div>
-                <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>시작일 ({newRepeat === 'monthly' ? '매달 이 날짜' : '매주 이 요일'})</div>
+                <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>시작일 ({newRepeat === 'monthly' ? '매달 이 날짜' : newRepeat === 'biweekly' ? '이 날부터 2주마다 이 요일' : '매주 이 요일'})</div>
                 <input type="date" value={newOriginDate} onChange={e => setNewOriginDate(e.target.value)}
                   style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
                 <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="카테고리 (선택, 예: 위생)"
@@ -1068,7 +1073,8 @@ function WeeklyBreakdownView({ items, storeId, supabase }: { items: any[]; store
   const [loading, setLoading] = useState(true)
   const [expandedWeek, setExpandedWeek] = useState<number | null>(null)
 
-  const weeklyItems = useMemo(() => items.filter(i => i.repeat_type === 'weekly'), [items])
+  // 격주 항목도 여기 포함해요 — appliesOnDate가 "쉬는 주"는 알아서 걸러줘서, 해당 없는 주에는 자동으로 안 보여요
+  const weeklyItems = useMemo(() => items.filter(i => i.repeat_type === 'weekly' || i.repeat_type === 'biweekly'), [items])
   const monthStart = `${year}-${pad(month)}-01`
   const dim = daysInMonth(year, month)
   const monthEnd = `${year}-${pad(month)}-${pad(dim)}`
@@ -1155,7 +1161,7 @@ function WeeklyBreakdownView({ items, storeId, supabase }: { items: any[]; store
                   {rows.map(r => (
                     <div key={r.item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '4px 0', borderTop: '1px solid #F8F9FB' }}>
                       <span>{r.status === 'done' ? '✅' : r.status === 'upcoming' ? '⏳' : '❌'}</span>
-                      <span style={{ flex: 1, color: '#444' }}>{AREA_CONFIG[r.item.area]?.emoji} {r.item.content}{r.item.is_important && <span style={{ color: '#E84393', marginLeft: 4 }}>⭐</span>}</span>
+                      <span style={{ flex: 1, color: '#444' }}>{AREA_CONFIG[r.item.area]?.emoji} {r.item.content}{r.item.repeat_type === 'biweekly' && <span style={{ fontSize: 10, color: '#6C5CE7', marginLeft: 4, fontWeight: 700 }}>격주</span>}{r.item.is_important && <span style={{ color: '#E84393', marginLeft: 4 }}>⭐</span>}</span>
                       <span style={{ color: '#aaa', fontSize: 10 }}>{r.dateStr?.slice(5).replace('-', '/')}</span>
                     </div>
                   ))}
