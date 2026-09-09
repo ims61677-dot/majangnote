@@ -33,14 +33,19 @@ function daysInMonth(y: number, m: number) { return new Date(y, m, 0).getDate() 
 
 const PERIOD_LABEL: Record<string, string> = { open: '오픈', mid: '중간점검', close: '마감', etc: '기타' }
 const PERIOD_EMOJI: Record<string, string> = { open: '🌅', mid: '☀️', close: '🌙', etc: '🗂' }
+// etc(기타 할일)와 admin(관리자 확인)은 구조적으로 고정된 특수 구역이라 추가/삭제 대상이 아니에요.
+// hall/kitchen/storage는 매장이 직접 이름 바꾸고 추가·삭제할 수 있는 "커스텀 구역"의 기본값이에요.
 const AREA_CONFIG: Record<string, { label: string; emoji: string }> = {
-  hall: { label: '홀', emoji: '🍽' },
-  kitchen: { label: '주방', emoji: '👨‍🍳' },
-  storage: { label: '창고', emoji: '📦' },
   admin: { label: '관리자 확인', emoji: '👑' },
   etc: { label: '기타 할일', emoji: '🗂' },
 }
-const DEFAULT_AREA_ORDER = ['etc', 'hall', 'kitchen', 'storage']
+type CustomArea = { key: string; label: string; emoji: string }
+const DEFAULT_CUSTOM_AREAS: CustomArea[] = [
+  { key: 'hall', label: '홀', emoji: '🍽' },
+  { key: 'kitchen', label: '주방', emoji: '👨‍🍳' },
+  { key: 'storage', label: '창고', emoji: '📦' },
+]
+const DEFAULT_AREA_ORDER = ['etc', ...DEFAULT_CUSTOM_AREAS.map(a => a.key)]
 function defaultPeriod(): 'open' | 'mid' | 'close' {
   const h = new Date().getHours()
   if (h < 11) return 'open'
@@ -242,15 +247,21 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const [editCategory, setEditCategory] = useState('')
   const [editImportant, setEditImportant] = useState(false)
   const [bulkMode, setBulkMode] = useState(false)
-  const [labels, setLabels] = useState<{ areas: Record<string, string>; periods: Record<string, string>; order?: string[] }>({ areas: {}, periods: {} })
+  const [labels, setLabels] = useState<{ areas: Record<string, string>; periods: Record<string, string>; order?: string[]; customAreas?: CustomArea[] }>({ areas: {}, periods: {} })
   const [showLabelSettings, setShowLabelSettings] = useState(false)
-  const [labelDraft, setLabelDraft] = useState<{ areas: Record<string, string>; periods: Record<string, string>; order: string[] }>({ areas: {}, periods: {}, order: DEFAULT_AREA_ORDER })
+  const [labelDraft, setLabelDraft] = useState<{ areas: Record<string, string>; periods: Record<string, string>; order: string[]; customAreas: CustomArea[] }>({ areas: {}, periods: {}, order: DEFAULT_AREA_ORDER, customAreas: DEFAULT_CUSTOM_AREAS })
   const [showPresetPicker, setShowPresetPicker] = useState(false)
   const [applyingPreset, setApplyingPreset] = useState(false)
+  const [newAreaName, setNewAreaName] = useState('')
+  const [newAreaEmoji, setNewAreaEmoji] = useState('📌')
 
   const today = todayStr()
 
-  const areaLabel = (area: string) => labels.areas[area] || AREA_CONFIG[area]?.label || area
+  // hall/kitchen/storage는 더 이상 고정 목록이 아니라, 매장이 직접 만들고 지울 수 있는 커스텀 구역이에요.
+  // 아직 한 번도 손댄 적 없는 매장은 기존과 동일하게 홀/주방/창고 3개로 시작해요.
+  const customAreas = labels.customAreas && labels.customAreas.length > 0 ? labels.customAreas : DEFAULT_CUSTOM_AREAS
+  const areaLabel = (area: string) => labels.areas[area] || customAreas.find(a => a.key === area)?.label || AREA_CONFIG[area]?.label || area
+  const areaEmoji = (area: string) => customAreas.find(a => a.key === area)?.emoji || AREA_CONFIG[area]?.emoji || '📌'
   const periodLabel = (p: string) => labels.periods[p] || PERIOD_LABEL[p] || p
 
   useEffect(() => { if (storeId) { load(); loadLabels() } }, [storeId])
@@ -278,12 +289,12 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     if (data?.value) {
       try {
         const parsed = JSON.parse(data.value)
-        setLabels({ areas: parsed.areas || {}, periods: parsed.periods || {}, order: parsed.order || undefined })
+        setLabels({ areas: parsed.areas || {}, periods: parsed.periods || {}, order: parsed.order || undefined, customAreas: parsed.customAreas || undefined })
       } catch {}
     }
   }
 
-  async function saveLabels(next: { areas: Record<string, string>; periods: Record<string, string>; order?: string[] }) {
+  async function saveLabels(next: { areas: Record<string, string>; periods: Record<string, string>; order?: string[]; customAreas?: CustomArea[] }) {
     await supabase.from('store_settings').upsert(
       { store_id: storeId, key: 'checklist_labels', value: JSON.stringify(next), updated_at: new Date().toISOString() },
       { onConflict: 'store_id,key' }
@@ -292,12 +303,49 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   }
 
   function openLabelSettings() {
+    const defaultOrder = ['etc', ...customAreas.map(a => a.key)]
     setLabelDraft({
-      areas: { hall: areaLabel('hall'), kitchen: areaLabel('kitchen'), storage: areaLabel('storage') },
+      areas: Object.fromEntries(customAreas.map(a => [a.key, areaLabel(a.key)])),
       periods: { open: periodLabel('open'), mid: periodLabel('mid'), close: periodLabel('close') },
-      order: labels.order && labels.order.length === 4 ? labels.order : DEFAULT_AREA_ORDER,
+      order: labels.order && labels.order.length === defaultOrder.length ? labels.order : defaultOrder,
+      customAreas,
     })
+    setNewAreaName(''); setNewAreaEmoji('📌')
     setShowLabelSettings(true)
+  }
+
+  // 새 구역 추가 (홀/주방/창고 같은 걸 하나 더 만들기) — 바로 저장돼요
+  async function addCustomArea() {
+    if (!newAreaName.trim()) return
+    const key = `area_${Date.now().toString(36)}`
+    const nextCustomAreas = [...customAreas, { key, label: newAreaName.trim(), emoji: newAreaEmoji || '📌' }]
+    const nextOrder = [...(labels.order && labels.order.length > 0 ? labels.order : ['etc', ...customAreas.map(a => a.key)]), key]
+    await saveLabels({ areas: labels.areas, periods: labels.periods, order: nextOrder, customAreas: nextCustomAreas })
+    setNewAreaName(''); setNewAreaEmoji('📌')
+    setLabelDraft(d => ({ ...d, areas: { ...d.areas, [key]: newAreaName.trim() }, order: nextOrder, customAreas: nextCustomAreas }))
+  }
+
+  // 구역 자체를 완전히 삭제 — 안에 있던 항목과 체크 기록도 함께 사라져요
+  async function deleteCustomArea(key: string) {
+    const areaItems = items.filter(i => i.area === key)
+    const msg = areaItems.length > 0
+      ? `이 구역을 삭제하면 안에 있는 항목 ${areaItems.length}개와 그동안의 체크 기록도 모두 함께 삭제돼요. 되돌릴 수 없어요. 정말 삭제할까요?`
+      : '이 구역을 삭제할까요? 되돌릴 수 없어요.'
+    if (!confirm(msg)) return
+    if (areaItems.length > 0) {
+      const ids = areaItems.map(i => i.id)
+      await supabase.from('checklist_item_checks').delete().in('item_id', ids)
+      await supabase.from('checklist_items').delete().in('id', ids)
+    }
+    const nextCustomAreas = customAreas.filter(a => a.key !== key)
+    const nextOrder = (labels.order && labels.order.length > 0 ? labels.order : ['etc', ...customAreas.map(a => a.key)]).filter(k => k !== key)
+    const nextAreas = { ...labels.areas }; delete nextAreas[key]
+    await saveLabels({ areas: nextAreas, periods: labels.periods, order: nextOrder, customAreas: nextCustomAreas })
+    setLabelDraft(d => {
+      const areasDraft = { ...d.areas }; delete areasDraft[key]
+      return { ...d, areas: areasDraft, order: d.order.filter(k => k !== key), customAreas: nextCustomAreas }
+    })
+    load()
   }
 
   function moveAreaOrder(area: string, dir: -1 | 1) {
@@ -401,7 +449,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
   const etcAllActive = useMemo(() => areaAllActive('etc'), [activeItems])
   const etcFiltered = useMemo(() => areaFiltered('etc'), [activeItems, repeatFilter])
 
-  const areasForPeriod = period === 'close' && isAdmin ? ['hall', 'kitchen', 'storage', 'admin'] : ['hall', 'kitchen', 'storage']
+  const areasForPeriod = period === 'close' && isAdmin ? [...customAreas.map(a => a.key), 'admin'] : customAreas.map(a => a.key)
 
   const structuredSections = areasForPeriod.map(area => {
     const todayList = periodItems.filter(i => i.area === area)
@@ -417,7 +465,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
     doneCount: etcItemsToday.filter(i => (checks[i.id] || []).length > 0).length,
     total: etcItemsToday.length,
   }
-  const areaOrder = labels.order && labels.order.length === 4 ? labels.order : DEFAULT_AREA_ORDER
+  const areaOrder = labels.order && labels.order.length === customAreas.length + 1 ? labels.order : ['etc', ...customAreas.map(a => a.key)]
   const allSections = [etcSection, ...structuredSections]
   const orderedSections = [...allSections].sort((a, b) => {
     const ai = areaOrder.indexOf(a.area); const bi = areaOrder.indexOf(b.area)
@@ -569,7 +617,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
       </div>
 
       {mode === 'stats' ? (
-        <OpsStatsSection items={activeItems} storeId={storeId} supabase={supabase} periodLabels={labels.periods} />
+        <OpsStatsSection items={activeItems} storeId={storeId} supabase={supabase} periodLabels={labels.periods} areaEmoji={areaEmoji} />
       ) : mode === 'weekly' ? (
         <div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
@@ -584,7 +632,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
           </div>
 
           {recurringView === 'weeks' ? (
-            <WeeklyBreakdownView items={recurringActive} storeId={storeId} supabase={supabase} />
+            <WeeklyBreakdownView items={recurringActive} storeId={storeId} supabase={supabase} areaEmoji={areaEmoji} />
           ) : (
           <>
           <div style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '12px 14px', marginBottom: 12 }}>
@@ -637,7 +685,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
               const isDone = doneToday.length > 0
               const isInactive = item.is_active === false
               const isDueToday = appliesOnDate(item, today)
-              const cfg = AREA_CONFIG[item.area]
+              const cfg = { emoji: areaEmoji(item.area) }
               return (
                 <div key={item.id} style={{
                   background: isInactive ? '#F8F9FB' : '#fff',
@@ -723,13 +771,13 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                 )}
                 <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>구역</div>
                 <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                  {(['hall', 'kitchen', 'storage', 'admin', 'etc'] as const).map(a => (
+                  {[...customAreas.map(a => a.key), 'admin', 'etc'].map(a => (
                     <button key={a} onClick={() => setNewRecurringArea(a)} style={{
                       padding: '6px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                       border: newRecurringArea === a ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
                       background: newRecurringArea === a ? 'rgba(108,92,231,0.08)' : '#fff',
                       color: newRecurringArea === a ? '#6C5CE7' : '#888',
-                    }}>{AREA_CONFIG[a].emoji} {areaLabel(a)}</button>
+                    }}>{areaEmoji(a)} {areaLabel(a)}</button>
                   ))}
                 </div>
                 <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>반복주기</div>
@@ -811,13 +859,24 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                   <span style={{ fontSize: 15, fontWeight: 700, color: '#1a1a2e' }}>⚙️ 화면 이름 설정</span>
                   <button onClick={() => setShowLabelSettings(false)} style={{ background: 'none', border: 'none', fontSize: 20, color: '#aaa', cursor: 'pointer' }}>✕</button>
                 </div>
-                <div style={{ fontSize: 11, color: '#aaa', marginBottom: 14 }}>업종에 안 맞으면 이름을 바꿔주세요 (예: 홀→매장, 주방→작업공간)</div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6 }}>구역 이름</div>
-                {(['hall', 'kitchen', 'storage'] as const).map(a => (
-                  <input key={a} value={labelDraft.areas[a] ?? ''} onChange={e => setLabelDraft(d => ({ ...d, areas: { ...d.areas, [a]: e.target.value } }))}
-                    placeholder={AREA_CONFIG[a].label}
-                    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, marginBottom: 8, boxSizing: 'border-box' }} />
+                <div style={{ fontSize: 11, color: '#aaa', marginBottom: 14 }}>업종에 안 맞으면 이름을 바꾸거나, 구역을 새로 만들고 지울 수 있어요</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 6 }}>구역 (이름 수정 · 삭제)</div>
+                {labelDraft.customAreas.map(a => (
+                  <div key={a.key} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 16, flexShrink: 0 }}>{a.emoji}</span>
+                    <input value={labelDraft.areas[a.key] ?? ''} onChange={e => setLabelDraft(d => ({ ...d, areas: { ...d.areas, [a.key]: e.target.value } }))}
+                      placeholder={a.label}
+                      style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, boxSizing: 'border-box' }} />
+                    <button onClick={() => deleteCustomArea(a.key)} style={{ flexShrink: 0, padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', fontSize: 11, cursor: 'pointer' }}>삭제</button>
+                  </div>
                 ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 10, borderRadius: 8, background: '#F8F9FB', border: '1px dashed #C8CCD4', marginBottom: 10 }}>
+                  <input value={newAreaEmoji} onChange={e => setNewAreaEmoji(e.target.value)} maxLength={2}
+                    style={{ width: 40, flexShrink: 0, padding: '9px 4px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 15, textAlign: 'center', boxSizing: 'border-box' }} />
+                  <input value={newAreaName} onChange={e => setNewAreaName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCustomArea()} placeholder="새 구역 이름 (예: 베이커리)"
+                    style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #E0E4E8', fontSize: 13, boxSizing: 'border-box' }} />
+                  <button onClick={addCustomArea} disabled={!newAreaName.trim()} style={{ flexShrink: 0, padding: '9px 12px', borderRadius: 8, border: 'none', background: newAreaName.trim() ? 'linear-gradient(135deg,#FF6B35,#E84393)' : '#E8ECF0', color: newAreaName.trim() ? '#fff' : '#aaa', fontSize: 12, fontWeight: 700, cursor: newAreaName.trim() ? 'pointer' : 'default' }}>추가</button>
+                </div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#888', margin: '10px 0 6px' }}>시간대 이름</div>
                 {(['open', 'mid', 'close'] as const).map(p => (
                   <input key={p} value={labelDraft.periods[p] ?? ''} onChange={e => setLabelDraft(d => ({ ...d, periods: { ...d.periods, [p]: e.target.value } }))}
@@ -828,8 +887,8 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                 <div style={{ fontSize: 10, color: '#bbb', marginBottom: 8 }}>"오늘 체크" 화면에서 구역 카드가 나오는 순서예요</div>
                 {labelDraft.order.map((a, i) => (
                   <div key={a} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', border: '1px solid #E8ECF0', borderRadius: 8, marginBottom: 6, background: '#F8F9FB' }}>
-                    <span style={{ fontSize: 13 }}>{AREA_CONFIG[a]?.emoji}</span>
-                    <span style={{ flex: 1, fontSize: 13, color: '#1a1a2e' }}>{a === 'etc' ? AREA_CONFIG.etc.label : (labelDraft.areas[a] || AREA_CONFIG[a]?.label)}</span>
+                    <span style={{ fontSize: 13 }}>{a === 'etc' ? AREA_CONFIG.etc.emoji : labelDraft.customAreas.find(x => x.key === a)?.emoji}</span>
+                    <span style={{ flex: 1, fontSize: 13, color: '#1a1a2e' }}>{a === 'etc' ? AREA_CONFIG.etc.label : (labelDraft.areas[a] || labelDraft.customAreas.find(x => x.key === a)?.label)}</span>
                     <button onClick={() => moveAreaOrder(a, -1)} disabled={i === 0}
                       style={{ background: 'none', border: 'none', color: i === 0 ? '#eee' : '#888', cursor: i === 0 ? 'default' : 'pointer', fontSize: 14, padding: '2px 6px' }}>▲</button>
                     <button onClick={() => moveAreaOrder(a, 1)} disabled={i === labelDraft.order.length - 1}
@@ -838,7 +897,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                 ))}
                 <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                   <button onClick={async () => { await saveLabels(labelDraft); setShowLabelSettings(false) }} style={{ flex: 1, padding: '11px 0', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#FF6B35,#E84393)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>저장</button>
-                  <button onClick={async () => { await saveLabels({ areas: {}, periods: {}, order: DEFAULT_AREA_ORDER }); setShowLabelSettings(false) }} style={{ padding: '11px 14px', borderRadius: 10, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 13, cursor: 'pointer' }}>기본값으로</button>
+                  <button onClick={async () => { await saveLabels({ areas: {}, periods: {}, order: ['etc', ...customAreas.map(a => a.key)], customAreas }); setShowLabelSettings(false) }} style={{ padding: '11px 14px', borderRadius: 10, border: '1px solid #E8ECF0', background: '#fff', color: '#888', fontSize: 13, cursor: 'pointer' }}>기본값으로</button>
                 </div>
               </div>
             </div>
@@ -880,7 +939,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
           )}
 
           {sectionData.map(({ area, list, doneCount, total }) => {
-            const cfg = AREA_CONFIG[area]
+            const cfg = { emoji: areaEmoji(area) }
             const key = `${period}-${area}`
             const isOpen = expanded.has(key)
             const displayList = list
@@ -911,7 +970,7 @@ function ChecklistMain({ storeId, myName, isAdmin, supabase }: { storeId: string
                     })()}
                     {editMode && (
                       <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                        {(['all', 'none', 'daily', 'weekly', 'monthly'] as const).map(rt => (
+                        {(['all', 'none', 'daily'] as const).map(rt => (
                           <button key={rt} onClick={() => setRepeatFilter(rt)} style={{
                             padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                             border: repeatFilter === rt ? '1.5px solid #6C5CE7' : '1px solid #E8ECF0',
@@ -1065,7 +1124,7 @@ function getWeekDays(y: number, m: number, week: number) {
   return days
 }
 
-function WeeklyBreakdownView({ items, storeId, supabase }: { items: any[]; storeId: string; supabase: any }) {
+function WeeklyBreakdownView({ items, storeId, supabase, areaEmoji }: { items: any[]; storeId: string; supabase: any; areaEmoji: (area: string) => string }) {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -1161,7 +1220,7 @@ function WeeklyBreakdownView({ items, storeId, supabase }: { items: any[]; store
                   {rows.map(r => (
                     <div key={r.item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '4px 0', borderTop: '1px solid #F8F9FB' }}>
                       <span>{r.status === 'done' ? '✅' : r.status === 'upcoming' ? '⏳' : '❌'}</span>
-                      <span style={{ flex: 1, color: '#444' }}>{AREA_CONFIG[r.item.area]?.emoji} {r.item.content}{r.item.repeat_type === 'biweekly' && <span style={{ fontSize: 10, color: '#6C5CE7', marginLeft: 4, fontWeight: 700 }}>격주</span>}{r.item.is_important && <span style={{ color: '#E84393', marginLeft: 4 }}>⭐</span>}</span>
+                      <span style={{ flex: 1, color: '#444' }}>{areaEmoji(r.item.area)} {r.item.content}{r.item.repeat_type === 'biweekly' && <span style={{ fontSize: 10, color: '#6C5CE7', marginLeft: 4, fontWeight: 700 }}>격주</span>}{r.item.is_important && <span style={{ color: '#E84393', marginLeft: 4 }}>⭐</span>}</span>
                       <span style={{ color: '#aaa', fontSize: 10 }}>{r.dateStr?.slice(5).replace('-', '/')}</span>
                     </div>
                   ))}
@@ -1176,7 +1235,7 @@ function WeeklyBreakdownView({ items, storeId, supabase }: { items: any[]; store
 }
 
 // ── 월별 통계 (전체 공개 — 직원도 볼 수 있어요) ──
-function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: any[]; storeId: string; supabase: any; periodLabels: Record<string, string> }) {
+function OpsStatsSection({ items, storeId, supabase, periodLabels, areaEmoji }: { items: any[]; storeId: string; supabase: any; periodLabels: Record<string, string>; areaEmoji: (area: string) => string }) {
   const periodLabel = (p: string) => periodLabels[p] || PERIOD_LABEL[p] || p
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
@@ -1328,7 +1387,7 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
               return (
                 <div key={item.id} style={{ borderBottom: '1px solid #F8F9FB', padding: '8px 0' }}>
                   <div onClick={() => setExpandedItem(isExp ? null : item.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                    <span style={{ fontSize: 13, flexShrink: 0 }}>{AREA_CONFIG[item.area]?.emoji || '📌'}</span>
+                    <span style={{ fontSize: 13, flexShrink: 0 }}>{areaEmoji(item.area) || '📌'}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {item.content}
@@ -1404,7 +1463,7 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
                 <>
                   {(showAllMiss ? missRanking : missRanking.slice(0, 6)).map(({ item, count }) => (
                     <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #F8F9FB' }}>
-                      <span style={{ fontSize: 13, flexShrink: 0 }}>{AREA_CONFIG[item.area]?.emoji || '📌'}</span>
+                      <span style={{ fontSize: 13, flexShrink: 0 }}>{areaEmoji(item.area) || '📌'}</span>
                       <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {item.content}
                         <span style={{ color: '#ccc', marginLeft: 6 }}>{periodLabel(item.time_slot)}</span>
@@ -1447,7 +1506,7 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels }: { items: an
                           return (
                             <div key={i} style={{ fontSize: 11, color: '#666', padding: '3px 0', display: 'flex', gap: 6 }}>
                               <span style={{ color: '#aaa', flexShrink: 0 }}>{c.work_date.slice(5).replace('-', '/')}</span>
-                              <span style={{ flexShrink: 0 }}>{it ? (AREA_CONFIG[it.area]?.emoji || '📌') : '📌'}</span>
+                              <span style={{ flexShrink: 0 }}>{it ? (areaEmoji(it.area) || '📌') : '📌'}</span>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it?.content || '(삭제된 항목)'}</span>
                             </div>
                           )
