@@ -30,7 +30,6 @@ const MORE_ITEMS = [
   { href: '/manual',      ic: '📘', l: '매뉴얼' },
   { href: '/goal',        ic: '🎯', l: '목표매출' },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
-  { href: '/advance',     ic: '💸', l: '선입금' },
   { href: '/settlement',  ic: '💹', l: '결산', superOwnerOnly: true },
   { href: '/mypage',      ic: '👤', l: '마이페이지' },
 ]
