@@ -1229,6 +1229,7 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels, areaEmoji }: 
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [checksByDate, setChecksByDate] = useState<Record<string, Set<string>>>({})
+  const [whoByDate, setWhoByDate] = useState<Record<string, Record<string, { name: string; at: string }[]>>>({})
   const [staffCounts, setStaffCounts] = useState<Record<string, number>>({})
   const [staffChecks, setStaffChecks] = useState<Record<string, { item_id: string; work_date: string }[]>>({})
   const [expandedStaff, setExpandedStaff] = useState<string | null>(null)
@@ -1252,9 +1253,10 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels, areaEmoji }: 
     setShowAllMiss(false)
     setExpandedStaff(null)
     const ids = items.map(i => i.id)
-    const { data } = await supabase.from('checklist_item_checks').select('item_id, work_date, checked_by')
+    const { data } = await supabase.from('checklist_item_checks').select('item_id, work_date, checked_by, checked_at')
       .in('item_id', ids).gte('work_date', monthStart).lte('work_date', monthEnd)
     const map: Record<string, Set<string>> = {}
+    const who: Record<string, Record<string, { name: string; at: string }[]>> = {}
     const staffMap: Record<string, number> = {}
     const staffLog: Record<string, { item_id: string; work_date: string }[]> = {}
     ;(data || []).forEach((c: any) => {
@@ -1263,9 +1265,13 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels, areaEmoji }: 
         staffMap[c.checked_by] = (staffMap[c.checked_by] || 0) + 1
         if (!staffLog[c.checked_by]) staffLog[c.checked_by] = []
         staffLog[c.checked_by].push({ item_id: c.item_id, work_date: c.work_date })
+        if (!who[c.work_date]) who[c.work_date] = {}
+        if (!who[c.work_date][c.item_id]) who[c.work_date][c.item_id] = []
+        who[c.work_date][c.item_id].push({ name: c.checked_by, at: c.checked_at })
       }
     })
     setChecksByDate(map)
+    setWhoByDate(who)
     setStaffCounts(staffMap)
     setStaffChecks(staffLog)
     setLoading(false)
@@ -1513,12 +1519,24 @@ function OpsStatsSection({ items, storeId, supabase, periodLabels, areaEmoji }: 
               {(['open', 'mid', 'close', 'etc'] as const).map(p => {
                 const { done, total } = sel.buckets[p]
                 if (total === 0) return null
-                const missingItems = sel.applicable.filter(i => i.time_slot === p && !sel.doneSet.has(i.id))
+                const periodItems = sel.applicable.filter(i => i.time_slot === p)
+                const doneItems = periodItems.filter(i => sel.doneSet.has(i.id))
+                const missingItems = periodItems.filter(i => !sel.doneSet.has(i.id))
+                const dayWho = whoByDate[selectedDate] || {}
                 return (
                   <div key={p} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: p !== 'etc' ? '1px solid #F4F6F9' : 'none' }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: total > 0 && done === total ? '#00B894' : '#888', marginBottom: 4 }}>{PERIOD_EMOJI[p]} {periodLabel(p)} {done}/{total}</div>
+                    {doneItems.length > 0 && (
+                      <div style={{ fontSize: 11, color: '#00B894', lineHeight: 1.7 }}>
+                        {doneItems.map(i => {
+                          const who = dayWho[i.id] || []
+                          const names = who.map(w => `${w.name}${w.at ? ` (${new Date(w.at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit' })})` : ''}`).join(', ')
+                          return <div key={i.id}>✅ {i.content}{names ? ` — ${names}` : ''}</div>
+                        })}
+                      </div>
+                    )}
                     {missingItems.length > 0 && (
-                      <div style={{ fontSize: 11, color: '#E84393', lineHeight: 1.6 }}>미완료: {missingItems.map(i => i.content).join(', ')}</div>
+                      <div style={{ fontSize: 11, color: '#E84393', lineHeight: 1.6, marginTop: doneItems.length > 0 ? 6 : 0 }}>미완료: {missingItems.map(i => i.content).join(', ')}</div>
                     )}
                   </div>
                 )
