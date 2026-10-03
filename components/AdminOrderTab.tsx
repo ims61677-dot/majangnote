@@ -489,6 +489,10 @@ function AdminConfirmOrderModal({ order, units, onClose, onSaved }: {
 }) {
   const supabase = createSupabaseBrowserClient()
   const [storeSuppliers, setStoreSuppliers] = useState<any[]>([])
+  const [confirmedDate, setConfirmedDate] = useState(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
   const [supplierId, setSupplierId] = useState(order.supplier_id || '')
   const [supplierName, setSupplierName] = useState(order.supplier_name || '')
   const [memo, setMemo] = useState('')
@@ -510,10 +514,14 @@ function AdminConfirmOrderModal({ order, units, onClose, onSaved }: {
   async function handleSubmit() {
     const selSupplier = storeSuppliers.find(s => s.id === supplierId)
     const finalSupplierName = selSupplier?.name || supplierName.trim() || null
+    const now = new Date()
+    const confirmedAtDate = confirmedDate
+      ? new Date(`${confirmedDate}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`)
+      : now
     await supabase.from('orders').update({
       status: 'ordered',
       confirmed_by: '관리자',
-      confirmed_at: new Date().toISOString(),
+      confirmed_at: confirmedAtDate.toISOString(),
       supplier_id: supplierId || null,
       supplier_name: finalSupplierName,
       memo: memo.trim() ? (order.memo ? order.memo + ' / ' + memo.trim() : memo.trim()) : order.memo,
@@ -533,6 +541,12 @@ function AdminConfirmOrderModal({ order, units, onClose, onSaved }: {
         <div style={{ background: '#F8F9FB', borderRadius: 10, padding: '10px 12px', marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>📋 요청 정보</div>
           <div style={{ fontSize: 12, color: '#1a1a2e' }}>{order.ordered_by} · {new Date(order.ordered_at).toLocaleDateString('ko', { month: 'numeric', day: 'numeric' })} {new Date(order.ordered_at).toLocaleTimeString('ko', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
+        </div>
+
+        {/* 주문 날짜 */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>주문 날짜 <span style={{ color: '#aaa', fontWeight: 400 }}>(실제로 주문한 날짜)</span></div>
+          <input type="date" value={confirmedDate} onChange={e => setConfirmedDate(e.target.value)} style={inp} />
         </div>
 
         {/* 발주처 */}
