@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { sendPush } from '@/lib/pushNotify'
+import ReorderModal from './ReorderModal'
 
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
@@ -879,6 +880,7 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
   const [showReceive, setShowReceive] = useState(false)
   const [showIssue, setShowIssue] = useState(false)
   const [showResolve, setShowResolve] = useState(false)
+  const [showReorder, setShowReorder] = useState(false)
   const [logs, setLogs] = useState<any[]>([])
   const [receipt, setReceipt] = useState<any>(null)
   const [issueData, setIssueData] = useState<any>(null)
@@ -906,6 +908,7 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
       {showConfirm && <AdminConfirmOrderModal order={order} units={units} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
       {showReceive && <AdminReceiveModal order={order} onClose={() => setShowReceive(false)} onSaved={onRefresh} />}
       {showIssue && <AdminIssueModal order={order} onClose={() => setShowIssue(false)} onSaved={onRefresh} />}
+      {showReorder && <ReorderModal order={order} userName="관리자" onClose={() => setShowReorder(false)} onSaved={onRefresh} />}
       <div style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${cfg.color}33`, overflow: 'hidden', boxShadow: '0 1px 5px rgba(0,0,0,0.05)' }}>
         <div style={{ background: cfg.headerBg, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1016,6 +1019,13 @@ function AdminOrderCard({ order, suppliers, units, onRefresh }: { order: any; su
           <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
             <button onClick={() => setShowReceive(true)} style={{ flex: 1, padding: '9px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>📦 수령처리</button>
             <button onClick={() => setShowIssue(true)} style={{ width: 80, padding: '9px 0', background: 'rgba(232,67,147,0.08)', border: 'none', borderLeft: '1px solid #F0F2F5', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
+          </div>
+        )}
+
+        {/* 수령완료 → 재주문 요청 */}
+        {order.status === 'received' && (
+          <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
+            <button onClick={() => setShowReorder(true)} style={{ flex: 1, padding: '9px 0', background: 'rgba(255,107,53,0.07)', border: 'none', color: '#FF6B35', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10, borderBottomRightRadius: 10 }}>🔁 재주문 요청</button>
           </div>
         )}
 

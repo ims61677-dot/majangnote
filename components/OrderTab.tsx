@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { sendPush } from '@/lib/pushNotify'
+import ReorderModal from './ReorderModal'
 
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
 
@@ -1356,6 +1357,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, units, 
   const [showConfirm, setShowConfirm] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showResolve, setShowResolve] = useState(false)
+  const [showReorder, setShowReorder] = useState(false)
 
   useEffect(() => { if (expanded) loadDetail() }, [expanded])
   useEffect(() => { if (order.status === 'received' && !receipt) loadReceipt() }, [])
@@ -1394,6 +1396,7 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, units, 
       {showConfirm && <ConfirmOrderModal order={order} userName={userName} suppliers={suppliers} units={units} onClose={() => setShowConfirm(false)} onSaved={onRefresh} />}
       {showEdit && <EditOrderModal order={order} userName={userName} inventoryItems={inventoryItems} units={units} onClose={() => setShowEdit(false)} onSaved={onRefresh} />}
       {showResolve && <ResolveIssueModal order={order} userName={userName} onClose={() => setShowResolve(false)} onSaved={onRefresh} />}
+      {showReorder && <ReorderModal order={order} userName={userName} onClose={() => setShowReorder(false)} onSaved={onRefresh} />}
 
       <div data-order-id={order.id} style={{ background: '#fff', borderRadius: 14, marginBottom: 8, border: `1px solid ${isOverdue ? 'rgba(232,67,147,0.35)' : statusColor[order.status] + '33' || '#E8ECF0'}`, overflow: 'hidden', boxShadow: highlighted ? '0 0 0 3px #6C5CE7, 0 2px 12px rgba(108,92,231,0.25)' : '0 1px 5px rgba(0,0,0,0.05)', transition: 'box-shadow 0.3s' }}>
         <div style={{ background: cfg.headerBg, padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1444,6 +1447,11 @@ function OrderCard({ order, userName, isEdit, suppliers, inventoryItems, units, 
             <button onClick={() => setShowReceive(true)} style={{ flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#00B894,#2DC6D6)', border: 'none', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10 }}>📦 수령처리</button>
             <div style={{ width: 1, background: 'rgba(255,255,255,0.3)' }} />
             <button onClick={() => setShowIssue(true)} style={{ width: 80, padding: '10px 0', background: 'rgba(232,67,147,0.08)', border: 'none', color: '#E84393', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderBottomRightRadius: 10 }}>🚨 이슈</button>
+          </div>
+        )}
+        {order.status === 'received' && (
+          <div style={{ display: 'flex', borderTop: '1px solid #F0F2F5' }}>
+            <button onClick={() => setShowReorder(true)} style={{ flex: 1, padding: '10px 0', background: 'rgba(255,107,53,0.07)', border: 'none', color: '#FF6B35', fontSize: 13, fontWeight: 700, cursor: 'pointer', borderBottomLeftRadius: 10, borderBottomRightRadius: 10 }}>🔁 재주문 요청</button>
           </div>
         )}
         {order.status === 'issue' && (
