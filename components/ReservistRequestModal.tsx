@@ -57,7 +57,7 @@ export default function ReservistRequestModal({ storeId, myName, onClose, onSave
 
       // 증빙 업로드
       const ext = file.name.split('.').pop()
-      const path = `off-requests/reservist-${myName}-${date}-${Date.now()}.${ext}`
+      const path = `off-requests/reservist-${date}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${(ext || 'jpg').replace(/[^a-zA-Z0-9]/g, '') || 'jpg'}`
       const buf = await file.arrayBuffer()
       const { error: upErr } = await supabase.storage.from('staff-documents').upload(path, buf, { upsert: true, contentType: file.type || 'image/jpeg' })
       if (upErr) { alert('증빙 서류 업로드 실패: ' + upErr.message); setSaving(false); return }
