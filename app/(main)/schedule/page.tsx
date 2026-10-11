@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import YearMonthPicker from '@/components/YearMonthPicker'
 import { sendPush } from '@/lib/pushNotify'
-import ReservistRequestModal from '@/components/ReservistRequestModal'
+import { ReservistTab } from '@/components/ReservistRequestModal'
 
 function toDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
@@ -2067,8 +2067,7 @@ export default function SchedulePage() {
   const [pendingCount, setPendingCount] = useState(0)
   const [scheduleSettings, setScheduleSettings] = useState<any>(null)
   const [offRequests, setOffRequests] = useState<any[]>([])
-  const [viewTab, setViewTab] = useState<'grid'|'month'|'manage'>('grid')
-  const [showReservist, setShowReservist] = useState(false)
+  const [viewTab, setViewTab] = useState<'grid'|'month'|'manage'|'reservist'>('grid')
   const [isPC, setIsPC] = useState(false)
   const nowD = new Date()
   const [calYear, setCalYear] = useState(nowD.getFullYear())
@@ -2152,19 +2151,12 @@ export default function SchedulePage() {
     onChangeMonth: handleChangeMonth,
   }
 
-  const reservistBar = !isOwner && storeId ? (
-    <>
-      <button onClick={() => setShowReservist(true)} style={{ width:'100%', padding:'10px 0', marginBottom:14, borderRadius:12, border:'1px dashed rgba(108,92,231,0.4)', background:'rgba(108,92,231,0.06)', color:'#6C5CE7', fontSize:13, fontWeight:700, cursor:'pointer' }}>🪖 예비군 휴무 신청 (증빙 서류 필수)</button>
-      {showReservist && <ReservistRequestModal storeId={storeId} myName={myName} onClose={() => setShowReservist(false)} onSaved={() => { loadOffRequests(storeId, calYear, calMonth); loadData(storeId, calYear, calMonth) }} />}
-    </>
-  ) : null
-
   if (isPC) return (
     <div>
-      {reservistBar}
-      <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16, maxWidth: isOwner ? 480 : 320 }}>
+      <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16, maxWidth: isOwner ? 480 : 440 }}>
         <button style={tabBtn(viewTab==='grid')} onClick={() => setViewTab('grid')}>📊 그리드 편집</button>
         <button style={tabBtn(viewTab==='month')} onClick={() => setViewTab('month')}>📅 월간 보기</button>
+        {!isOwner && <button style={tabBtn(viewTab==='reservist')} onClick={() => setViewTab('reservist')}>🪖 예비군</button>}
         {isOwner && (
           <button style={tabBtn(viewTab==='manage')} onClick={() => setViewTab('manage')}>
             🏢 전지점 관리
@@ -2173,6 +2165,7 @@ export default function SchedulePage() {
         )}
       </div>
       {viewTab==='grid' && <PCGridEditor {...sharedProps} />}
+      {viewTab==='reservist' && !isOwner && <ReservistTab storeId={storeId} myName={myName} onChanged={() => { loadOffRequests(storeId, calYear, calMonth); loadData(storeId, calYear, calMonth) }} />}
       {viewTab==='month' && <MonthlyView year={calYear} month={calMonth} schedules={schedules} onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} role={role} scheduleSettings={scheduleSettings} nowYear={nowYear} nowMonth={nowMonth} />}
       {viewTab==='manage' && isOwner && <ManageView profileId={profileId} myName={myName} year={calYear} month={calMonth} />}
     </div>
@@ -2186,10 +2179,10 @@ export default function SchedulePage() {
           {role==='owner'?'대표':role==='manager'?'관리자':'직원'}
         </span>
       </div>
-      {reservistBar}
       <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:16 }}>
         <button style={tabBtn(viewTab==='grid')} onClick={() => setViewTab('grid')}>📊 그리드</button>
         <button style={tabBtn(viewTab==='month')} onClick={() => setViewTab('month')}>📅 월간</button>
+        {!isOwner && <button style={tabBtn(viewTab==='reservist')} onClick={() => setViewTab('reservist')}>🪖 예비군</button>}
         {isOwner && (
           <button style={{ ...tabBtn(viewTab==='manage'), position:'relative' }} onClick={() => setViewTab('manage')}>
             🏢 관리
@@ -2198,6 +2191,7 @@ export default function SchedulePage() {
         )}
       </div>
       {viewTab==='grid' && <MobileGridEditor {...sharedProps} />}
+      {viewTab==='reservist' && !isOwner && <ReservistTab storeId={storeId} myName={myName} onChanged={() => { loadOffRequests(storeId, calYear, calMonth); loadData(storeId, calYear, calMonth) }} />}
       {viewTab==='month' && <MonthlyView year={calYear} month={calMonth} schedules={schedules} onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} role={role} scheduleSettings={scheduleSettings} nowYear={nowYear} nowMonth={nowMonth} />}
       {viewTab==='manage' && isOwner && <ManageView profileId={profileId} myName={myName} year={calYear} month={calMonth} />}
     </div>

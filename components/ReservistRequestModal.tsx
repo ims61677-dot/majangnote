@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { sendPush } from '@/lib/pushNotify'
 
@@ -121,6 +121,58 @@ export default function ReservistRequestModal({ storeId, myName, onClose, onSave
           <button onClick={onClose} style={{ padding: '11px 16px', borderRadius: 10, background: '#F4F6F9', border: '1px solid #E8ECF0', color: '#888', cursor: 'pointer' }}>취소</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── 스케줄 "🪖 예비군" 탭 화면: 안내 + 신청 버튼 + 내 신청 내역 ───
+
+const STATUS_TEXT: Record<string, { label: string; color: string }> = {
+  pending: { label: '승인 대기', color: '#CC9900' },
+  approved: { label: '승인됨', color: '#00B894' },
+  rejected: { label: '거절됨', color: '#E84393' },
+}
+
+export function ReservistTab({ storeId, myName, onChanged }: { storeId: string; myName: string; onChanged: () => void }) {
+  const supabase = createSupabaseBrowserClient()
+  const [show, setShow] = useState(false)
+  const [list, setList] = useState<any[]>([])
+
+  async function load() {
+    const { data } = await supabase.from('off_requests').select('*').eq('store_id', storeId).eq('staff_name', myName).eq('request_type', 'reservist').order('request_date', { ascending: false })
+    setList(data || [])
+  }
+  useEffect(() => { if (storeId && myName) load() }, [storeId, myName])
+
+  return (
+    <div>
+      <div style={{ background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.2)', borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#6C5CE7', marginBottom: 8 }}>🪖 예비군 휴무 신청</div>
+        <div style={{ fontSize: 12, color: '#555', lineHeight: 1.8 }}>
+          · 증빙 서류(소집통지서 사진)를 올려야 신청할 수 있어요.<br />
+          · 요청 불가 날짜, 요청 기간과 상관없이 신청할 수 있어요.<br />
+          · 같은 날 먼저 휴무를 요청한 사람은 <b>자동 거절</b>되고 알림이 가요.<br />
+          · 스케줄이 나온 뒤 알게 된 경우, 정해진 휴일과 겹치면 별도 휴일은 챙겨주지 않아요.<br />
+          · 예비군 훈련이 끝난 뒤에는 출근이 기본 원칙이에요.
+        </div>
+      </div>
+      <button onClick={() => setShow(true)} style={{ width: '100%', padding: '13px 0', marginBottom: 18, borderRadius: 12, border: 'none', background: 'linear-gradient(135deg,#6C5CE7,#a29bfe)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>🪖 예비군 휴무 신청하기</button>
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#888', marginBottom: 8 }}>내 신청 내역</div>
+      {list.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 24, color: '#bbb', fontSize: 12, background: '#fff', borderRadius: 12, border: '1px solid #E8ECF0' }}>신청 내역이 없어요</div>
+      ) : list.map(r => {
+        const st = STATUS_TEXT[r.status] || { label: r.status, color: '#888' }
+        return (
+          <div key={r.id} style={{ background: '#fff', border: '1px solid #E8ECF0', borderRadius: 12, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{r.request_date}</span>
+            <span style={{ fontSize: 10, color: '#888', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.reason}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: st.color }}>{st.label}</span>
+          </div>
+        )
+      })}
+
+      {show && <ReservistRequestModal storeId={storeId} myName={myName} onClose={() => setShow(false)} onSaved={() => { load(); onChanged() }} />}
     </div>
   )
 }
