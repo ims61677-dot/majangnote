@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import YearMonthPicker from '@/components/YearMonthPicker'
 import { sendPush } from '@/lib/pushNotify'
+import ReservistRequestModal from '@/components/ReservistRequestModal'
 
 function toDateStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
@@ -398,7 +399,8 @@ function CellPopup({ staffName, dateStr, current, role, myName, onSave, onReques
                 ) : canRequestOff ? (
                   <div style={{ padding:'14px', background:'rgba(255,200,0,0.06)', borderRadius:12, border:'1px solid rgba(255,200,0,0.3)' }}>
                     <div style={{ fontSize:12, fontWeight:700, color:'#CC9900', marginBottom:4 }}>🙏 다음 달 휴무 요청</div>
-                    <div style={{ fontSize:10, color:'#aaa', marginBottom:10 }}>사유를 입력하고 요청해주세요</div>
+                    <div style={{ fontSize:10, color:'#aaa', marginBottom:6 }}>사유를 입력하고 요청해주세요</div>
+                    <div style={{ fontSize:10, color:'#E84393', background:'rgba(232,67,147,0.06)', borderRadius:8, padding:'6px 9px', marginBottom:10, lineHeight:1.5 }}>⚠️ 요청해도 같은 날 누군가 예비군 신청을 하면 휴무가 반영되지 않을 수 있어요 (자동 거절 + 알림)</div>
                     <input value={offReason} onChange={e => setOffReason(e.target.value)} placeholder="사유 필수 입력 (예: 병원, 가족행사...)" style={{ width:'100%', padding:'8px 10px', borderRadius:8, background:'#fff', border:'1px solid rgba(255,200,0,0.4)', fontSize:12, outline:'none', boxSizing:'border-box' as const, marginBottom:10 }} />
                     <div style={{ marginBottom:10 }}>
                       <label style={{ display:'block', fontSize:10, color:'#aaa', marginBottom:4 }}>증빙 사진 (선택 — 예비군 소집통지서, 진단서 등)</label>
@@ -1317,7 +1319,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                   {pendingOffReqs.map((req: any) => (
                     <div key={req.id} style={{ background:'#fff', border:'1px solid rgba(255,200,0,0.3)', borderRadius:12, padding:'12px 14px' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
-                        <span style={{ fontSize:9, background:'rgba(255,200,0,0.12)', color:'#CC9900', borderRadius:5, padding:'1px 6px', fontWeight:700 }}>🙏 휴무요청</span>
+                        <span style={{ fontSize:9, background: req.request_type==='reservist' ? 'rgba(108,92,231,0.12)' : 'rgba(255,200,0,0.12)', color: req.request_type==='reservist' ? '#6C5CE7' : '#CC9900', borderRadius:5, padding:'1px 6px', fontWeight:700 }}>{req.request_type==='reservist' ? '🪖 예비군' : '🙏 휴무요청'}</span>
                         <span style={{ fontSize:13, fontWeight:700, color:'#1a1a2e' }}>{req.staff_name}</span>
                         <span style={{ fontSize:11, color:'#bbb' }}>{req.request_date}</span>
                       </div>
@@ -2066,6 +2068,7 @@ export default function SchedulePage() {
   const [scheduleSettings, setScheduleSettings] = useState<any>(null)
   const [offRequests, setOffRequests] = useState<any[]>([])
   const [viewTab, setViewTab] = useState<'grid'|'month'|'manage'>('grid')
+  const [showReservist, setShowReservist] = useState(false)
   const [isPC, setIsPC] = useState(false)
   const nowD = new Date()
   const [calYear, setCalYear] = useState(nowD.getFullYear())
@@ -2149,8 +2152,16 @@ export default function SchedulePage() {
     onChangeMonth: handleChangeMonth,
   }
 
+  const reservistBar = !isOwner && storeId ? (
+    <>
+      <button onClick={() => setShowReservist(true)} style={{ width:'100%', padding:'10px 0', marginBottom:14, borderRadius:12, border:'1px dashed rgba(108,92,231,0.4)', background:'rgba(108,92,231,0.06)', color:'#6C5CE7', fontSize:13, fontWeight:700, cursor:'pointer' }}>🪖 예비군 휴무 신청 (증빙 서류 필수)</button>
+      {showReservist && <ReservistRequestModal storeId={storeId} myName={myName} onClose={() => setShowReservist(false)} onSaved={() => { loadOffRequests(storeId, calYear, calMonth); loadData(storeId, calYear, calMonth) }} />}
+    </>
+  ) : null
+
   if (isPC) return (
     <div>
+      {reservistBar}
       <div style={{ display:'flex', background:'#E8ECF0', borderRadius:12, padding:4, marginBottom:16, maxWidth: isOwner ? 480 : 320 }}>
         <button style={tabBtn(viewTab==='grid')} onClick={() => setViewTab('grid')}>📊 그리드 편집</button>
         <button style={tabBtn(viewTab==='month')} onClick={() => setViewTab('month')}>📅 월간 보기</button>
@@ -2175,6 +2186,7 @@ export default function SchedulePage() {
           {role==='owner'?'대표':role==='manager'?'관리자':'직원'}
         </span>
       </div>
+      {reservistBar}
       <div style={{ display:'flex', background:'#F4F6F9', borderRadius:12, padding:4, marginBottom:16 }}>
         <button style={tabBtn(viewTab==='grid')} onClick={() => setViewTab('grid')}>📊 그리드</button>
         <button style={tabBtn(viewTab==='month')} onClick={() => setViewTab('month')}>📅 월간</button>
