@@ -144,6 +144,18 @@ export function ReservistTab({ storeId, myName, onChanged }: { storeId: string; 
   }
   useEffect(() => { if (storeId && myName) load() }, [storeId, myName])
 
+  async function handleDelete(r: any) {
+    const msg = r.status === 'approved'
+      ? `${r.request_date} 예비군 신청은 이미 승인됐어요.\n삭제하면 휴무 확정도 취소돼요. 삭제할까요?`
+      : `${r.request_date} 예비군 신청을 삭제할까요?`
+    if (!confirm(msg)) return
+    const { error } = await supabase.from('off_requests').delete().eq('id', r.id)
+    if (error) { alert('삭제하지 못했어요: ' + error.message); return }
+    if (r.attachment_path) await supabase.storage.from('staff-documents').remove([r.attachment_path])
+    if (r.status !== 'rejected') sendPush('request', storeId, '🪖 예비군 신청 취소', `${myName}님이 ${r.request_date} 예비군 신청을 삭제했습니다`, '/schedule', undefined, ['owner', 'manager'])
+    load(); onChanged()
+  }
+
   return (
     <div>
       <div style={{ background: 'rgba(108,92,231,0.06)', border: '1px solid rgba(108,92,231,0.2)', borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
@@ -168,6 +180,7 @@ export function ReservistTab({ storeId, myName, onChanged }: { storeId: string; 
             <span style={{ fontSize: 13, fontWeight: 700, color: '#1a1a2e' }}>{r.request_date}</span>
             <span style={{ fontSize: 10, color: '#888', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.reason}</span>
             <span style={{ fontSize: 11, fontWeight: 700, color: st.color }}>{st.label}</span>
+            <button onClick={() => handleDelete(r)} style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, border: '1px solid rgba(232,67,147,0.3)', background: '#fff', color: '#E84393', cursor: 'pointer' }}>삭제</button>
           </div>
         )
       })}
