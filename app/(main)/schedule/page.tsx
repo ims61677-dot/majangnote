@@ -1716,11 +1716,11 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
         />
       )}
       <div style={{ overflowX:'auto', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 1px 6px rgba(0,0,0,0.05)' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed', minWidth:600, userSelect:'none' }}>
-          <colgroup><col style={{ width:90 }} />{visibleStaff.map((_,i) => <col key={i} />)}<col style={{ width:44 }} /></colgroup>
+        <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed', minWidth: 58 + visibleStaff.length * 58 + 44, userSelect:'none' }}>
+          <colgroup><col style={{ width:58 }} />{visibleStaff.map((_,i) => <col key={i} style={{ width:58 }} />)}<col style={{ width:44 }} /></colgroup>
           <thead>
             <tr>
-              <th style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'2px solid #E8ECF0', padding:'10px 8px', fontSize:10, color:'#aaa', fontWeight:700, textAlign:'left', position:'sticky', top:0, zIndex:3 }}>날짜</th>
+              <th style={{ background:'#F8F9FB', borderBottom:'2px solid #E8ECF0', borderRight:'2px solid #E8ECF0', padding:'10px 4px', fontSize:10, color:'#aaa', fontWeight:700, textAlign:'left', position:'sticky', top:0, left:0, zIndex:4 }}>날짜</th>
               {visibleStaff.map(name => {
                 const staffPendingCnt = (isFuture && requestOpen) ? offRequests.filter(r => r.staff_name === name && r.status === 'pending').length : 0
                 const staffApprovedCnt = (isFuture && requestOpen) ? offRequests.filter(r => r.staff_name === name && r.status === 'approved').length : 0
@@ -1752,14 +1752,14 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
               const workCnt = visibleStaff.filter(s => { const sc = scheduleMap[`${s}-${dateStr}`]; return sc && (sc.status==='work'||sc.status==='half'||sc.status==='early') }).length
               return (
                 <tr key={day} style={{ background: isSun?'rgba(232,67,147,0.025)':isSat?'rgba(108,92,231,0.025)':isToday?'rgba(108,92,231,0.04)':'#fff', borderTop: dow===1&&day!==1?'2px solid #D0D4E8':undefined }}>
-                  <td style={{ borderBottom:'1px solid #ECEEF2', borderRight:'2px solid #E8ECF0', padding:'0 8px', height:44, background: isSun||holidays[dateStr]?'rgba(232,67,147,0.06)':isSat?'rgba(108,92,231,0.05)':isToday?'rgba(108,92,231,0.07)':'#FAFBFC', position:'sticky', left:0, zIndex:1 }}>
+                  <td style={{ borderBottom:'1px solid #ECEEF2', borderRight:'2px solid #E8ECF0', padding:'0 4px', height:44, background: isSun||holidays[dateStr]?'#FBEFF4':isSat?'#F5F3FC':isToday?'#F1EFFC':'#FAFBFC', position:'sticky', left:0, zIndex:2, boxShadow:'2px 0 3px rgba(0,0,0,0.06)' }}>
                     <div style={{ display:'flex', flexDirection:'column', justifyContent:'center', gap:1 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                         <span style={{ fontSize:13, fontWeight:isToday?700:500, color:isToday?'#6C5CE7':(isSun||holidays[dateStr])?'#E84393':isSat?'#6C5CE7':'#1a1a2e', lineHeight:1 }}>{day}</span>
                         <span style={{ fontSize:10, fontWeight:600, color:(isSun||holidays[dateStr])?'#E84393':isSat?'#6C5CE7':'#bbb', lineHeight:1 }}>{DOW_LABEL[dow]}</span>
                         {isToday && <span style={{ fontSize:8, background:'#6C5CE7', color:'#fff', borderRadius:3, padding:'1px 4px', fontWeight:700 }}>오늘</span>}
                       </div>
-                      {holidays[dateStr] && <span style={{ fontSize:8, color:'#E84393', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:78, lineHeight:1.2 }}>{holidays[dateStr]}</span>}
+                      {holidays[dateStr] && <span style={{ fontSize:8, color:'#E84393', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:50, lineHeight:1.2 }}>{holidays[dateStr]}</span>}
                     </div>
                   </td>
                   {visibleStaff.map(staff => {
