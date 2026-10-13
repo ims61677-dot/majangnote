@@ -2069,6 +2069,9 @@ export default function SchedulePage() {
   const [offRequests, setOffRequests] = useState<any[]>([])
   const [viewTab, setViewTab] = useState<'grid'|'month'|'manage'|'reservist'>('grid')
   const [isPC, setIsPC] = useState(false)
+  const [mobileTable, setMobileTable] = useState(true)
+  useEffect(() => { try { const v = localStorage.getItem('schedule_mobile_table'); if (v === '0') setMobileTable(false) } catch {} }, [])
+  function toggleMobileTable(v: boolean) { setMobileTable(v); try { localStorage.setItem('schedule_mobile_table', v ? '1' : '0') } catch {} }
   const nowD = new Date()
   const [calYear, setCalYear] = useState(nowD.getFullYear())
   const [calMonth, setCalMonth] = useState(nowD.getMonth())
@@ -2190,7 +2193,16 @@ export default function SchedulePage() {
           </button>
         )}
       </div>
-      {viewTab==='grid' && <MobileGridEditor {...sharedProps} />}
+      {viewTab==='grid' && (
+        <>
+          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
+            <button onClick={() => toggleMobileTable(!mobileTable)} style={{ fontSize:11, fontWeight:600, padding:'5px 12px', borderRadius:8, border:'1px solid #E0E4E8', background:'#fff', color:'#6C5CE7', cursor:'pointer' }}>
+              {mobileTable ? '📱 직원별 보기로 전환' : '📊 표(PC) 보기로 전환'}
+            </button>
+          </div>
+          {mobileTable ? <PCGridEditor {...sharedProps} /> : <MobileGridEditor {...sharedProps} />}
+        </>
+      )}
       {viewTab==='reservist' && !isOwner && <ReservistTab storeId={storeId} myName={myName} onChanged={() => { loadOffRequests(storeId, calYear, calMonth); loadData(storeId, calYear, calMonth) }} />}
       {viewTab==='month' && <MonthlyView year={calYear} month={calMonth} schedules={schedules} onChangeMonth={handleChangeMonth} selectedDate={selectedDate} onDayClick={setSelectedDate} role={role} scheduleSettings={scheduleSettings} nowYear={nowYear} nowMonth={nowMonth} />}
       {viewTab==='manage' && isOwner && <ManageView profileId={profileId} myName={myName} year={calYear} month={calMonth} />}
