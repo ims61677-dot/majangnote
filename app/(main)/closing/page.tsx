@@ -1306,6 +1306,7 @@ export default function ClosingPage() {
   const autoSaveTimer = useRef<any>(null)
   const prevDataRef = useRef<any>(null)
   const isSavingRef = useRef(false)
+  const pendingSaveRef = useRef(false) // 저장 중에 들어온 자동저장 요청 (끝난 뒤 최신 값으로 한 번 더 저장)
 
   const writerRef = useRef('')
   const closeStaffRef = useRef('')
@@ -1715,7 +1716,8 @@ export default function ClosingPage() {
     _sales: Record<string, number>, _counts: Record<string, number>, _cancelCounts: Record<string, number>
   ) {
     if (!storeId) return
-    if (!isAuto && isSavingRef.current) return // 중복 클릭 방지 (수동 저장 버튼 연타)
+    // ★ 저장은 항상 한 번에 하나만! 동시에 돌면 delete→insert가 겹쳐서 매출 행이 중복 저장돼요 (달력 금액이 2배로 보이던 원인)
+    if (isSavingRef.current) { if (isAuto) pendingSaveRef.current = true; return }
     if (isSaved && !isManager && selectedDate !== todayStr) {
       if (!isAuto) alert('저장된 마감일지는 매니저/대표만 수정할 수 있습니다.')
       return
@@ -1825,6 +1827,7 @@ export default function ClosingPage() {
     } finally {
       if (!isAuto) setIsSaving(false)
       isSavingRef.current = false
+      if (pendingSaveRef.current) { pendingSaveRef.current = false; setTimeout(() => saveNow(), 50) }
     }
   }
 
