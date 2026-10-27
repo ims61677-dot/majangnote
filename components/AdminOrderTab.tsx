@@ -4,6 +4,19 @@ import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { sendPush } from '@/lib/pushNotify'
 import ReorderModal from './ReorderModal'
 
+// Supabase는 한 번에 최대 1000줄까지만 돌려줘서, 전 지점 발주처럼 많은 데이터는 나눠서 모두 가져와요
+async function fetchAllRows(query: (from: number, to: number) => PromiseLike<{ data: any[] | null; error: any }>): Promise<any[]> {
+  const PAGE = 1000
+  const all: any[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await query(from, from + PAGE - 1)
+    if (error || !data) break
+    all.push(...data)
+    if (data.length < PAGE) break
+  }
+  return all
+}
+
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
 
@@ -1059,8 +1072,8 @@ function AdminStats({ allOrders: allOrdersProp, selYear, selMonth, onYearMonthCh
   useEffect(() => { loadAllTime() }, [])
 
   async function loadAllTime() {
-    const { data } = await supabase.from('orders').select('id,item_name,quantity,unit,ordered_at,settlement_amount,store_id')
-    setAllTimeOrders(data || [])
+    const data = await fetchAllRows((from, to) => supabase.from('orders').select('id,item_name,quantity,unit,ordered_at,settlement_amount,store_id').order('ordered_at', { ascending: false }).range(from, to))
+    setAllTimeOrders(data)
   }
 
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -1538,11 +1551,11 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
 
   async function loadAll() {
     setLoading(true)
-    const [ordersRes, suppliersRes] = await Promise.all([
-      supabase.from('orders').select('*').order('ordered_at', { ascending: false }),
+    const [ordersData, suppliersRes] = await Promise.all([
+      fetchAllRows((from, to) => supabase.from('orders').select('*').order('ordered_at', { ascending: false }).order('id').range(from, to)),
       supabase.from('order_suppliers').select('*').order('created_at'),
     ])
-    setAllOrders(ordersRes.data || [])
+    setAllOrders(ordersData)
     setSuppliers(suppliersRes.data || [])
     loadUnits()
     setLoading(false)
