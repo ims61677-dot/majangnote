@@ -24,6 +24,17 @@ function AttachmentLink({ path }: { path?: string | null }) {
     </a>
   )
 }
+// 휴무 신청이 승인되면 스케줄에도 '휴일 + 확정잠금'으로 자동 반영
+async function applyApprovedOff(supabase: any, storeId: string, staffName: string, date: string) {
+  await supabase.from('schedules').upsert(
+    { store_id: storeId, staff_name: staffName, schedule_date: date, status: 'off', position: null, note: null, is_confirmed: true },
+    { onConflict: 'store_id,staff_name,schedule_date' }
+  )
+}
+// 승인됐던 휴무를 취소/거절하면 자동으로 잠겨 있던 휴일도 함께 해제
+async function releaseApprovedOff(supabase: any, storeId: string, staffName: string, date: string) {
+  await supabase.from('schedules').delete().eq('store_id', storeId).eq('staff_name', staffName).eq('schedule_date', date).eq('status', 'off').eq('is_confirmed', true)
+}
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate()
 }
@@ -1190,7 +1201,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                                   const sc = schedMap[`${name}-${dateStr}`]; const offR = sOffReqMap[`${name}-${dateStr}`]
                                   const inDrag = manageDragSel?.sid === sid && manageDragSel?.staff === name && day >= Math.min(manageDragSel.startDay, manageDragSel.endDay) && day <= Math.max(manageDragSel.startDay, manageDragSel.endDay)
                                   const takenByOtherM = sIsFuture && sRequestOpen && !offR ? (sOffReqs||[]).find((r:any) => r.request_date===dateStr && r.staff_name!==name && (r.status==='pending'||r.status==='approved')) : null
-                                  let cellBg = inDrag ? 'rgba(108,92,231,0.22)' : sc ? (sc.is_confirmed ? 'rgba(232,67,147,0.13)' : STATUS_BG[sc.status]) : offR?.status==='approved' ? 'rgba(232,67,147,0.22)' : offR?.status==='pending' ? 'rgba(255,200,0,0.15)' : isDayBlocked ? 'rgba(200,200,200,0.15)' : takenByOtherM ? 'rgba(220,220,220,0.2)' : undefined
+                                  let cellBg = inDrag ? 'rgba(108,92,231,0.22)' : sc ? STATUS_BG[sc.status] : offR?.status==='approved' ? 'rgba(232,67,147,0.22)' : offR?.status==='pending' ? 'rgba(255,200,0,0.15)' : isDayBlocked ? 'rgba(200,200,200,0.15)' : takenByOtherM ? 'rgba(220,220,220,0.2)' : undefined
                                   return (
                                     <td key={name}
                                       onMouseDown={() => { manageMouseDown.current = true; const drag = { sid, staff: name, startDay: day, endDay: day }; manageDragRef.current = drag; setManageDragSel(drag) }}
@@ -1201,11 +1212,10 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                                         if (inDrag) return <span style={{ fontSize:10, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                                         if (sc) return (
                                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0, width:'100%', height:'100%', position:'relative' }}>
-                                            {sc.is_confirmed && <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:'#E84393' }} />}
-                                            <span style={{ fontSize:8, fontWeight:700, color: sc.is_confirmed ? '#E84393' : STATUS_COLOR[sc.status], lineHeight:1.3, marginTop: sc.is_confirmed ? 2 : 0 }}>{sc.is_confirmed ? '🔒' : STATUS_LABEL[sc.status]}</span>
-                                            {sc.is_confirmed && <span style={{ fontSize:6, color:'#E84393', fontWeight:700 }}>{STATUS_LABEL[sc.status]}</span>}
-                                            {!sc.is_confirmed && sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
-                                            {sc.note && !sc.is_confirmed && <span title={sc.note} style={{ fontSize:6, color:'#FF6B35', maxWidth:32, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sc.note.replace(/^\[조퇴:\d{2}:\d{2}\]\s*/,'')}</span>}
+                                            {sc.is_confirmed && <span style={{ position:'absolute', top:0, right:1, fontSize:6, lineHeight:1 }}>🔒</span>}
+                                            <span style={{ fontSize:8, fontWeight:700, color: STATUS_COLOR[sc.status], lineHeight:1.3 }}>{STATUS_LABEL[sc.status]}</span>
+                                            {sc.position && <span style={{ fontSize:7, color:POS_COLOR[sc.position], fontWeight:700 }}>{sc.position}</span>}
+                                            {sc.note && <span title={sc.note} style={{ fontSize:6, color:'#FF6B35', maxWidth:32, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sc.note.replace(/^\[조퇴:\d{2}:\d{2}\]\s*/,'')}</span>}
                                             {offR?.status==='pending' && <span style={{ fontSize:8 }}>🙏</span>}
                                             {offR?.status==='approved' && <span style={{ fontSize:8 }}>✅</span>}
                                           </div>
@@ -1330,7 +1340,7 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
                       <div style={{ fontSize:10, color:'#bbb', marginBottom:8 }}>{new Date(req.created_at).toLocaleDateString('ko')}</div>
                       <div style={{ display:'flex', gap:8 }}>
                         <button onClick={async () => { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', req.id); sendPush('schedule', sid, '❌ 휴무 거절', `${req.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, req.staff_name); loadAll() }} style={{ flex:1, padding:'8px 0', borderRadius:9, background:'#F4F6F9', border:'1px solid #E8ECF0', color:'#aaa', fontSize:12, cursor:'pointer', fontWeight:600 }}>거부</button>
-                        <button onClick={async () => { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', req.id); sendPush('schedule', sid, '✅ 휴무 승인', `${req.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, req.staff_name); loadAll() }} style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#00B894,#6C5CE7)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700 }}>✓ 승인</button>
+                        <button onClick={async () => { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', req.id); await applyApprovedOff(supabase, sid, req.staff_name, req.request_date); sendPush('schedule', sid, '✅ 휴무 승인', `${req.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, req.staff_name); loadAll() }} style={{ flex:2, padding:'8px 0', borderRadius:9, background:'linear-gradient(135deg,#00B894,#6C5CE7)', border:'none', color:'#fff', fontSize:12, cursor:'pointer', fontWeight:700 }}>✓ 승인</button>
                       </div>
                     </div>
                   ))}
@@ -1419,18 +1429,21 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
             onOffRequestApprove={async () => {
               if (!editOffReq) return
               await supabase.from('off_requests').update({ status: 'approved' }).eq('id', editOffReq.id)
+              await applyApprovedOff(supabase, editPopup.sid, editOffReq.staff_name, editOffReq.request_date)
               sendPush('schedule', editPopup.sid, '✅ 휴무 승인', `${editOffReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, editOffReq.staff_name)
               setEditPopup(null); loadAll()
             }}
             onOffRequestReject={async () => {
               if (!editOffReq) return
               await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', editOffReq.id)
+              if (editOffReq.status === 'approved') await releaseApprovedOff(supabase, editPopup.sid, editOffReq.staff_name, editOffReq.request_date)
               sendPush('schedule', editPopup.sid, '❌ 휴무 거절', `${editOffReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, editOffReq.staff_name)
               setEditPopup(null); loadAll()
             }}
             onOffRequestCancel={async () => {
               if (!editOffReq) return
               await supabase.from('off_requests').delete().eq('id', editOffReq.id)
+              if (editOffReq.status === 'approved') await releaseApprovedOff(supabase, editPopup.sid, editOffReq.staff_name, editOffReq.request_date)
               setEditPopup(null); loadAll()
             }}
           />
@@ -1642,9 +1655,9 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
         const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq && !takenByOther2
         return <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} offRequest={offReq} canRequestOff={canReqOff} isBlocked={isBlocked2}
           onOffRequest={async (reason, attachmentPath) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending', attachment_path: attachmentPath || null }); sendPush('request', storeId, '🙏 휴무 신청', `${popup.staff}님이 휴무를 신청했습니다 (${popup.date})`, '/schedule', undefined, ['owner','manager']); onOffRequestsChange() }}
-          onOffRequestCancel={async () => { if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); onOffRequestsChange() } }}
-          onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); sendPush('schedule', storeId, '✅ 휴무 승인', `${offReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
-          onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); sendPush('schedule', storeId, '❌ 휴무 거절', `${offReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
+          onOffRequestCancel={async () => { if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); if (offReq.status === 'approved') { await releaseApprovedOff(supabase, storeId, offReq.staff_name, offReq.request_date); onSaved() } onOffRequestsChange() } }}
+          onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); await applyApprovedOff(supabase, storeId, offReq.staff_name, offReq.request_date); sendPush('schedule', storeId, '✅ 휴무 승인', `${offReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onSaved(); onOffRequestsChange() } }}
+          onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); if (offReq.status === 'approved') { await releaseApprovedOff(supabase, storeId, offReq.staff_name, offReq.request_date); onSaved() } sendPush('schedule', storeId, '❌ 휴무 거절', `${offReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
         />
       })()}
       {bulkTarget && <BulkPopup staffName={bulkTarget.staff} dates={bulkTarget.dates} onApply={handleBulkApply} onClose={() => setBulkTarget(null)} />}
@@ -1769,7 +1782,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                     const canRequestOff = isFuture && requestOpen && !isOwner && isMine && !isBlocked && !offReq && !takenByOther
                     const clickable = canClick(staff, !!sc); const inDrag = isCellInDrag(staff, day); const otherCanView = isFuture && requestOpen && !isOwner && !isMine && !!offReq
                     let earlyTimeDisplay = ''; if (sc?.status === 'early' && sc?.note) { const m = sc.note.match(/^\[조퇴:(\d{2}:\d{2})\]/); if (m) earlyTimeDisplay = m[1] }
-                    let cellBg: string | undefined = sc ? (sc.is_confirmed ? 'rgba(232,67,147,0.13)' : STATUS_BG[sc.status]) : undefined
+                    let cellBg: string | undefined = sc ? STATUS_BG[sc.status] : undefined
                     if (inDrag) cellBg = 'rgba(108,92,231,0.18)'; else if (!sc && offReq?.status === 'approved') cellBg = 'rgba(232,67,147,0.22)'; else if (!sc && offReq?.status === 'pending' && isMine) cellBg = 'rgba(255,200,0,0.12)'; else if (!sc && offReq?.status === 'pending' && !isMine) cellBg = 'rgba(108,92,231,0.05)'; else if (!sc && takenByOther) cellBg = 'rgba(220,220,220,0.25)'; else if (isBlocked) cellBg = 'rgba(200,200,200,0.1)'
                     const isNaturallyBlocked = !!takenByOther || isBlocked
                     return (
@@ -1779,12 +1792,11 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
                         {inDrag ? <span style={{ fontSize:14, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                         : sc ? (
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, height:'100%', padding:'2px 3px', position:'relative' }}>
-                            {sc.is_confirmed && <div style={{ position:'absolute', top:0, left:0, right:0, height:2, background:'#E84393', borderRadius:'0 0 2px 2px' }} />}
-                            <span style={{ fontSize:10, fontWeight:700, color: sc.is_confirmed ? '#E84393' : STATUS_COLOR[sc.status] }}>{sc.is_confirmed ? '🔒' : STATUS_LABEL[sc.status]}</span>
-                            {!sc.is_confirmed && earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
-                            {!sc.is_confirmed && sc.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[sc.position] }}>{sc.position}</span>}
-                            {sc.is_confirmed && <span style={{ fontSize:8, fontWeight:700, color:'#E84393' }}>{STATUS_LABEL[sc.status]}</span>}
-                            {!sc.is_confirmed && sc.note && !earlyTimeDisplay && <span title={sc.note} style={{ fontSize:8, color:'#FF6B35', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{sc.note}</span>}
+                            {sc.is_confirmed && <span style={{ position:'absolute', top:1, right:2, fontSize:8, lineHeight:1 }}>🔒</span>}
+                            <span style={{ fontSize:10, fontWeight:700, color: STATUS_COLOR[sc.status] }}>{STATUS_LABEL[sc.status]}</span>
+                            {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
+                            {sc.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[sc.position] }}>{sc.position}</span>}
+                            {sc.note && !earlyTimeDisplay && <span title={sc.note} style={{ fontSize:8, color:'#FF6B35', maxWidth:60, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block' }}>{sc.note}</span>}
                             {offReq?.status === 'pending' && <span style={{ fontSize:8 }}>🙏</span>}
                           </div>
                         ) : offReq?.status === 'approved' ? (
@@ -1912,9 +1924,9 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
         const canReqOff = isFuture && requestOpen && !isOwner && popup.staff === myName && !isBlocked2 && !offReq && !takenByOther2
         return <CellPopup staffName={popup.staff} dateStr={popup.date} current={popupData} role={role} myName={myName} onSave={handleSave} onRequest={handleRequest} onDelete={handleDelete} onClose={() => setPopup(null)} offRequest={offReq} canRequestOff={canReqOff} isBlocked={isBlocked2}
           onOffRequest={async (reason, attachmentPath) => { const pad = (n: number) => String(n).padStart(2,'0'); const targetMonth = `${year}-${pad(month+1)}`; await supabase.from('off_requests').insert({ store_id: storeId, staff_name: popup.staff, target_month: targetMonth, request_date: popup.date, reason, status: 'pending', attachment_path: attachmentPath || null }); sendPush('request', storeId, '🙏 휴무 신청', `${popup.staff}님이 휴무를 신청했습니다 (${popup.date})`, '/schedule', undefined, ['owner','manager']); onOffRequestsChange() }}
-          onOffRequestCancel={async () => { if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); onOffRequestsChange() } }}
-          onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); sendPush('schedule', storeId, '✅ 휴무 승인', `${offReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
-          onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); sendPush('schedule', storeId, '❌ 휴무 거절', `${offReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
+          onOffRequestCancel={async () => { if (offReq) { await supabase.from('off_requests').delete().eq('id', offReq.id); if (offReq.status === 'approved') { await releaseApprovedOff(supabase, storeId, offReq.staff_name, offReq.request_date); onSaved() } onOffRequestsChange() } }}
+          onOffRequestApprove={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'approved' }).eq('id', offReq.id); await applyApprovedOff(supabase, storeId, offReq.staff_name, offReq.request_date); sendPush('schedule', storeId, '✅ 휴무 승인', `${offReq.staff_name}님의 휴무 신청이 승인되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onSaved(); onOffRequestsChange() } }}
+          onOffRequestReject={async () => { if (offReq) { await supabase.from('off_requests').update({ status: 'rejected' }).eq('id', offReq.id); if (offReq.status === 'approved') { await releaseApprovedOff(supabase, storeId, offReq.staff_name, offReq.request_date); onSaved() } sendPush('schedule', storeId, '❌ 휴무 거절', `${offReq.staff_name}님의 휴무 신청이 거절되었습니다`, '/schedule', undefined, undefined, offReq.staff_name); onOffRequestsChange() } }}
         />
       })()}
       {showRequests && <RequestPanel storeId={storeId} myName={myName} onClose={() => setShowRequests(false)} onApproved={() => { onSaved(); setShowRequests(false) }} />}
@@ -1950,7 +1962,7 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                 const canReqOffM = isFuture && requestOpen && !isOwner && isMineM && !isBlockedM && !offReqM && !takenByOtherM
                 const dow=new Date(dateStr).getDay(); const isToday=dateStr===today; const isSun=dow===0; const isSat=dow===6; const clickable=canClick(staff,!!s); const selKey = `${staff}|${dateStr}`; const isSelected = selected.has(selKey)
                 let earlyTimeDisplay = ''; if (s?.status === 'early' && s?.note) { const m = s.note.match(/^\[조퇴:(\d{2}:\d{2})\]/); if (m) earlyTimeDisplay = m[1] }
-                let mobileBg = isSelected ? 'rgba(108,92,231,0.2)' : s ? (s.is_confirmed ? 'rgba(232,67,147,0.13)' : STATUS_BG[s.status]) : isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff'
+                let mobileBg = isSelected ? 'rgba(108,92,231,0.2)' : s ? STATUS_BG[s.status] : isToday?'rgba(108,92,231,0.03)':isSun||isSat?'#FAFBFC':'#fff'
                 if (!s && offReqM?.status === 'approved') mobileBg = 'rgba(232,67,147,0.22)'; else if (!s && offReqM?.status === 'pending' && isMineM) mobileBg = 'rgba(255,200,0,0.12)'; else if (!s && offReqM?.status === 'pending' && !isMineM) mobileBg = 'rgba(108,92,231,0.05)'; else if (!s && takenByOtherM) mobileBg = 'rgba(220,220,220,0.25)'
                 const isNatBlockedM = !!takenByOtherM || isBlockedM
                 return (
@@ -1959,12 +1971,10 @@ function MobileGridEditor({ year, month, schedules, staffList, role, storeId, my
                     {isSelected ? <span style={{ fontSize:16, color:'#6C5CE7', fontWeight:700 }}>✓</span>
                     : s ? (
                       <>
-                        {s.is_confirmed && <div style={{ height:2, background:'#E84393', width:'100%', borderRadius:'0 0 2px 2px', marginBottom:1 }} />}
-                        <span style={{ fontSize:9, fontWeight:700, color: s.is_confirmed ? '#E84393' : STATUS_COLOR[s.status] }}>{s.is_confirmed ? '🔒' : STATUS_LABEL[s.status]}</span>
-                        {s.is_confirmed && <span style={{ fontSize:7, fontWeight:700, color:'#E84393' }}>{STATUS_LABEL[s.status]}</span>}
-                        {!s.is_confirmed && earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
-                        {!s.is_confirmed && s.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[s.position]||'#888' }}>{s.position}</span>}
-                        {!s.is_confirmed && s.note && !earlyTimeDisplay && <span style={{ fontSize:7, color:'#999', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>{s.note}</span>}
+                        <span style={{ fontSize:9, fontWeight:700, color: STATUS_COLOR[s.status] }}>{STATUS_LABEL[s.status]}{s.is_confirmed && <span style={{ fontSize:8, marginLeft:1 }}>🔒</span>}</span>
+                        {earlyTimeDisplay && <span style={{ fontSize:8, color:'#00B894', fontWeight:600 }}>{earlyTimeDisplay}</span>}
+                        {s.position && <span style={{ fontSize:9, fontWeight:700, color:POS_COLOR[s.position]||'#888' }}>{s.position}</span>}
+                        {s.note && !earlyTimeDisplay && <span style={{ fontSize:7, color:'#999', maxWidth:40, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>{s.note}</span>}
                       </>
                     ) : offReqM?.status === 'approved' ? (
                       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:0, width:'100%' }}>
