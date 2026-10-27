@@ -1453,7 +1453,8 @@ function ManageView({ profileId, myName, year: initYear, month: initMonth }: {
   )
 }
 
-function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onReorderStaff, onChangeMonth, pendingCount, scheduleSettings, offRequests, nowYear, nowMonth, onOffRequestsChange, onSettingsChange }: {
+function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName, onSaved, onReorderStaff, onChangeMonth, pendingCount, scheduleSettings, offRequests, nowYear, nowMonth, onOffRequestsChange, onSettingsChange, compact }: {
+  compact?: boolean
   year: number; month: number; schedules: any[]
   staffList: string[]; role: string; storeId: string; myName: string
   onSaved: () => void; onReorderStaff: (newOrder: string[]) => void
@@ -1728,7 +1729,7 @@ function PCGridEditor({ year, month, schedules, staffList, role, storeId, myName
           onSaveBlockedDates={async (dates) => { const { error } = await supabase.from('schedule_settings').upsert({ store_id: storeId, blocked_dates: dates, updated_at: new Date().toISOString() }, { onConflict: 'store_id' }); if (error) alert('저장 실패: ' + error.message); else onSettingsChange() }}
         />
       )}
-      <div style={{ overflowX:'auto', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 1px 6px rgba(0,0,0,0.05)' }}>
+      <div style={{ overflowX:'auto', borderRadius:14, border:'1px solid #E8ECF0', boxShadow:'0 1px 6px rgba(0,0,0,0.05)', ...(compact ? { zoom: 0.72 } : {}) } as any}>
         <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', fontSize:12, tableLayout:'fixed', minWidth: 58 + visibleStaff.length * 58 + 44, userSelect:'none' }}>
           <colgroup><col style={{ width:58 }} />{visibleStaff.map((_,i) => <col key={i} style={{ width:58 }} />)}<col style={{ width:44 }} /></colgroup>
           <thead>
@@ -2210,7 +2211,7 @@ export default function SchedulePage() {
               {mobileTable ? '📱 직원별 보기로 전환' : '📊 표(PC) 보기로 전환'}
             </button>
           </div>
-          {mobileTable ? <PCGridEditor {...sharedProps} /> : <MobileGridEditor {...sharedProps} />}
+          {mobileTable ? <PCGridEditor {...sharedProps} compact /> : <MobileGridEditor {...sharedProps} />}
         </>
       )}
       {viewTab==='reservist' && !isOwner && <ReservistTab storeId={storeId} myName={myName} onChanged={() => { loadOffRequests(storeId, calYear, calMonth); loadData(storeId, calYear, calMonth) }} />}
