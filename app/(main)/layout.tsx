@@ -73,6 +73,34 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     setStore(JSON.parse(s))
     loadStores(parsedUser.id)
     loadBadge()
+    checkMembership()
+  }, [])
+
+  // 퇴사/비활성 처리된 사람은 이미 로그인돼 있어도 바로 로그아웃시켜요 (앱 열 때 + 다시 돌아올 때마다 확인)
+  async function checkMembership() {
+    try {
+      const u = JSON.parse(localStorage.getItem('mj_user') || '{}')
+      const st = JSON.parse(localStorage.getItem('mj_store') || '{}')
+      if (!u.id) return
+      const { data, error } = await supabase.from('store_members').select('store_id').eq('profile_id', u.id).eq('active', true)
+      if (error || !data) return // 조회 실패(네트워크 등)는 로그아웃시키지 않아요
+      if (data.length === 0) {
+        localStorage.removeItem('mj_user'); localStorage.removeItem('mj_store'); localStorage.removeItem('mj_user_expire')
+        alert('재직 중인 매장이 없어 로그아웃됐어요. 사장님께 문의해주세요.')
+        router.push('/login')
+        return
+      }
+      if (st.id && !data.some((m: any) => m.store_id === st.id)) {
+        localStorage.removeItem('mj_store')
+        router.push('/select-store') // 이 매장은 퇴사했지만 다른 매장은 재직 중
+      }
+    } catch {}
+  }
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') checkMembership() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => { loadNotifBadge() }, [pathname])

@@ -159,6 +159,7 @@ function ResignModal({ profile, storeId, onClose, onSaved }: {
         })
         .eq('store_id', storeId).eq('profile_id', profile.id)
       await supabase.from('profiles').update({ resigned: true }).eq('id', profile.id)
+      await supabase.from('push_subscriptions').delete().eq('store_id', storeId).eq('profile_id', profile.id)
       alert(`✅ "${profile.nm}" 퇴사 처리 완료\n${inactiveFrom} 부터 출퇴근 목록에서 제외됩니다.`)
       onSaved(); onClose()
     } catch (e: any) { alert('처리 실패: ' + e?.message) }
@@ -454,6 +455,7 @@ export default function StaffPage() {
     await supabase.from('store_members')
       .update({ active: false, inactive_from: inactiveFrom })
       .eq('store_id', selectedStoreId).eq('profile_id', profileId)
+    await supabase.from('push_subscriptions').delete().eq('store_id', selectedStoreId).eq('profile_id', profileId)
     setMembers(p => p.filter(m => m.profiles?.id !== profileId))
   }
 

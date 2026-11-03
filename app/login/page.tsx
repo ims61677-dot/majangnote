@@ -49,6 +49,13 @@ export default function LoginPage() {
     if (!user) { setError('등록되지 않은 이름입니다'); setLoading(false); return }
     if (user.pin !== pin) { setError('PIN이 틀렸습니다'); setLoading(false); return }
 
+    // 퇴사/비활성 처리되어 재직 중인 매장이 하나도 없으면 로그인 불가
+    const { data: activeMemberships, error: memErr } = await supabase
+      .from('store_members').select('id').eq('profile_id', user.id).eq('active', true).limit(1)
+    if (!memErr && (!activeMemberships || activeMemberships.length === 0)) {
+      setError('재직 중인 매장이 없어요. 사장님께 문의해주세요'); setLoading(false); return
+    }
+
     localStorage.setItem(SESSION_KEY, JSON.stringify(user))
     const expire = Date.now() + (keepLogin ? KEEP_DAYS : 1) * 24 * 60 * 60 * 1000
     localStorage.setItem(SESSION_EXPIRE_KEY, String(expire))

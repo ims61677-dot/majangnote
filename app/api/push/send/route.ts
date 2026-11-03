@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import webpush from 'web-push'
+import { filterActiveSubs } from '@/lib/activeSubs'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,9 +18,11 @@ export async function POST(req: NextRequest) {
   try {
     const { title, body, url, userIds } = await req.json()
 
-    const { data: subscriptions, error: dbError } = await supabase
+    const { data: rawSubscriptions, error: dbError } = await supabase
       .from('push_subscriptions')
       .select('*')
+
+    const subscriptions = rawSubscriptions ? await filterActiveSubs(supabase, rawSubscriptions) : rawSubscriptions
 
     // 디버그 정보 표시
     if (dbError) {

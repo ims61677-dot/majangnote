@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { filterActiveSubs } from '@/lib/activeSubs'
 import webpush from 'web-push'
 
 const supabase = createClient(
@@ -85,7 +86,8 @@ export async function GET(req: NextRequest) {
         .eq('store_id', store.id)
         .not('endpoint', 'is', null)
 
-      const targets = (subs || []).filter((sub: any) => {
+      const activeSubs = await filterActiveSubs(supabase, subs || [], store.id)
+      const targets = activeSubs.filter((sub: any) => {
         if (!['owner', 'manager'].includes(sub.role)) return false
         if (sub.settings && sub.settings['closing'] === false) return false
         if (!sub.endpoint || !sub.keys) return false

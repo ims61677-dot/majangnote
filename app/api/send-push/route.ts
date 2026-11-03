@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import webpush from 'web-push'
 import { createClient } from '@supabase/supabase-js'
+import { filterActiveSubs } from '@/lib/activeSubs'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,7 +28,8 @@ export async function POST(req: NextRequest) {
     let query = supabase.from('push_subscriptions').select('*').eq('store_id', store_id)
     if (target === 'employees') query = query.eq('role', 'employee')
     if (target === 'owner') query = query.eq('role', 'owner')
-    const { data: subs, error } = await query
+    const { data: rawSubs, error } = await query
+    const subs = rawSubs ? await filterActiveSubs(supabase, rawSubs, store_id) : rawSubs
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     if (!subs || subs.length === 0) return NextResponse.json({ sent: 0 })
     const payload = JSON.stringify({ title: title || 'Store Note', body: message, url: url || '/notice' })

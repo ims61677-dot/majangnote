@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import webpush from 'web-push'
+import { filterActiveSubs } from '@/lib/activeSubs'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,7 +39,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ sent: 0 })
     }
 
-    const targets = subs.filter(sub => {
+    const activeSubs = await filterActiveSubs(supabase, subs, storeId)
+    const targets = activeSubs.filter(sub => {
       if (excludeUserId && sub.profile_id === excludeUserId) return false
       if (targetRoles && targetRoles.length > 0 && !targetRoles.includes(sub.role)) return false
       if (targetUserName && sub.user_name !== targetUserName) return false
