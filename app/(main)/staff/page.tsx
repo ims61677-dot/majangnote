@@ -160,7 +160,17 @@ function ResignModal({ profile, storeId, onClose, onSaved }: {
         .eq('store_id', storeId).eq('profile_id', profile.id)
       await supabase.from('profiles').update({ resigned: true }).eq('id', profile.id)
       await supabase.from('push_subscriptions').delete().eq('store_id', storeId).eq('profile_id', profile.id)
-      alert(`✅ "${profile.nm}" 퇴사 처리 완료\n${inactiveFrom} 부터 출퇴근 목록에서 제외됩니다.`)
+      // 다른 매장에 재직 중이 아니면 PIN을 무작위로 바꿔서 예전 PIN으로 못 들어오게 해요 (복직 시엔 'PIN 초기화'로 다시 설정)
+      let pinChanged = false
+      const { data: otherActive } = await supabase.from('store_members').select('id').eq('profile_id', profile.id).eq('active', true).limit(1)
+      if (!otherActive || otherActive.length === 0) {
+        const WEAK = ['1234', '0000', '9999', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9876']
+        let newPin = ''
+        do { newPin = String(Math.floor(Math.random() * 10000)).padStart(4, '0') } while (WEAK.includes(newPin))
+        await supabase.from('profiles').update({ pin: newPin }).eq('id', profile.id)
+        pinChanged = true
+      }
+      alert(`✅ "${profile.nm}" 퇴사 처리 완료\n${inactiveFrom} 부터 출퇴근 목록에서 제외됩니다.${pinChanged ? '\n\n🔒 PIN도 무작위로 변경되어 로그인할 수 없어요.' : ''}`)
       onSaved(); onClose()
     } catch (e: any) { alert('처리 실패: ' + e?.message) }
     finally { setSaving(false) }
