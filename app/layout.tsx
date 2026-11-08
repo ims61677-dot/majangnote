@@ -1,5 +1,6 @@
 ﻿import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import LangProvider from '@/components/LangProvider'
 
 export const metadata: Metadata = {
   title: '매장노트',
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         {children}
+        <LangProvider />
         <script
           dangerouslySetInnerHTML={{
             __html: `
