@@ -1547,19 +1547,50 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
   const [pickerYear, setPickerYear] = useState(now.getFullYear())
   const [allSearchQ, setAllSearchQ] = useState('')
 
-  useEffect(() => { loadAll() }, [])
+  const [searchResults, setSearchResults] = useState<any[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
+  const [firstLoaded, setFirstLoaded] = useState(false)
 
+  useEffect(() => { loadUnits() }, [])
+  // 선택한 월이 바뀔 때마다 그 월 데이터만 다시 받아요
+  useEffect(() => { loadAll() }, [selYear, selMonth])
+
+  // 전체 기간 발주를 다 받지 않고, ① 선택한 월 ② 아직 안 끝난 발주(주문요청·주문완료·이슈)만 받아요
   async function loadAll() {
-    setLoading(true)
-    const [ordersData, suppliersRes] = await Promise.all([
-      fetchAllRows((from, to) => supabase.from('orders').select('*').order('ordered_at', { ascending: false }).order('id').range(from, to)),
+    if (!firstLoaded) setLoading(true)
+    const from = new Date(selYear, selMonth - 1, 1); from.setDate(from.getDate() - 1)   // 시간대 오차 대비 여유 1일
+    const to = new Date(selYear, selMonth, 1); to.setDate(to.getDate() + 1)
+    const [monthData, openData, suppliersRes] = await Promise.all([
+      fetchAllRows((a, b) => supabase.from('orders').select('*').gte('ordered_at', from.toISOString()).lt('ordered_at', to.toISOString()).order('ordered_at', { ascending: false }).order('id').range(a, b)),
+      fetchAllRows((a, b) => supabase.from('orders').select('*').in('status', ['requested', 'ordered', 'pending', 'issue']).order('ordered_at', { ascending: false }).order('id').range(a, b)),
       supabase.from('order_suppliers').select('*').order('created_at'),
     ])
-    setAllOrders(ordersData)
+    const map = new Map<string, any>()
+    ;[...openData, ...monthData].forEach(o => map.set(o.id, o))
+    const merged = Array.from(map.values()).sort((x, y) => String(y.ordered_at).localeCompare(String(x.ordered_at)))
+    setAllOrders(merged)
     setSuppliers(suppliersRes.data || [])
-    loadUnits()
+    setRefreshTick(t => t + 1)
+    setFirstLoaded(true)
     setLoading(false)
   }
+
+  // 검색어를 입력하면 전체 기간에서 서버에 직접 찾아봐요
+  useEffect(() => {
+    const q = allSearchQ.trim()
+    if (!q || subTab !== 'all') { setSearchResults(null); setSearching(false); return }
+    setSearching(true)
+    const h = setTimeout(async () => {
+      const esc = q.replace(/[%,()*\\]/g, ' ')
+      const { data } = await supabase.from('orders').select('*')
+        .or(`item_name.ilike.%${esc}%,supplier_name.ilike.%${esc}%,memo.ilike.%${esc}%`)
+        .order('ordered_at', { ascending: false }).limit(300)
+      setSearchResults(data || [])
+      setSearching(false)
+    }, 350)
+    return () => clearTimeout(h)
+  }, [allSearchQ, subTab, refreshTick])
 
   async function loadUnits() {
     const { data } = await supabase.from('store_settings').select('value').eq('store_id', STORES[0].id).eq('key', 'custom_units').maybeSingle()
@@ -1572,14 +1603,19 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
     let list = allOrders
     if (selStore !== 'all') list = list.filter(o => o.store_id === selStore)
     if (subTab === 'all') {
-      list = list.filter(o => {
-        const d = new Date(o.ordered_at)
-        return d.getFullYear() === selYear && d.getMonth() + 1 === selMonth
-      })
-      if (allSearchQ.trim()) list = list.filter(o => o.item_name?.includes(allSearchQ.trim()) || o.supplier_name?.includes(allSearchQ.trim()) || o.memo?.includes(allSearchQ.trim()))
+      if (searchResults !== null) {
+        list = searchResults
+        if (selStore !== 'all') list = list.filter(o => o.store_id === selStore)
+      } else {
+        list = list.filter(o => {
+          const d = new Date(o.ordered_at)
+          return d.getFullYear() === selYear && d.getMonth() + 1 === selMonth
+        })
+      }
     }
     return list
-  }, [allOrders, selStore, subTab, selYear, selMonth, allSearchQ])
+  }, [allOrders, selStore, subTab, selYear, selMonth, searchResults])
+  const monthOnlyOrders = useMemo(() => allOrders.filter(o => { const d = new Date(o.ordered_at); return d.getFullYear() === selYear && d.getMonth() + 1 === selMonth }), [allOrders, selYear, selMonth])
 
   const pendingOrders = useMemo(() => filteredOrders.filter(o => ['requested', 'ordered', 'pending', 'issue'].includes(o.status)), [filteredOrders])
   const requestedOrders = useMemo(() => allOrders.filter(o => o.status === 'requested' && (selStore === 'all' || o.store_id === selStore)), [allOrders, selStore])
@@ -1726,9 +1762,9 @@ export default function AdminOrderTab({ userName, places }: { userName?: string;
         <>
           {subTab === 'pending' && (pendingOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>🎉 미완료 발주가 없어요!</div> : <DateGroupedList list={pendingOrders} />)}
           {subTab === 'requested' && (requestedOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>📋 주문요청 대기 중인 발주가 없어요</div> : <DateGroupedList list={requestedOrders} />)}
-          {subTab === 'all' && (filteredOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{selYear}년 {selMonth}월 발주 내역이 없어요</div> : <DateGroupedList list={filteredOrders} />)}
+          {subTab === 'all' && (searching ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>🔍 전체 기간에서 검색 중...</div> : filteredOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>{searchResults !== null ? '검색 결과가 없어요' : `${selYear}년 ${selMonth}월 발주 내역이 없어요`}</div> : <DateGroupedList list={filteredOrders} />)}
           {subTab === 'issues' && (issueOrders.length === 0 ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb', fontSize: 13 }}>✅ 이슈가 없어요</div> : <DateGroupedList list={issueOrders} />)}
-          {subTab === 'stats' && <AdminStats allOrders={allOrders} selYear={selYear} selMonth={selMonth} onYearMonthChange={(y, m) => { setSelYear(y); setSelMonth(m) }} />}
+          {subTab === 'stats' && <AdminStats allOrders={monthOnlyOrders} selYear={selYear} selMonth={selMonth} onYearMonthChange={(y, m) => { setSelYear(y); setSelMonth(m) }} />}
         </>
       )}
     </div>

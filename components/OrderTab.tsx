@@ -1970,7 +1970,9 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
   const [selYear, setSelYear] = useState(now.getFullYear())
   const [selMonth, setSelMonth] = useState(now.getMonth() + 1)
 
-  useEffect(() => { if (storeId) { loadOrders(); loadSuppliers(); loadUnits() } }, [storeId])
+  useEffect(() => { if (storeId) { loadSuppliers(); loadUnits() } }, [storeId])
+  // 선택한 월이 바뀔 때마다 그 월 데이터만 다시 받아요
+  useEffect(() => { if (storeId) loadOrders() }, [storeId, selYear, selMonth])
 
   async function loadUnits() {
     const { data } = await supabase.from('store_settings').select('value').eq('store_id', storeId).eq('key', 'custom_units').maybeSingle()
@@ -1979,10 +1981,37 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
     }
   }
 
+  const [firstLoaded, setFirstLoaded] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
+  // 전체 기간을 다 받지 않고, ① 선택한 월 ② 아직 안 끝난 발주(주문요청·주문완료·이슈)만 받아요
   async function loadOrders() {
-    setLoading(true)
-    const { data } = await supabase.from('orders').select('*').eq('store_id', storeId).order('ordered_at', { ascending: false }).order('created_at', { ascending: true })
-    setOrders(data || [])
+    if (!firstLoaded) setLoading(true)
+    const from = new Date(selYear, selMonth - 1, 1); from.setDate(from.getDate() - 1)   // 시간대 오차 대비 여유 1일
+    const to = new Date(selYear, selMonth, 1); to.setDate(to.getDate() + 1)
+    const PAGE = 1000
+    const fetchAll = async (build: (a: number, b: number) => PromiseLike<{ data: any[] | null; error: any }>) => {
+      const all: any[] = []
+      for (let a = 0; ; a += PAGE) {
+        const { data, error } = await build(a, a + PAGE - 1)
+        if (error || !data) break
+        all.push(...data)
+        if (data.length < PAGE) break
+      }
+      return all
+    }
+    const [monthData, openData] = await Promise.all([
+      fetchAll((a, b) => supabase.from('orders').select('*').eq('store_id', storeId).gte('ordered_at', from.toISOString()).lt('ordered_at', to.toISOString()).order('ordered_at', { ascending: false }).order('created_at', { ascending: true }).order('id').range(a, b)),
+      fetchAll((a, b) => supabase.from('orders').select('*').eq('store_id', storeId).in('status', ['requested', 'ordered', 'pending', 'issue']).order('ordered_at', { ascending: false }).order('created_at', { ascending: true }).order('id').range(a, b)),
+    ])
+    const map = new Map<string, any>()
+    ;[...openData, ...monthData].forEach(o => map.set(o.id, o))
+    const merged = Array.from(map.values()).sort((x, y) => {
+      const c = String(y.ordered_at).localeCompare(String(x.ordered_at))
+      return c !== 0 ? c : String(x.created_at).localeCompare(String(y.created_at))
+    })
+    setOrders(merged)
+    setRefreshTick(t => t + 1)
+    setFirstLoaded(true)
     setLoading(false)
   }
   async function loadSuppliers() {
@@ -2009,18 +2038,27 @@ export default function OrderTab({ storeId, userName, isEdit, userRole, inventor
   const [searchQ, setSearchQ] = useState('')
   const [highlightId, setHighlightId] = useState<string | null>(null)
 
-  const searchResults = useMemo(() => {
+  // 검색은 전체 기간에서 서버에 직접 찾아봐요
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  useEffect(() => {
     const q = searchQ.trim()
-    if (!q) return []
-    return orders.filter(o => o.item_name?.includes(q) || o.ordered_by?.includes(q) || o.memo?.includes(q) || o.supplier_name?.includes(q)).slice(0, 20)
-  }, [searchQ, orders])
+    if (!q || !storeId) { setSearchResults([]); return }
+    const h = setTimeout(async () => {
+      const esc = q.replace(/[%,()*\\]/g, ' ')
+      const { data } = await supabase.from('orders').select('*').eq('store_id', storeId)
+        .or(`item_name.ilike.%${esc}%,ordered_by.ilike.%${esc}%,memo.ilike.%${esc}%,supplier_name.ilike.%${esc}%`)
+        .order('ordered_at', { ascending: false }).limit(20)
+      setSearchResults(data || [])
+    }, 350)
+    return () => clearTimeout(h)
+  }, [searchQ, storeId, refreshTick])
 
   function goToOrder(orderId: string) {
-    const target = orders.find(o => o.id === orderId)
+    const target = orders.find(o => o.id === orderId) || searchResults.find(o => o.id === orderId)
     if (target) { const d = new Date(target.ordered_at); setSelYear(d.getFullYear()); setSelMonth(d.getMonth() + 1) }
     setSubTab('all'); setSearchQ(''); setHighlightId(orderId)
-    setTimeout(() => { const el = document.querySelector(`[data-order-id="${orderId}"]`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, 300)
-    setTimeout(() => setHighlightId(null), 3000)
+    setTimeout(() => { const el = document.querySelector(`[data-order-id="${orderId}"]`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, 900)
+    setTimeout(() => setHighlightId(null), 4500)
   }
 
   function groupByDate(list: any[]) {
