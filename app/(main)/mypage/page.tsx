@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
+import { sendPush } from '@/lib/pushNotify'
 
 const bx = { background: '#ffffff', borderRadius: 16, border: '1px solid #E8ECF0', padding: 16, marginBottom: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }
 const inp = { width: '100%', padding: '8px 10px', borderRadius: 8, background: '#F8F9FB', border: '1px solid #E0E4E8', color: '#1a1a2e', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }
@@ -109,12 +110,21 @@ export default function MyPage() {
     setContracts(data || [])
   }
 
-  async function downloadContract(filePath: string, fileName: string) {
-    const { data } = await supabase.storage.from('staff-contracts').download(filePath)
+  async function downloadContract(c: any) {
+    const { data } = await supabase.storage.from('staff-contracts').download(c.file_path)
     if (!data) return
     const url = URL.createObjectURL(data)
-    const a = document.createElement('a'); a.href = url; a.download = fileName; a.click()
+    const a = document.createElement('a'); a.href = url; a.download = c.file_name; a.click()
     URL.revokeObjectURL(url)
+    // 다운로드 기록 (실패해도 다운로드에는 영향 없음)
+    try {
+      const { data: prev, error: prevErr } = await supabase.from('contract_downloads').select('id').eq('contract_id', c.id).eq('profile_id', user.id).limit(1)
+      if (prevErr) return
+      await supabase.from('contract_downloads').insert({ contract_id: c.id, store_id: storeId, profile_id: user.id, downloaded_by: user.nm, file_name: c.file_name })
+      if (!prev || prev.length === 0) {
+        sendPush('contract', storeId, '📄 계약서 확인', `${user.nm}님이 근로계약서를 처음 다운로드했어요`, '/staff', user.id, ['owner'])
+      }
+    } catch {}
   }
 
   async function loadPersonalInfo(uid: string) {
@@ -438,7 +448,7 @@ export default function MyPage() {
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>📎 {c.file_name}</div>
                   <div style={{ fontSize: 11, color: '#bbb', marginTop: 2 }}>{new Date(c.created_at).toLocaleDateString('ko')}</div>
                 </div>
-                <button onClick={() => downloadContract(c.file_path, c.file_name)}
+                <button onClick={() => downloadContract(c)}
                   style={{ padding: '6px 12px', borderRadius: 8, background: 'linear-gradient(135deg,#6C5CE7,#2DC6D6)', border: 'none', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                   ⬇️ 다운
                 </button>

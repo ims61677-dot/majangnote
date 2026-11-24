@@ -296,6 +296,8 @@ function PersonalInfoModal({ profile, onClose }: { profile: any; onClose: () => 
 function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: string; onClose: () => void }) {
   const supabase = createSupabaseBrowserClient()
   const [contracts, setContracts] = useState<any[]>([])
+  const [dlMap, setDlMap] = useState<Record<string, { first: string; count: number }>>({})
+  const [dlOk, setDlOk] = useState(false)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -306,6 +308,16 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
   async function loadContracts() {
     const { data } = await supabase.from('staff_contracts').select('*').eq('profile_id', profile.id).eq('store_id', storeId).order('created_at', { ascending: false })
     setContracts(data || [])
+    // 직원이 계약서를 다운로드한 기록
+    const ids = (data || []).map((c: any) => c.id)
+    if (ids.length > 0) {
+      const { data: dl, error } = await supabase.from('contract_downloads').select('contract_id, downloaded_at').in('contract_id', ids).eq('profile_id', profile.id).order('downloaded_at', { ascending: true })
+      if (!error && dl) {
+        const m: Record<string, { first: string; count: number }> = {}
+        dl.forEach((r: any) => { if (!m[r.contract_id]) m[r.contract_id] = { first: r.downloaded_at, count: 0 }; m[r.contract_id].count++ })
+        setDlMap(m); setDlOk(true)
+      }
+    }
     setLoading(false)
   }
 
@@ -363,6 +375,9 @@ function ContractModal({ profile, storeId, onClose }: { profile: any; storeId: s
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:13, fontWeight:600, color:'#1a1a2e', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📎 {c.file_name}</div>
               <div style={{ fontSize:11, color:'#bbb', marginTop:2 }}>{new Date(c.created_at).toLocaleDateString('ko')} · {c.uploaded_by}</div>
+              {dlOk && (dlMap[c.id]
+                ? <div style={{ fontSize:11, color:'#00B894', marginTop:3, fontWeight:600 }}>✅ 직원 확인 · 처음 {new Date(dlMap[c.id].first).toLocaleString('ko', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })} · {dlMap[c.id].count}회</div>
+                : <div style={{ fontSize:11, color:'#FF6B35', marginTop:3, fontWeight:600 }}>⚠️ 미확인 (아직 다운로드 안 함)</div>)}
             </div>
             <div style={{ display:'flex', gap:6, flexShrink:0, marginLeft:8 }}>
               <button onClick={() => downloadContract(c.file_path, c.file_name)} style={{ padding:'5px 10px', borderRadius:8, background:'linear-gradient(135deg,#6C5CE7,#2DC6D6)', border:'none', color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer' }}>⬇️</button>
