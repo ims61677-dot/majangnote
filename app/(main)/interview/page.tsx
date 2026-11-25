@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase'
 import { sendPush } from '@/lib/pushNotify'
 import { FormRenderer, TemplateEditor } from '@/components/InterviewTemplate'
@@ -336,6 +336,7 @@ export default function InterviewPage() {
   const [newPartName, setNewPartName] = useState('')
   const [useHall, setUseHall] = useState(true)
   const [tick, setTick] = useState(0)
+  const autoSeeded = useRef(false)
 
   const role = user?.role
   const isOwner = role === 'owner'
@@ -366,7 +367,15 @@ export default function InterviewPage() {
       supabase.from('interview_parts').select('*').eq('store_id', sid).order('created_at'),
       lq.order('scheduled_at', { ascending: false }).limit(1000),
     ])
-    setParts(p || []); setList(l || [])
+    let partRows = p || []
+    // 대표가 처음 열었을 때 파트가 하나도 없으면 "홀 직원" 파트를 기본 양식과 함께 자동 생성 (한 번만)
+    const myRole = JSON.parse(localStorage.getItem('mj_user') || '{}').role
+    if (partRows.length === 0 && myRole === 'owner' && !autoSeeded.current) {
+      autoSeeded.current = true
+      const { data: created } = await supabase.from('interview_parts').insert({ store_id: sid, name: '홀 직원', template: buildHallTemplate() }).select().single()
+      if (created) partRows = [created]
+    }
+    setParts(partRows); setList(l || [])
     setTick(t => t + 1)
     setLoading(false)
   }
