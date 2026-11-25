@@ -18,6 +18,7 @@ const PC_NAV = [
   { href: '/recipe',      ic: '🍳', l: '레시피' },
   { href: '/manual',      ic: '📘', l: '매뉴얼' },
   { href: '/goal',        ic: '🎯', l: '목표매출' },
+  { href: '/interview',   ic: '🧑‍💼', l: '면접', managerUp: true },
   { href: '/suggestions', ic: '💬', l: '건의&제보' },
   { href: '/settlement',  ic: '💹', l: '결산', superOwnerOnly: true },
   { href: '/mypage',      ic: '👤', l: '마이페이지' },
@@ -275,7 +276,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           <div style={{ width: 1, height: 28, background: '#E8ECF0', marginRight: 20, flexShrink: 0 }} />
 
           <nav style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, overflowX: 'auto', scrollbarWidth: 'none' }}>
-            {PC_NAV.filter(item => (!(item as any).ownerOnly || isOwner) && (!(item as any).superOwnerOnly || isSuperOwner)).map(item => {
+            {PC_NAV.filter(item => (!(item as any).ownerOnly || isOwner) && (!(item as any).superOwnerOnly || isSuperOwner) && (!(item as any).managerUp || isOwner || user?.role === 'manager')).map(item => {
               const active = pathname.startsWith(item.href)
               const isSuggestions = item.href === '/suggestions'
               return (

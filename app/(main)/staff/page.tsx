@@ -31,6 +31,12 @@ function EditInfoModal({ profile, member, storeId, onClose, onSaved }: {
     try {
       await supabase.from('profiles').update({ nm: trimmed, role: newRole, phone: newPhone || null, joined_at: newJoinedAt || null }).eq('id', profile.id)
       await supabase.from('store_members').update({ role: newRole, joined_at: newJoinedAt || null }).eq('store_id', storeId).eq('profile_id', profile.id)
+      // 새로 관리자가 되면 그 시점 이후 등록된 면접만 볼 수 있게 기준 시각 기록 (면접 기능 SQL 실행 전이면 조용히 무시)
+      try {
+        const prevRole = member?.role ?? profile.role
+        if (newRole === 'manager' && prevRole !== 'manager') await supabase.from('store_members').update({ interview_access_from: new Date().toISOString() }).eq('store_id', storeId).eq('profile_id', profile.id)
+        else if (newRole !== 'manager') await supabase.from('store_members').update({ interview_access_from: null }).eq('store_id', storeId).eq('profile_id', profile.id)
+      } catch {}
       if (trimmed !== oldName) {
         await supabase.from('schedules').update({ staff_name: trimmed }).eq('store_id', storeId).eq('staff_name', oldName)
         await supabase.from('schedule_requests').update({ staff_name: trimmed }).eq('store_id', storeId).eq('staff_name', oldName)
@@ -467,7 +473,10 @@ export default function StaffPage() {
     }
     if (profile) {
       const { data: already } = await supabase.from('store_members').select('*').eq('store_id', selectedStoreId).eq('profile_id', profile.id).limit(1)
-      if (!already?.length) await supabase.from('store_members').insert({ store_id: selectedStoreId, profile_id: profile.id, role, active: true, joined_at: joinedAt || null })
+      if (!already?.length) {
+        await supabase.from('store_members').insert({ store_id: selectedStoreId, profile_id: profile.id, role, active: true, joined_at: joinedAt || null })
+        if (role === 'manager') { try { await supabase.from('store_members').update({ interview_access_from: new Date().toISOString() }).eq('store_id', selectedStoreId).eq('profile_id', profile.id) } catch {} }
+      }
       await loadMembers(selectedStoreId)
     }
     setNm(''); setRole('staff'); setPhone(''); setJoinedAt(''); setShowForm(false); setSaving(false)
