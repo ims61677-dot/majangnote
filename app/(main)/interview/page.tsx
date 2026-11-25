@@ -325,8 +325,8 @@ export default function InterviewPage() {
   const [loading, setLoading] = useState(true)
   const [parts, setParts] = useState<any[]>([])
   const [list, setList] = useState<any[]>([])
-  const [tab, setTab] = useState<'schedule' | 'results' | 'forms'>('schedule')
-  const [resFilter, setResFilter] = useState('all')
+  const [filter, setFilter] = useState('all')
+  const [showForms, setShowForms] = useState(false)
   const [q, setQ] = useState('')
   const [searchRes, setSearchRes] = useState<any[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -424,106 +424,121 @@ export default function InterviewPage() {
   const now = new Date()
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const startTomorrow = startToday + 86400000
-  const startDayAfter = startToday + 2 * 86400000
-  const sched = list.filter(i => i.attend === 'scheduled')
-  const ts = (i: any) => (i.scheduled_at ? new Date(i.scheduled_at).getTime() : 0)
-  const overdue = sched.filter(i => ts(i) < startToday)
-  const today = sched.filter(i => ts(i) >= startToday && ts(i) < startTomorrow).sort((a, b) => ts(a) - ts(b))
-  const tomorrow = sched.filter(i => ts(i) >= startTomorrow && ts(i) < startDayAfter).sort((a, b) => ts(a) - ts(b))
-  const later = sched.filter(i => ts(i) >= startDayAfter).sort((a, b) => ts(a) - ts(b))
-  const needResult = list.filter(i => i.attend === 'came' && !i.result)
   const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  const ts = (i: any) => (i.scheduled_at ? new Date(i.scheduled_at).getTime() : 0)
 
-  const done = list.filter(i => i.attend !== 'scheduled')
-  const resultList = done.filter(i => {
-    if (resFilter === 'all') return true
-    if (resFilter === 'startsoon') return i.result === 'pass' && i.start_date && i.start_date >= todayStr
-    if (resFilter === 'no_show') return i.attend === 'no_show'
-    return i.result === resFilter
-  }).sort((a, b) => resFilter === 'startsoon' ? String(a.start_date).localeCompare(String(b.start_date)) : ts(b) - ts(a))
+  // 처리 필요: 오늘 면접 / 지난 예약(왔는지 확인) / 면접 봤는데 결과 미입력
+  const isTodo = (i: any) => (i.attend === 'scheduled' && ts(i) < startTomorrow) || (i.attend === 'came' && !i.result)
+  const todo = list.filter(isTodo).sort((a, b) => ts(a) - ts(b))
+  const todoWhy = (i: any) => i.attend === 'came' ? '결과 입력 필요' : ts(i) < startToday ? '왔는지 확인 필요' : '오늘 면접'
 
-  const Group = ({ title, items, color }: { title: string; items: any[]; color?: string }) => items.length === 0 ? null : (
+  const matches = (i: any, f: string) => {
+    if (f === 'scheduled') return i.attend === 'scheduled'
+    if (f === 'startsoon') return i.result === 'pass' && i.start_date && i.start_date >= todayStr
+    if (f === 'no_show') return i.attend === 'no_show'
+    return i.result === f
+  }
+  const FILTERS = [
+    { k: 'all', l: '전체' }, { k: 'todo', l: '처리 필요' }, { k: 'scheduled', l: '예정' }, { k: 'pass', l: '합격' },
+    { k: 'hold', l: '보류' }, { k: 'fail', l: '불합격' }, { k: 'startsoon', l: '출근 예정' }, { k: 'no_show', l: '안 옴' },
+  ]
+  const count = (k: string) => k === 'all' ? list.length : k === 'todo' ? todo.length : list.filter(i => matches(i, k)).length
+
+  const rest = list.filter(i => !isTodo(i))
+  const upcoming = rest.filter(i => i.attend === 'scheduled').sort((a, b) => ts(a) - ts(b))
+  const past = rest.filter(i => i.attend !== 'scheduled').sort((a, b) => ts(b) - ts(a))
+  const filtered = filter === 'all' || filter === 'todo' ? [] : list.filter(i => matches(i, filter))
+    .sort((a, b) => filter === 'startsoon' ? String(a.start_date).localeCompare(String(b.start_date)) : filter === 'scheduled' ? ts(a) - ts(b) : ts(b) - ts(a))
+
+  const Group = ({ title, items, color, why }: { title: string; items: any[]; color?: string; why?: boolean }) => items.length === 0 ? null : (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontSize: 12, fontWeight: 800, color: color || '#6C5CE7', marginBottom: 6 }}>{title} ({items.length})</div>
-      {items.map(i => <InterviewCard key={i.id} it={i} onClick={() => setOpenId(i.id)} />)}
+      {items.map(i => (
+        <div key={i.id}>
+          {why && <div style={{ fontSize: 10, fontWeight: 700, color: i.attend === 'came' ? '#B8860B' : '#E84393', margin: '0 0 2px 4px' }}>👉 {todoWhy(i)}</div>}
+          <InterviewCard it={i} onClick={() => setOpenId(i.id)} />
+        </div>
+      ))}
     </div>
-  )
-
-  const tabBtn = (k: typeof tab, l: string) => (
-    <button key={k} onClick={() => setTab(k)} style={{ flex: 1, padding: '10px 0', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: 'none', background: tab === k ? 'linear-gradient(135deg,#6C5CE7,#2DC6D6)' : '#fff', color: tab === k ? '#fff' : '#888', boxShadow: tab === k ? 'none' : '0 1px 3px rgba(0,0,0,0.06)' }}>{l}</button>
   )
 
   return (
     <div style={{ padding: 16, paddingBottom: 90, maxWidth: 560, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <span style={{ fontSize: 17, fontWeight: 800, color: '#1a1a2e' }}>🧑‍💼 면접</span>
-        <button onClick={() => setShowNew(true)} style={{ marginLeft: 'auto', padding: '8px 14px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#6C5CE7,#2DC6D6)', color: '#fff', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>+ 면접 예약</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+        <span style={{ fontSize: 17, fontWeight: 800, color: '#1a1a2e' }}>🧑‍💼 {showForms ? '면접지 양식' : '면접'}</span>
+        <span style={{ flex: 1 }} />
+        {showForms ? (
+          <button onClick={() => setShowForms(false)} style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#fff', color: '#666', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>← 면접 목록</button>
+        ) : (
+          <>
+            {isOwner && <button onClick={() => setShowForms(true)} title="면접지 양식 관리" style={{ padding: '8px 11px', borderRadius: 10, border: '1px solid #E0E4E8', background: '#fff', fontSize: 14, cursor: 'pointer' }}>⚙️</button>}
+            <button onClick={() => setShowNew(true)} style={{ padding: '8px 14px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#6C5CE7,#2DC6D6)', color: '#fff', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>+ 면접 예약</button>
+          </>
+        )}
       </div>
 
-      <div style={{ position: 'relative', marginBottom: 10 }}>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 이름 또는 연락처로 검색 (전체 기간)" style={inp} />
-        {q && <button onClick={() => setQ('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#aaa', fontSize: 16, cursor: 'pointer' }}>✕</button>}
-      </div>
-
-      {searchRes !== null || searching ? (
-        <div>
-          <div style={{ fontSize: 12, color: '#999', marginBottom: 8 }}>{searching ? '검색 중...' : `검색 결과 ${searchRes?.length || 0}건`}</div>
-          {(searchRes || []).map(i => <InterviewCard key={i.id} it={i} onClick={() => setOpenId(i.id)} />)}
-          {!searching && searchRes && searchRes.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 13 }}>검색 결과가 없어요</div>}
-        </div>
+      {showForms && isOwner ? (
+        <>
+          <div style={{ fontSize: 12, color: '#999', marginBottom: 10, lineHeight: 1.6 }}>파트별로 면접지 양식을 만들어요. 파트를 누르면 질문과 항목을 수정할 수 있어요.</div>
+          {parts.map(p => (
+            <div key={p.id} onClick={() => setEditPart(p)} style={{ ...bx, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 14 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 800 }}>{p.name}</div>
+                <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>섹션 {p.template?.sections?.length || 0}개 · 항목 {(p.template?.sections || []).reduce((n: number, s: any) => n + (s.items?.length || 0), 0)}개</div>
+              </div>
+              <span style={{ color: '#ccc' }}>✏️</span>
+            </div>
+          ))}
+          <div style={{ ...bx, background: '#FAFBFC' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>+ 새 파트 추가</div>
+            <input value={newPartName} onChange={e => setNewPartName(e.target.value)} placeholder="파트 이름 (예: 주방, 파트타임, 팀장, 점장, 홀매니저)" style={{ ...inp, marginBottom: 8 }} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#666', marginBottom: 10 }}>
+              <input type="checkbox" checked={useHall} onChange={e => setUseHall(e.target.checked)} /> 홀 직원 기본 양식으로 시작 (끄면 빈 양식)
+            </label>
+            <button onClick={addPart} style={{ width: '100%', padding: 11, borderRadius: 10, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>파트 만들기</button>
+          </div>
+        </>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-            {tabBtn('schedule', '📅 일정')}
-            {tabBtn('results', '📋 결과')}
-            {isOwner && tabBtn('forms', '⚙️ 양식')}
+          <div style={{ position: 'relative', marginBottom: 10 }}>
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 이름 또는 연락처로 검색 (전체 기간)" style={inp} />
+            {q && <button onClick={() => setQ('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#aaa', fontSize: 16, cursor: 'pointer' }}>✕</button>}
           </div>
 
-          {loading ? <div style={{ textAlign: 'center', padding: 40, color: '#bbb' }}>불러오는 중...</div> : (
+          {searchRes !== null || searching ? (
+            <div>
+              <div style={{ fontSize: 12, color: '#999', marginBottom: 8 }}>{searching ? '검색 중...' : `검색 결과 ${searchRes?.length || 0}건`}</div>
+              {(searchRes || []).map(i => <InterviewCard key={i.id} it={i} onClick={() => setOpenId(i.id)} />)}
+              {!searching && searchRes && searchRes.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: '#bbb', fontSize: 13 }}>검색 결과가 없어요</div>}
+            </div>
+          ) : (
             <>
-              {tab === 'schedule' && (
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 12 }}>
+                {FILTERS.map(o => {
+                  const on = filter === o.k
+                  const c = count(o.k)
+                  return (
+                    <button key={o.k} onClick={() => setFilter(o.k)} style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${on ? '#6C5CE7' : '#E0E4E8'}`, background: on ? 'rgba(108,92,231,0.1)' : '#fff', color: on ? '#6C5CE7' : '#888' }}>
+                      {o.l}{c > 0 ? ` ${c}` : ''}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {loading ? <div style={{ textAlign: 'center', padding: 40, color: '#bbb' }}>불러오는 중...</div> : (
                 <>
-                  <Group title="⚠️ 지난 예약 — 왔는지 확인해주세요" items={overdue} color="#E84393" />
-                  <Group title="📝 면접 봄 — 결과 입력 필요" items={needResult} color="#B8860B" />
-                  <Group title="🔔 오늘 면접" items={today} />
-                  <Group title="내일 면접" items={tomorrow} />
-                  <Group title="이후 예정" items={later} color="#888" />
-                  {overdue.length + needResult.length + today.length + tomorrow.length + later.length === 0 && (
-                    <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>예정된 면접이 없어요<br />오른쪽 위 "+ 면접 예약"으로 등록해보세요</div>
+                  {filter === 'all' && (
+                    <>
+                      <Group title="🔔 처리 필요" items={todo} color="#E84393" why />
+                      <Group title="📅 다가오는 면접" items={upcoming} />
+                      <Group title="📋 지난 면접" items={past} color="#888" />
+                      {list.length === 0 && <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>등록된 면접이 없어요<br />오른쪽 위 "+ 면접 예약"으로 등록해보세요</div>}
+                    </>
                   )}
-                </>
-              )}
-              {tab === 'results' && (
-                <>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-                    {[{ k: 'all', l: '전체' }, { k: 'pass', l: '합격' }, { k: 'hold', l: '보류' }, { k: 'fail', l: '불합격' }, { k: 'startsoon', l: '출근 예정' }, { k: 'no_show', l: '안 옴' }].map(o => (
-                      <button key={o.k} onClick={() => setResFilter(o.k)} style={{ padding: '6px 12px', borderRadius: 16, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${resFilter === o.k ? '#6C5CE7' : '#E0E4E8'}`, background: resFilter === o.k ? 'rgba(108,92,231,0.1)' : '#fff', color: resFilter === o.k ? '#6C5CE7' : '#888' }}>{o.l}</button>
-                    ))}
-                  </div>
-                  {resultList.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>해당하는 면접이 없어요</div>
-                    : resultList.map(i => <InterviewCard key={i.id} it={i} onClick={() => setOpenId(i.id)} />)}
-                </>
-              )}
-              {tab === 'forms' && isOwner && (
-                <>
-                  <div style={{ fontSize: 12, color: '#999', marginBottom: 10, lineHeight: 1.6 }}>파트별로 면접지 양식을 만들어요. 파트를 누르면 질문과 항목을 수정할 수 있어요.</div>
-                  {parts.map(p => (
-                    <div key={p.id} onClick={() => setEditPart(p)} style={{ ...bx, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 14 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 800 }}>{p.name}</div>
-                        <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>섹션 {p.template?.sections?.length || 0}개 · 항목 {(p.template?.sections || []).reduce((n: number, s: any) => n + (s.items?.length || 0), 0)}개</div>
-                      </div>
-                      <span style={{ color: '#ccc' }}>✏️</span>
-                    </div>
-                  ))}
-                  <div style={{ ...bx, background: '#FAFBFC' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>+ 새 파트 추가</div>
-                    <input value={newPartName} onChange={e => setNewPartName(e.target.value)} placeholder="파트 이름 (예: 주방, 파트타임, 팀장, 점장, 홀매니저)" style={{ ...inp, marginBottom: 8 }} />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#666', marginBottom: 10 }}>
-                      <input type="checkbox" checked={useHall} onChange={e => setUseHall(e.target.checked)} /> 홀 직원 기본 양식으로 시작 (끄면 빈 양식)
-                    </label>
-                    <button onClick={addPart} style={{ width: '100%', padding: 11, borderRadius: 10, border: 'none', background: '#6C5CE7', color: '#fff', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>파트 만들기</button>
-                  </div>
+                  {filter === 'todo' && (todo.length === 0 ? <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>🎉 처리할 면접이 없어요</div> : <Group title="🔔 처리 필요" items={todo} color="#E84393" why />)}
+                  {filter !== 'all' && filter !== 'todo' && (filtered.length === 0
+                    ? <div style={{ textAlign: 'center', padding: 40, color: '#bbb', fontSize: 13 }}>해당하는 면접이 없어요</div>
+                    : filtered.map(i => <InterviewCard key={i.id} it={i} onClick={() => setOpenId(i.id)} />))}
                 </>
               )}
             </>
